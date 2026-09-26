@@ -1,0 +1,41 @@
+{
+    "name": "nativephp/pest-plugin-simulator",
+    "description": "Pest plugin that drives NativePHP screens on iOS Simulators and Android Emulators.",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.3",
+        "pestphp/pest": "^3.0 || ^4.0 || ^5.0",
+        "phpunit/phpunit": "^11.0 || ^12.0 || ^13.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "NativePhp\\Simulator\\": "src/"
+        },
+        "files": [
+            "src/functions.php"
+        ]
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "pest": {
+            "plugins": [
+                "NativePhp\\Simulator\\Plugin"
+            ]
+        }
+    },
+    "config": {
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        },
+        "sort-packages": true
+    },
+    "scripts": {
+        "test": "@php vendor/bin/pest"
+    },
+    "minimum-stability": "stable"
+}

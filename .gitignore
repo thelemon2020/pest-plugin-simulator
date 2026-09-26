@@ -1,0 +1,4 @@
+/vendor/
+.phpunit.cache/
+simulator-failures/
+companion.log
