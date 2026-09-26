@@ -1,0 +1,49 @@
+<?php
+
+declare(strict_types=1);
+
+use NativePhp\Simulator\Screen;
+use Tests\Support\FakeDriver;
+
+it('dismisses the open dialog and then sees the app', function () {
+    $driver = new FakeDriver([
+        [
+            ['label' => 'Open in “CollectShine”?', 'role' => 'StaticText', 'id' => null, 'center' => [200, 400]],
+            ['label' => 'Open', 'role' => 'Button', 'id' => null, 'center' => [275, 474]],
+            ['label' => 'Cancel', 'role' => 'Button', 'id' => null, 'center' => [120, 474]],
+        ],
+        [
+            ['label' => 'Turn the lights on', 'role' => 'Button', 'id' => null, 'center' => [200, 500]],
+        ],
+    ]);
+
+    (new Screen($driver, timeoutSeconds: 0))->assertSee('Turn the lights on');
+
+    expect($driver->taps)->toBe([[275.0, 474.0]]);
+});
+
+it('taps the center of the named control', function () {
+    $driver = new FakeDriver([
+        [
+            ['label' => 'Discover', 'role' => 'Button', 'id' => null, 'center' => [129.75, 822.0]],
+            ['label' => 'Playing', 'role' => 'Button', 'id' => null, 'center' => [50, 822]],
+        ],
+    ]);
+
+    (new Screen($driver, timeoutSeconds: 0))->tap('Discover');
+
+    expect($driver->taps)->toBe([[129.75, 822.0]]);
+});
+
+it('focuses a field and types', function () {
+    $driver = new FakeDriver([
+        [
+            ['label' => 'Email', 'role' => 'TextField', 'id' => null, 'center' => [200, 300]],
+        ],
+    ]);
+
+    (new Screen($driver, timeoutSeconds: 0))->type('Email', 'ada@example.com');
+
+    expect($driver->taps)->toBe([[200.0, 300.0]])
+        ->and($driver->texts)->toBe(['ada@example.com']);
+});
