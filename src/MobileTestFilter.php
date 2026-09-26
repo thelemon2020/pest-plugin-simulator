@@ -35,10 +35,12 @@ final class MobileTestFilter implements TestCaseMethodFilter
 
         $method->closure = function (string $key) use ($original) {
             Run::useDevice(Device::fromKey($key));
+            TestDatabase::begin();
 
             try {
                 return $original instanceof \Closure ? $original->call($this) : null;
             } finally {
+                TestDatabase::end();
                 Run::clear();
             }
         };

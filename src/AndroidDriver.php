@@ -35,6 +35,32 @@ final class AndroidDriver implements Driver
         $this->buildOnce();
     }
 
+    public function installDatabase(string $sqlitePath): void
+    {
+        $bundle = $this->configuration->bundleId();
+        $serial = $this->serial();
+        $adb = $this->adb();
+        $remote = '/data/local/tmp/pest-simulator-'.bin2hex(random_bytes(8)).'.sqlite';
+        $directory = 'app_storage/persisted_data/database';
+        $database = $directory.'/database.sqlite';
+
+        $this->command->run($adb, ['-s', $serial, 'shell', 'am', 'force-stop', $bundle]);
+
+        try {
+            $this->command->run($adb, ['-s', $serial, 'push', $sqlitePath, $remote]);
+            // The pushed file is owned by the shell user. The app can read it only after this.
+            $this->command->run($adb, ['-s', $serial, 'shell', 'chmod', '644', $remote]);
+            $this->command->run($adb, ['-s', $serial, 'shell', 'run-as', $bundle, 'mkdir', '-p', $directory]);
+            $this->command->run($adb, ['-s', $serial, 'shell', 'run-as', $bundle, 'cp', $remote, $database]);
+            $this->command->run($adb, ['-s', $serial, 'shell', 'run-as', $bundle, 'rm', '-f', $database.'-wal', $database.'-shm']);
+        } finally {
+            try {
+                $this->command->run($adb, ['-s', $serial, 'shell', 'rm', '-f', $remote]);
+            } catch (SimulatorException) {
+            }
+        }
+    }
+
     public function open(string $url): void
     {
         $bundle = $this->configuration->bundleId();

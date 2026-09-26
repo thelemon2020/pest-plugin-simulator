@@ -17,6 +17,12 @@ final class FakeDriver implements Driver
     /** @var list<string> */
     public array $opened = [];
 
+    /** @var list<string> */
+    public array $databases = [];
+
+    /** @var list<array{0: string, 1: string}> */
+    public array $events = [];
+
     private int $reads = 0;
 
     /**
@@ -29,6 +35,7 @@ final class FakeDriver implements Driver
     public function open(string $url): void
     {
         $this->opened[] = $url;
+        $this->events[] = ['open', $url];
     }
 
     public function describe(?string $treePath = null): array
@@ -50,4 +57,10 @@ final class FakeDriver implements Driver
     }
 
     public function screenshot(string $path): void {}
+
+    public function installDatabase(string $sqlitePath): void
+    {
+        $this->databases[] = $sqlitePath;
+        $this->events[] = ['install', $sqlitePath];
+    }
 }

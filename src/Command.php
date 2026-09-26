@@ -6,7 +6,7 @@ namespace NativePhp\Simulator;
 
 use NativePhp\Simulator\Exceptions\SimulatorException;
 
-final class Command
+class Command
 {
     public function run(string $binary, array $arguments, ?string $cwd = null): string
     {

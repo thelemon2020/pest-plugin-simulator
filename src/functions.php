@@ -7,6 +7,7 @@ use NativePhp\Simulator\MobileSuite;
 use NativePhp\Simulator\Run;
 use NativePhp\Simulator\Screen;
 use NativePhp\Simulator\Sessions;
+use NativePhp\Simulator\TestDatabase;
 
 function mobile(Closure $tests): MobileSuite
 {
@@ -19,6 +20,7 @@ function screen(string $path): Screen
     $configuration = Configuration::resolve();
     $driver = Sessions::get($device);
     $driver->ensureReady();
+    TestDatabase::publish($driver);
     $driver->open($configuration->urlFor($path));
 
     return new Screen($driver, timeoutSeconds: $configuration->timeout());

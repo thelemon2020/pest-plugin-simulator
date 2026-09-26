@@ -52,6 +52,42 @@ final class IosDriver implements Driver
         $this->command->run('xcrun', ['simctl', 'openurl', $this->udid(), $url]);
     }
 
+    public function installDatabase(string $sqlitePath): void
+    {
+        $bundle = $this->configuration->bundleId();
+
+        try {
+            $this->command->run('xcrun', ['simctl', 'terminate', $this->udid(), $bundle]);
+        } catch (SimulatorException $exception) {
+            if (! str_contains(strtolower($exception->getMessage()), 'no such process')) {
+                throw $exception;
+            }
+        }
+
+        $container = rtrim(trim($this->command->run('xcrun', ['simctl', 'get_app_container', $this->udid(), $bundle, 'data'])), '/');
+
+        if ($container === '') {
+            throw new SimulatorException("No data container for [{$bundle}].");
+        }
+
+        $destination = $container.'/Library/Application Support/database/database.sqlite';
+        $directory = dirname($destination);
+
+        if (! is_dir($directory) && ! mkdir($directory, 0777, true) && ! is_dir($directory)) {
+            throw new SimulatorException("Could not create [{$directory}].");
+        }
+
+        if (! copy($sqlitePath, $destination)) {
+            throw new SimulatorException("Could not copy the test database into [{$destination}].");
+        }
+
+        foreach ([$destination.'-wal', $destination.'-shm'] as $sidecar) {
+            if (is_file($sidecar) && ! unlink($sidecar)) {
+                throw new SimulatorException("Could not remove [{$sidecar}].");
+            }
+        }
+    }
+
     public function describe(?string $treePath = null): array
     {
         $payload = $this->client()->unary('accessibility_info', Hid::accessibilityInfo());

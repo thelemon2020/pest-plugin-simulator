@@ -20,4 +20,6 @@ interface Driver
     public function text(string $text): void;
 
     public function screenshot(string $path): void;
+
+    public function installDatabase(string $sqlitePath): void;
 }
