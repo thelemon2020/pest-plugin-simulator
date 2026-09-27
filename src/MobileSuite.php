@@ -74,7 +74,7 @@ final class MobileSuite
         }
 
         SuiteRegistration::run(
-            DevicePlan::resolve($this->iosTouched, $this->ios, $this->androidTouched, $this->android, $latest, $avd),
+            Arguments::select(DevicePlan::resolve($this->iosTouched, $this->ios, $this->androidTouched, $this->android, $latest, $avd)),
             $this->tests,
         );
     }

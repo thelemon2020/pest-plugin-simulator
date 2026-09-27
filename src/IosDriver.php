@@ -40,6 +40,14 @@ final class IosDriver implements Driver
             if (BootPlan::shouldBoot($this->device->named, $this->device->name, $bootedNames)) {
                 $this->command->run('xcrun', ['simctl', 'boot', $this->udid]);
                 $this->command->run('xcrun', ['simctl', 'bootstatus', $this->udid, '-b']);
+                $udid = $this->udid;
+                $command = $this->command;
+                Shutdown::defer(function () use ($command, $udid): void {
+                    try {
+                        $command->run('xcrun', ['simctl', 'shutdown', $udid]);
+                    } catch (SimulatorException) {
+                    }
+                });
             }
         }
 
@@ -142,9 +150,13 @@ final class IosDriver implements Driver
             return;
         }
 
-        $binary = $this->companionBinary();
+        $binary = Companion::binary();
         $log = $this->configuration->appDirectory().'/companion.log';
-        $this->command->start($binary, ['--udid', $this->udid(), '--grpc-port', (string) $port, '--log-level', 'info'], $log);
+        $pid = $this->command->start($binary, ['--udid', $this->udid(), '--grpc-port', (string) $port, '--log-level', 'info'], $log);
+        $command = $this->command;
+        Shutdown::defer(function () use ($command, $pid): void {
+            $command->stop($pid);
+        });
 
         $deadline = microtime(true) + 10;
 
@@ -172,22 +184,5 @@ final class IosDriver implements Driver
     private function udid(): string
     {
         return $this->udid ?? throw new SimulatorException('No iOS Simulator is selected.');
-    }
-
-    private function companionBinary(): string
-    {
-        $fromEnv = getenv('IDB_COMPANION');
-
-        if (is_string($fromEnv) && $fromEnv !== '' && is_executable($fromEnv)) {
-            return $fromEnv;
-        }
-
-        foreach (['/opt/homebrew/bin/idb_companion', '/usr/local/bin/idb_companion'] as $path) {
-            if (is_executable($path)) {
-                return $path;
-            }
-        }
-
-        throw new SimulatorException('idb_companion is not installed. Install it with `brew install idb-companion`.');
     }
 }

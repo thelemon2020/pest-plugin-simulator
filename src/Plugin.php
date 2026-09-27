@@ -29,8 +29,19 @@ final class Plugin implements Bootable, HandlesArguments, Terminable
      */
     public function handleArguments(array $arguments): array
     {
+        $arguments = Arguments::intercept($arguments);
+
+        if (Arguments::wantsDoctor()) {
+            $result = Doctor::check();
+            fwrite(STDOUT, $result->render());
+            exit($result->successful() ? 0 : 1);
+        }
+
         return $arguments;
     }
 
-    public function terminate(): void {}
+    public function terminate(): void
+    {
+        Shutdown::run();
+    }
 }

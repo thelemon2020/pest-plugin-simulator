@@ -12,6 +12,10 @@ final class AndroidDriver implements Driver
 
     private ?string $serial = null;
 
+    private bool $launchedEmulator = false;
+
+    private bool $emulatorTracked = false;
+
     public function __construct(
         private readonly Device $device,
         private readonly Configuration $configuration,
@@ -175,21 +179,26 @@ final class AndroidDriver implements Driver
         }
 
         $log = $this->configuration->appDirectory().'/emulator.log';
-        $this->command->start($this->emulator(), ['-avd', $this->device->name, '-no-window', '-no-audio', '-no-snapshot-save'], $log);
+        $this->launchedEmulator = true;
+        $pid = $this->command->start($this->emulator(), ['-avd', $this->device->name, '-no-window', '-no-audio', '-no-snapshot-save'], $log);
+        $command = $this->command;
+        Shutdown::defer(function () use ($command, $pid): void {
+            $command->stop($pid);
+        });
         $deadline = microtime(true) + 120;
 
         while (microtime(true) < $deadline) {
             $booted = $this->bootedAvds();
 
             if (isset($booted[$this->device->name])) {
-                $this->serial = $booted[$this->device->name];
-                $this->command->run($this->adb(), ['-s', $this->serial, 'wait-for-device']);
+                $this->adopt($booted[$this->device->name]);
+                $this->command->run($this->adb(), ['-s', $this->serial(), 'wait-for-device']);
 
                 return;
             }
 
             if (! $this->device->named && $booted !== []) {
-                $this->serial = array_values($booted)[0];
+                $this->adopt(array_values($booted)[0]);
 
                 return;
             }
@@ -278,6 +287,25 @@ final class AndroidDriver implements Driver
         }
 
         return json_encode($nodes) ?: '[]';
+    }
+
+    private function adopt(string $serial): void
+    {
+        $this->serial = $serial;
+
+        if (! $this->launchedEmulator || $this->emulatorTracked) {
+            return;
+        }
+
+        $this->emulatorTracked = true;
+        $adb = $this->adb();
+        $command = $this->command;
+        Shutdown::defer(function () use ($command, $adb, $serial): void {
+            try {
+                $command->run($adb, ['-s', $serial, 'emu', 'kill']);
+            } catch (SimulatorException) {
+            }
+        });
     }
 
     private function serial(): string

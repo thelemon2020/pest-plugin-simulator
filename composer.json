@@ -26,6 +26,11 @@
             "plugins": [
                 "NativePhp\\Simulator\\Plugin"
             ]
+        },
+        "laravel": {
+            "providers": [
+                "NativePhp\\Simulator\\Laravel\\ServiceProvider"
+            ]
         }
     },
     "config": {

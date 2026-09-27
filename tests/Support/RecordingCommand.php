@@ -33,4 +33,16 @@ final class RecordingCommand extends Command
 
         return '';
     }
+
+    public function start(string $binary, array $arguments, string $log): int
+    {
+        $this->calls[] = [$binary, $arguments];
+
+        return 4242;
+    }
+
+    public function stop(int $pid): void
+    {
+        $this->calls[] = ['kill', [(string) $pid]];
+    }
 }

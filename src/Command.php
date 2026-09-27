@@ -34,11 +34,33 @@ class Command
     /**
      * @param  list<string>  $arguments
      */
-    public function start(string $binary, array $arguments, string $log): void
+    public function start(string $binary, array $arguments, string $log): int
     {
         $command = array_merge([$binary], $arguments);
         $escaped = implode(' ', array_map('escapeshellarg', $command));
+        $output = [];
+        exec(sprintf('nohup %s >> %s 2>&1 & echo $!', $escaped, escapeshellarg($log)), $output);
+        $pid = trim($output[0] ?? '');
 
-        exec(sprintf('nohup %s >> %s 2>&1 &', $escaped, escapeshellarg($log)));
+        if ($pid === '' || ! ctype_digit($pid)) {
+            throw new SimulatorException('Could not start '.$binary);
+        }
+
+        return (int) $pid;
+    }
+
+    public function stop(int $pid): void
+    {
+        if ($pid <= 0) {
+            return;
+        }
+
+        if (function_exists('posix_kill')) {
+            posix_kill($pid, SIGTERM);
+
+            return;
+        }
+
+        exec('kill '.$pid.' >/dev/null 2>&1');
     }
 }
