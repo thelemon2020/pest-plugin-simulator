@@ -32,6 +32,31 @@ composer pest:dump-plugins
 
 Laravel finds `NativePhp\Simulator\Laravel\ServiceProvider` on its own. You do not add it to `bootstrap/providers.php`.
 
+The Composer package does not include a phone. Install the iOS Simulator, the Android Emulator, or both. A missing platform skips those tests. `php artisan nativephp:simulator` checks that the tools are there.
+
+### iOS Simulator
+
+This only runs on a Mac.
+
+1. Install [Xcode](https://developer.apple.com/xcode/) from the App Store. Open it once and let it finish installing the iOS Simulator. `xcrun simctl` has to work.
+2. Install the tool the plugin uses to tap and type:
+
+```bash
+brew install idb-companion
+```
+
+With no `->ios([...])` list, tests use the newest iPhone that Xcode has installed. Download another simulator runtime from Xcode's Settings, under Platforms, when you need a different iPhone.
+
+### Android Emulator
+
+1. Install [Android Studio](https://developer.android.com/studio). That installs the SDK, `adb`, and the emulator.
+2. In Android Studio, open **Device Manager** and create a virtual device. With no `->android([...])` list, tests use the first one in that list. If none exist, the test stops with `No Android AVD is installed.`
+3. Point `ANDROID_HOME` at the SDK. Android Studio uses `~/Library/Android/sdk` on a Mac and `~/Android/Sdk` on Linux. `ANDROID_SDK_ROOT` works too.
+
+```bash
+export ANDROID_HOME="$HOME/Library/Android/sdk"
+```
+
 ## Configure
 
 `screen('/settings')` needs to know which app to open, and how to open it. Set these three values.
@@ -174,8 +199,6 @@ screen('/settings/edit')
 The plugin only sees native controls. A `<webview>` is one node. Blade and Livewire inside it are outside `tap()`, `type()`, and `assertSee()`.
 
 `tap()`, `type()`, and the assertions look for an accessibility id first, then an exact label, then a label that contains the text. The label is what the phone reads aloud: the visible text, or the `a11y-label`. An icon button, chip, tab, or nav action has no label until that prop is set. `tap('save-button')` matches an accessibility id even when the control has no visible text.
-
-iOS needs Xcode and [`idb_companion`](https://github.com/facebook/idb) (`brew install idb-companion`). Android needs `ANDROID_HOME` (or `ANDROID_SDK_ROOT`) with `adb` and `emulator`.
 
 ## Grant permissions
 
