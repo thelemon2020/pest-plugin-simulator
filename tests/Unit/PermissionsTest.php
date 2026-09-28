@@ -104,7 +104,34 @@ it('grants nothing when the test opts out', function () {
     permissions([]);
     Permissions::apply($driver, 'ios:1:iPhone');
 
-    expect($driver->grants)->toBe([[]]);
+    expect($driver->grants)->toBe([])
+        ->and($driver->revokes)->toBe([]);
+});
+
+it('revokes services the next test does not ask for', function () {
+    $driver = new FakeDriver([]);
+
+    permissions(['camera', 'photos']);
+    Permissions::apply($driver, 'ios:1:iPhone');
+    Permissions::beginTest();
+    permissions([]);
+    Permissions::apply($driver, 'ios:1:iPhone');
+
+    expect($driver->grants)->toBe([['camera', 'photos']])
+        ->and($driver->revokes)->toBe([['camera', 'photos']]);
+});
+
+it('keeps a grant when the next test asks for the same services', function () {
+    $driver = new FakeDriver([]);
+
+    permissions(['location']);
+    Permissions::apply($driver, 'android:1:Pixel');
+    Permissions::beginTest();
+    permissions(['location']);
+    Permissions::apply($driver, 'android:1:Pixel');
+
+    expect($driver->grants)->toBe([['location']])
+        ->and($driver->revokes)->toBe([]);
 });
 
 it('rejects an unknown permission', function () {

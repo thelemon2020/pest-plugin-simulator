@@ -131,9 +131,9 @@ final class Arguments
         self::$devices = [];
         self::$doctor = false;
         self::$rebuild = false;
-        putenv(self::PLATFORMS);
-        putenv(self::DEVICES);
-        putenv(self::REBUILD);
+        self::expose(self::PLATFORMS, null);
+        self::expose(self::DEVICES, null);
+        self::expose(self::REBUILD, null);
     }
 
     /**
@@ -142,6 +142,11 @@ final class Arguments
      */
     private static function parse(array $arguments): array
     {
+        // Pest removes its own flags with unset(), which leaves holes in argv.
+        $arguments = array_values(array_filter(
+            $arguments,
+            fn (mixed $argument): bool => is_string($argument),
+        ));
         $platforms = [];
         $devices = [];
         $doctor = false;
@@ -172,7 +177,11 @@ final class Arguments
 
             $name = null;
 
-            if ($argument === '--device' && isset($arguments[$index + 1])) {
+            if ($argument === '--device') {
+                if (! isset($arguments[$index + 1])) {
+                    throw new SimulatorException('Pass a device name to --device.');
+                }
+
                 $name = $arguments[++$index];
             } elseif (str_starts_with($argument, '--device=')) {
                 $name = substr($argument, strlen('--device='));
@@ -277,23 +286,27 @@ final class Arguments
 
     private static function publish(): void
     {
-        if (self::$platforms === null) {
-            putenv(self::PLATFORMS);
-        } else {
-            putenv(self::PLATFORMS.'='.implode(',', self::$platforms));
+        self::expose(self::PLATFORMS, self::$platforms === null ? null : implode(',', self::$platforms));
+        self::expose(self::DEVICES, self::$devices === [] ? null : json_encode(self::$devices, JSON_THROW_ON_ERROR));
+        self::expose(self::REBUILD, self::$rebuild ? '1' : null);
+    }
+
+    /**
+     * Symfony Process only forwards variables that live in $_ENV or $_SERVER.
+     * putenv() alone never reaches a ParaTest worker.
+     */
+    private static function expose(string $key, ?string $value): void
+    {
+        if ($value === null) {
+            putenv($key);
+            unset($_ENV[$key], $_SERVER[$key]);
+
+            return;
         }
 
-        if (self::$devices === []) {
-            putenv(self::DEVICES);
-        } else {
-            putenv(self::DEVICES.'='.json_encode(self::$devices, JSON_THROW_ON_ERROR));
-        }
-
-        if (self::$rebuild) {
-            putenv(self::REBUILD.'=1');
-        } else {
-            putenv(self::REBUILD);
-        }
+        putenv($key.'='.$value);
+        $_ENV[$key] = $value;
+        $_SERVER[$key] = $value;
     }
 
     private static function hydrate(): void

@@ -46,6 +46,8 @@ When both a scheme and a host are set, `screen()` uses the custom scheme. Pass a
 screen('https://example.net/lights');
 ```
 
+`Configuration::configure()` wins over the environment, and the environment wins over `config/nativephp.php`. `timeout` comes only from `Configuration::configure()`. `permissions()` wins over `Configuration::configure(['permissions' => ...])`. Neither comes from the environment.
+
 Set the values in `tests/Pest.php` when the suite does not boot the Laravel app:
 
 ```php
@@ -105,7 +107,7 @@ screen('/notes/1')
     ->assertNavigatedTo('/notes');
 ```
 
-`type()` replaces the field. `scroll('down')` reveals content further down the list. `swipe('down')` moves a finger down, which dismisses a modal. `swipe('left', 'Note')` starts that gesture on a row. `goBack()` presses Android back and swipes in from the left edge on iOS.
+`type()` replaces the field. On iOS it sends US-keyboard keys, and a character outside that set throws. On Android, printable ASCII is typed one character at a time so Compose does not drop letters. Anything else, including a newline, is pasted, so a newline does not press Enter. `scroll('down')` reveals content further down the list. `swipe('down')` moves a finger down, which dismisses a modal. `swipe('left', 'Note')` starts that gesture on a row. `goBack()` presses Android back and swipes in from the left edge on iOS.
 
 `assertNavTitle()` reads the navigation bar. `assertTabActive()` reads the selected bottom nav or tab. `assertNavigatedTo('/notes')` passes when that path is an accessibility id, or when the navigation title is the path's last segment. `assertEnabled()`, `assertDisabled()`, and `assertChecked()` read those states from the same tree.
 
@@ -131,7 +133,7 @@ iOS runs `xcrun simctl privacy <udid> grant <service> <bundle-id>`. Android runs
 
 `Biometrics::prompt()` is the system authentication sheet, not one of these grants.
 
-The default is the whole set. Opt into a smaller set before the first `screen()` on that device:
+The default is the whole set. The first `screen()` in a test grants that test's set. A later `screen()` in the same test does not grant again. The next test can ask for a different set: services it drops are revoked, and services it adds are granted. Opt into a smaller set before the first `screen()` in that test:
 
 ```php
 permissions(['camera', 'photos']);
@@ -201,12 +203,12 @@ The doctor reports Xcode's `simctl`, `idb_companion`, the Android SDK, `adb`, `e
 
 ## Run in CI
 
-[`.github/workflows/mobile.yml`](.github/workflows/mobile.yml) runs the iOS Simulator on macOS and the Android Emulator on Linux. A job installs that platform's tools and runs `vendor/bin/pest --ios` or `vendor/bin/pest --android`. macOS can host the Android Emulator as well.
+[`.github/workflows/mobile.yml`](.github/workflows/mobile.yml) runs this package's unit tests on PHP 8.3 with Pest 4 and on PHP 8.4 with Pest 5. Those tests fake the machine. They do not boot a Simulator or Emulator.
 
-Each Pest worker gets its own `idb_companion` port and its own booted device. The Android Emulator starts headless, renders in software, and cold-boots from a wiped snapshot. If it does not finish, the failure names the emulator log.
+In an app, a job installs that platform's tools and runs `vendor/bin/pest --ios` or `vendor/bin/pest --android`. macOS can host the Android Emulator as well. Each Pest worker gets its own `idb_companion` port and its own booted device. The Android Emulator starts headless, renders in software, and cold-boots from a wiped snapshot. If it does not finish, the failure names the emulator log.
 
 A test limited to a platform the suite does not run is skipped. A machine without Xcode and `idb_companion`, or without the Android SDK, skips the tests that needed that platform.
 
 ## Cleanup
 
-A finished Pest process shuts down the Simulator, Emulator, and `idb_companion` that the run started. A device that was already booted, and an `idb_companion` that was already listening, stay up.
+A finished Pest process shuts down the Simulator, Emulator, and `idb_companion` that the run started. A device that was already booted stays up. An `idb_companion` already listening for this simulator is reused. One listening for a different simulator stays up, and the plugin starts its own on the next port.

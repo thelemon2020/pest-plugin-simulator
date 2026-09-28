@@ -43,7 +43,40 @@ it('replaces a field and reads its value', function () {
         ->assertValue('Title', "Ada's note");
 
     expect($driver->clears)->toBe(1)
+        ->and($driver->cleared)->toBe(40)
         ->and($driver->texts)->toBe(["Ada's note"]);
+});
+
+it('clears a long field before replacing it', function () {
+    $value = str_repeat('n', 80);
+    $driver = new FakeDriver([[
+        control('Title', ['role' => 'TextField', 'value' => $value, 'center' => [20.0, 30.0]]),
+    ]]);
+
+    (new Screen($driver, timeoutSeconds: 0))->type('Title', 'short');
+
+    expect($driver->cleared)->toBe(80);
+});
+
+it('saves the screen when a label matches more than one control', function () {
+    $directory = sys_get_temp_dir().'/simulator-ambiguous-'.uniqid('', true);
+    $driver = new FakeDriver([[
+        control('Save', ['center' => [10.0, 20.0]]),
+        control('Save', ['center' => [30.0, 40.0]]),
+    ]]);
+
+    try {
+        expect(fn () => (new Screen($driver, timeoutSeconds: 0, failureDirectory: $directory))->tap('Save'))
+            ->toThrow(AssertionFailedError::class, 'matches more than one Button');
+
+        expect(is_file($directory.'/tree.json'))->toBeTrue()
+            ->and(is_file($directory.'/screen.png'))->toBeTrue();
+    } finally {
+        if (is_dir($directory)) {
+            array_map('unlink', glob($directory.'/*') ?: []);
+            rmdir($directory);
+        }
+    }
 });
 
 it('reads chrome, tabs, and control state', function () {

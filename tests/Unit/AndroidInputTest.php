@@ -17,25 +17,42 @@ it('types punctuation and a newline through adb', function () {
 
     $driver->text("a+b:c'd");
     $driver->text("a b\nc");
+    $driver->text('é');
 
-    $typed = array_map(
-        fn (array $call): string => implode(' ', array_slice($call[1], 4)),
-        $command->calls,
-    );
+    $typed = [];
+
+    foreach ($command->calls as $call) {
+        $arguments = $call[1];
+
+        if (($arguments[3] ?? null) === 'input' && ($arguments[4] ?? null) === 'text') {
+            $typed[] = $arguments[5];
+        }
+
+        if (($arguments[5] ?? null) === 'set-text') {
+            $typed[] = $arguments[6];
+        }
+
+        if (($arguments[4] ?? null) === 'keyevent' && ($arguments[5] ?? null) === '279') {
+            $typed[] = 'paste';
+        }
+    }
 
     expect($typed)->toBe([
-        'text a',
-        'text +',
-        'text b',
-        'text :',
-        'text c',
-        "text '",
-        'text d',
-        'text a',
-        'text %s',
-        'text b',
-        'keyevent 66',
-        'text c',
+        "'a'",
+        "'+'",
+        "'b'",
+        "':'",
+        "'c'",
+        "''\\'''",
+        "'d'",
+        "'a'",
+        "'%s'",
+        "'b'",
+        "'\n'",
+        'paste',
+        "'c'",
+        "'é'",
+        'paste',
     ]);
 });
 
@@ -44,12 +61,19 @@ it('clears by deleting from the end of the field', function () {
     $driver = androidDriver($command);
 
     $driver->clear();
+    $driver->clear(50);
     $driver->back();
 
     expect($command->calls[0][1])->toBe([
         '-s', 'emulator-5554', 'shell', 'input', 'keyevent', '123',
         ...array_fill(0, 40, '67'),
-    ])->and($command->calls[1][1])->toBe(['-s', 'emulator-5554', 'shell', 'input', 'keyevent', '4']);
+    ])->and($command->calls[1][1])->toBe([
+        '-s', 'emulator-5554', 'shell', 'input', 'keyevent', '123',
+        ...array_fill(0, 40, '67'),
+    ])->and($command->calls[2][1])->toBe([
+        '-s', 'emulator-5554', 'shell', 'input', 'keyevent', '123',
+        ...array_fill(0, 10, '67'),
+    ])->and($command->calls[3][1])->toBe(['-s', 'emulator-5554', 'shell', 'input', 'keyevent', '4']);
 });
 
 it('reads the emulator screen size from the hierarchy', function () {
@@ -62,6 +86,36 @@ it('reads the emulator screen size from the hierarchy', function () {
     expect($driver->viewport())->toBe([1080.0, 2400.0])
         ->and($elements[0]['label'])->toBe('Home')
         ->and($elements[0]['selected'])->toBeTrue();
+});
+
+it('reads a stock hierarchy from node bounds', function () {
+    $command = new RecordingCommand;
+    $command->output = <<<'XML'
+        <hierarchy rotation="0">
+            <node class="android.widget.FrameLayout" bounds="[0,0][1080,2400]">
+                <node class="androidx.appcompat.widget.Toolbar" bounds="[0,0][1080,168]">
+                    <node text="Notes" class="android.widget.TextView" bounds="[48,72][240,132]" />
+                </node>
+            </node>
+        </hierarchy>
+        XML;
+    $driver = androidDriver($command);
+    $path = tempnam(sys_get_temp_dir(), 'tree');
+
+    try {
+        $elements = $driver->describe($path);
+        $saved = json_decode((string) file_get_contents((string) $path), true);
+
+        expect($driver->viewport())->toBe([1080.0, 2400.0])
+            ->and($elements[0]['label'])->toBe('Notes')
+            ->and($elements[0]['chrome'])->toBe('navigation')
+            ->and($saved[2]['text'])->toBe('Notes')
+            ->and(isset($saved[2]['__inherited']))->toBeFalse();
+    } finally {
+        if (is_string($path)) {
+            @unlink($path);
+        }
+    }
 });
 
 function androidDriver(RecordingCommand $command): AndroidDriver

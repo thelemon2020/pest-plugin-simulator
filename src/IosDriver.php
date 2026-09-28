@@ -194,7 +194,7 @@ final class IosDriver implements Driver
         $this->swipe($x1, $y1, $x2, $y2);
     }
 
-    public function clear(): void
+    public function clear(int $characters = 40): void
     {
         $this->client()->stream('hid', Hid::selectAll());
         $this->client()->stream('hid', Hid::backspace());
@@ -221,11 +221,24 @@ final class IosDriver implements Driver
 
     public function grant(array $services): void
     {
+        $this->privacy('grant', $services);
+    }
+
+    public function revoke(array $services): void
+    {
+        $this->privacy('revoke', $services);
+    }
+
+    /**
+     * @param  list<string>  $services
+     */
+    private function privacy(string $action, array $services): void
+    {
         $bundle = $this->configuration->bundleId();
 
         foreach (Permissions::targets('ios', $services) as $service) {
             Permissions::attempt(fn () => $this->command->run('xcrun', [
-                'simctl', 'privacy', $this->udid(), 'grant', $service, $bundle,
+                'simctl', 'privacy', $this->udid(), $action, $service, $bundle,
             ]));
         }
     }
@@ -306,8 +319,8 @@ final class IosDriver implements Driver
             return;
         }
 
-        $port = Worker::grpcPort();
         $simulator = $this->udid();
+        $port = $this->companionPort($simulator);
 
         if (self::$companionSimulator === $simulator && $this->socket->reachable($port)) {
             $this->client = new Client('http://127.0.0.1:'.$port);
@@ -321,8 +334,9 @@ final class IosDriver implements Driver
             self::$companionSimulator = null;
         }
 
-        if (! Worker::parallel() && $this->socket->reachable($port)) {
+        if (! Worker::parallel() && $this->socket->reachable($port) && $this->listenerMatches($port, $simulator)) {
             $this->client = new Client('http://127.0.0.1:'.$port);
+            self::$companionSimulator = $simulator;
 
             return;
         }
@@ -350,6 +364,61 @@ final class IosDriver implements Driver
         }
 
         throw new SimulatorException("idb_companion did not open port {$port}. See {$log}.");
+    }
+
+    private function companionPort(string $simulator): int
+    {
+        $preferred = Worker::grpcPort();
+
+        if (Worker::parallel() || $this->listenerMatches($preferred, $simulator)) {
+            return $preferred;
+        }
+
+        for ($port = $preferred + 1; $port < $preferred + 20; $port++) {
+            if ($this->listenerMatches($port, $simulator)) {
+                return $port;
+            }
+        }
+
+        throw new SimulatorException('idb_companion is already listening for another simulator, and no free port was found.');
+    }
+
+    private function listenerMatches(int $port, string $simulator): bool
+    {
+        if (! $this->socket->reachable($port)) {
+            return true;
+        }
+
+        $attached = $this->listenerUdid($port);
+
+        return $attached === null || $attached === $simulator;
+    }
+
+    private function listenerUdid(int $port): ?string
+    {
+        try {
+            $listing = $this->command->run('lsof', ['-nP', '-iTCP:'.$port, '-sTCP:LISTEN', '-t']);
+        } catch (SimulatorException) {
+            return null;
+        }
+
+        $pid = trim(strtok($listing, "\n") ?: '');
+
+        if ($pid === '' || ! ctype_digit($pid)) {
+            return null;
+        }
+
+        try {
+            $args = $this->command->run('ps', ['-o', 'args=', '-p', $pid]);
+        } catch (SimulatorException) {
+            return null;
+        }
+
+        if (preg_match('/--udid\s+(\S+)/', $args, $matches) !== 1) {
+            return null;
+        }
+
+        return $matches[1];
     }
 
     private function client(): Client

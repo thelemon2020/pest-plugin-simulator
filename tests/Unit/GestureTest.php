@@ -45,5 +45,5 @@ it('selects all and deletes', function () {
 });
 
 it('keeps spaces and percent signs for adb input text', function () {
-    expect(AndroidText::argument("a b 100% +:@'"))->toBe("a%sb%s100\\%%s+:@'");
+    expect(AndroidText::argument("a b 100% +:@'"))->toBe("'a%sb%s100\\%%s+:@'\\'''");
 });

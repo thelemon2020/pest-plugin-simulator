@@ -25,7 +25,8 @@ final class AccessibilityTree
 
             foreach ($parsed as $node) {
                 if (is_array($node)) {
-                    self::walk($node, $nodes);
+                    $inherited = $node['__inherited'] ?? null;
+                    self::walk($node, $nodes, is_string($inherited) ? $inherited : null);
                     self::selectionFrames($node, $selections);
                 }
             }
@@ -408,6 +409,24 @@ final class AccessibilityTree
         }
 
         return $value === true || $value === 1 || $value === 1.0 || $value === '1' || $value === 'true';
+    }
+
+    /**
+     * Chrome this node passes to its children. A flat Android dump stores
+     * the result on each child as __inherited so a title inside a toolbar
+     * still counts as navigation.
+     *
+     * @param  array<mixed>  $node
+     */
+    public static function inheritedChrome(array $node, ?string $parent): ?string
+    {
+        $own = self::chrome($node);
+
+        if (self::isSystem($parent) && ($own === null || $own === 'navigation' || $own === 'tab')) {
+            $own = $parent;
+        }
+
+        return $own ?? $parent;
     }
 
     private static function isSystem(?string $chrome): bool

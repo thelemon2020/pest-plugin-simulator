@@ -21,7 +21,7 @@ interface Driver
 
     public function back(): void;
 
-    public function clear(): void;
+    public function clear(int $characters = 40): void;
 
     public function text(string $text): void;
 
@@ -36,6 +36,11 @@ interface Driver
      * @param  list<string>  $services
      */
     public function grant(array $services): void;
+
+    /**
+     * @param  list<string>  $services
+     */
+    public function revoke(array $services): void;
 
     /**
      * @return list<string>

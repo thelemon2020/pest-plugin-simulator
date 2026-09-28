@@ -39,17 +39,18 @@ final class MobileTestFilter implements TestCaseMethodFilter
         }
 
         $original = $method->closure;
-        $method->datasets[] = array_map(
+        array_unshift($method->datasets, array_map(
             fn (Device $device): array => [$device->key()],
             $devices,
-        );
+        ));
 
-        $method->closure = function (string $key) use ($original) {
+        $method->closure = function (string $key, mixed ...$args) use ($original) {
             Run::useDevice(Device::fromKey($key));
             TestDatabase::begin();
+            Permissions::beginTest();
 
             try {
-                return $original instanceof \Closure ? $original->call($this) : null;
+                return $original instanceof \Closure ? $original->call($this, ...$args) : null;
             } finally {
                 Permissions::forgetRequest();
                 TestDatabase::end();

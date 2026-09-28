@@ -49,8 +49,11 @@ final class Permissions
         ],
     ];
 
+    /** @var array<string, list<string>> */
+    private static array $held = [];
+
     /** @var array<string, true> */
-    private static array $granted = [];
+    private static array $applied = [];
 
     /** @var list<string>|null */
     private static ?array $only = null;
@@ -70,23 +73,60 @@ final class Permissions
         self::$only = null;
     }
 
+    public static function beginTest(): void
+    {
+        self::$applied = [];
+    }
+
     public static function reset(): void
     {
-        self::$granted = [];
+        self::$held = [];
+        self::$applied = [];
         self::$only = null;
     }
 
     public static function apply(Driver $driver, string $deviceKey): void
     {
-        if (isset(self::$granted[$deviceKey])) {
+        if (isset(self::$applied[$deviceKey])) {
             return;
         }
 
-        $services = self::$only ?? Configuration::resolve()->permissions() ?? array_keys(self::IOS);
+        $services = array_values(self::$only ?? Configuration::resolve()->permissions() ?? array_keys(self::IOS));
         self::assertKnown($services);
-        $driver->grant(array_values($services));
-        self::$granted[$deviceKey] = true;
+        $previous = self::$held[$deviceKey] ?? [];
+        self::$applied[$deviceKey] = true;
         self::$only = null;
+
+        if (self::same($previous, $services)) {
+            self::$held[$deviceKey] = $services;
+
+            return;
+        }
+
+        $revoke = array_values(array_diff($previous, $services));
+        $grant = array_values(array_diff($services, $previous));
+
+        if ($revoke !== []) {
+            $driver->revoke($revoke);
+        }
+
+        if ($grant !== []) {
+            $driver->grant($grant);
+        }
+
+        self::$held[$deviceKey] = $services;
+    }
+
+    /**
+     * @param  list<string>  $left
+     * @param  list<string>  $right
+     */
+    private static function same(array $left, array $right): bool
+    {
+        sort($left);
+        sort($right);
+
+        return $left === $right;
     }
 
     /**

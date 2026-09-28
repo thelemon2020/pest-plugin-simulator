@@ -11,6 +11,19 @@ afterEach(function () {
     Arguments::reset();
 });
 
+it('reads options after pest removes its own flags', function () {
+    $arguments = ['vendor/bin/pest', '--compact', '--ios', 'tests/Feature/LightsTest.php'];
+    unset($arguments[1]);
+
+    expect(Arguments::intercept($arguments))->toBe([
+        'vendor/bin/pest',
+        'tests/Feature/LightsTest.php',
+    ])->and(Arguments::select([
+        new Device('ios', 'iPhone Latest', false),
+        new Device('android', 'Pixel Default', false),
+    ]))->toHaveCount(1);
+});
+
 it('strips simulator options before phpunit sees them', function () {
     $remaining = (new Plugin)->handleArguments([
         'vendor/bin/pest',
@@ -93,6 +106,39 @@ it('keeps the selection for a worker process', function () {
     expect(array_map(fn (Device $device): string => $device->key(), $selected))->toBe([
         'android:1:Pixel 8',
     ]);
+});
+
+it('rejects a device flag with no name', function () {
+    Arguments::intercept(['vendor/bin/pest', '--device']);
+})->throws(SimulatorException::class, 'Pass a device name to --device.');
+
+it('publishes the selection into the environment a worker inherits', function () {
+    Arguments::intercept(['vendor/bin/pest', '--ios', '--device=iPhone 17 Pro', '--rebuild']);
+
+    $env = [];
+
+    foreach ($_ENV as $key => $value) {
+        if (is_string($key) && is_string($value)) {
+            $env[$key] = $value;
+        }
+    }
+
+    $script = <<<'PHP'
+        echo getenv('NATIVEPHP_SIMULATOR_PLATFORMS'), "\n";
+        echo getenv('NATIVEPHP_SIMULATOR_DEVICES'), "\n";
+        echo getenv('NATIVEPHP_SIMULATOR_REBUILD'), "\n";
+        PHP;
+
+    $process = proc_open([PHP_BINARY, '-r', $script], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, $env);
+
+    expect(is_resource($process))->toBeTrue();
+
+    $stdout = stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    proc_close($process);
+
+    expect($stdout)->toBe("ios\n".json_encode([['platform' => null, 'name' => 'iPhone 17 Pro']])."\n1\n");
 });
 
 it('records a doctor request', function () {

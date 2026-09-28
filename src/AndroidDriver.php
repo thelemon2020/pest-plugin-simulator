@@ -101,22 +101,7 @@ final class AndroidDriver implements Driver
 
     public function describe(?string $treePath = null): array
     {
-        try {
-            $dump = $this->command->run($this->adb(), ['-s', $this->serial(), 'exec-out', 'uiautomator', 'dump', '/dev/tty']);
-        } catch (SimulatorException) {
-            $dump = '';
-        }
-
-        if (! str_contains($dump, '<hierarchy')) {
-            $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'uiautomator', 'dump', '/sdcard/uidump.xml']);
-            $dump = $this->command->run($this->adb(), ['-s', $this->serial(), 'exec-out', 'cat', '/sdcard/uidump.xml']);
-        }
-
-        if ($treePath !== null) {
-            file_put_contents($treePath, $dump);
-        }
-
-        return $this->dismissSystemDialog($this->elementsFrom($dump), 0);
+        return $this->dismissSystemDialog($this->elementsFrom($this->dumpHierarchy(), $treePath), 0);
     }
 
     /**
@@ -179,14 +164,22 @@ final class AndroidDriver implements Driver
         $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'input', 'keyevent', '4']);
     }
 
-    public function clear(): void
+    public function clear(int $characters = 40): void
     {
         // Select-all is Ctrl+A. On the emulator that modifier stays down, so the
         // next "input text" treats c as Copy and the character never lands.
-        $this->command->run($this->adb(), [
-            '-s', $this->serial(), 'shell', 'input', 'keyevent', '123',
-            ...array_fill(0, 40, '67'),
-        ]);
+        // Deletes are chunked so a long field is cleared without overflowing
+        // the input queue.
+        $remaining = max(1, $characters);
+
+        while ($remaining > 0) {
+            $count = min(40, $remaining);
+            $this->command->run($this->adb(), [
+                '-s', $this->serial(), 'shell', 'input', 'keyevent', '123',
+                ...array_fill(0, $count, '67'),
+            ]);
+            $remaining -= $count;
+        }
     }
 
     public function text(string $text): void
@@ -198,13 +191,32 @@ final class AndroidDriver implements Driver
             // One character per call. A single "input text" of the whole
             // string overflows the emulator queue, and Compose drops letters.
             foreach ($this->characters($line) as $character) {
-                $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'input', 'text', AndroidText::argument($character)]);
+                if ($this->onKeyboard($character)) {
+                    $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'input', 'text', AndroidText::argument($character)]);
+
+                    continue;
+                }
+
+                $this->paste($character);
             }
 
             if ($index < $last) {
-                $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'input', 'keyevent', '66']);
+                $this->paste("\n");
             }
         }
+    }
+
+    private function onKeyboard(string $character): bool
+    {
+        return strlen($character) === 1 && ord($character) >= 32 && ord($character) <= 126;
+    }
+
+    private function paste(string $text): void
+    {
+        $this->command->run($this->adb(), [
+            '-s', $this->serial(), 'shell', 'cmd', 'clipboard', 'set-text', AndroidText::argument($text),
+        ]);
+        $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'input', 'keyevent', '279']);
     }
 
     /**
@@ -228,18 +240,30 @@ final class AndroidDriver implements Driver
 
     public function screenshot(string $path): void
     {
-        $this->command->run($this->adb(), ['-s', $this->serial(), 'exec-out', 'screencap', '-p'], null);
         $png = $this->command->run($this->adb(), ['-s', $this->serial(), 'exec-out', 'screencap', '-p']);
         file_put_contents($path, $png);
     }
 
     public function grant(array $services): void
     {
+        $this->permission('grant', $services);
+    }
+
+    public function revoke(array $services): void
+    {
+        $this->permission('revoke', $services);
+    }
+
+    /**
+     * @param  list<string>  $services
+     */
+    private function permission(string $action, array $services): void
+    {
         $bundle = $this->configuration->bundleId();
 
         foreach (Permissions::targets('android', $services) as $permission) {
             Permissions::attempt(fn () => $this->command->run($this->adb(), [
-                '-s', $this->serial(), 'shell', 'pm', 'grant', $bundle, $permission,
+                '-s', $this->serial(), 'shell', 'pm', $action, $bundle, $permission,
             ]));
         }
     }
@@ -361,13 +385,30 @@ final class AndroidDriver implements Driver
 
     private function bootCompleted(string $serial): bool
     {
+        if ($this->property($serial, 'sys.boot_completed') !== '1') {
+            return false;
+        }
+
+        if ($this->property($serial, 'init.svc.bootanim') !== 'stopped') {
+            return false;
+        }
+
         try {
-            $completed = trim($this->command->run($this->adb(), ['-s', $serial, 'shell', 'getprop', 'sys.boot_completed']));
+            $this->command->run($this->adb(), ['-s', $serial, 'shell', 'pm', 'path', 'android']);
         } catch (SimulatorException) {
             return false;
         }
 
-        return $completed === '1';
+        return true;
+    }
+
+    private function property(string $serial, string $name): string
+    {
+        try {
+            return trim($this->command->run($this->adb(), ['-s', $serial, 'shell', 'getprop', $name]));
+        } catch (SimulatorException) {
+            return '';
+        }
     }
 
     /**
@@ -379,7 +420,12 @@ final class AndroidDriver implements Driver
         $named = [];
 
         foreach ($serials as $serial) {
-            $name = trim($this->command->run($this->adb(), ['-s', $serial, 'emu', 'avd', 'name']));
+            try {
+                $name = trim($this->command->run($this->adb(), ['-s', $serial, 'emu', 'avd', 'name']));
+            } catch (SimulatorException) {
+                continue;
+            }
+
             $name = preg_replace('/\s*OK\s*$/', '', $name) ?? $name;
             $named[trim($name)] = $serial;
         }
@@ -464,53 +510,106 @@ final class AndroidDriver implements Driver
         }
 
         $nodes = [];
+        $root = $document->documentElement;
 
-        foreach ($document->getElementsByTagName('node') as $node) {
-            if (! $node instanceof \DOMElement) {
-                continue;
-            }
-
-            $nodes[] = [
-                'text' => $node->getAttribute('text'),
-                'content-desc' => $node->getAttribute('content-desc'),
-                'resource-id' => $node->getAttribute('resource-id'),
-                'class' => $node->getAttribute('class'),
-                'package' => $node->getAttribute('package'),
-                'bounds' => $node->getAttribute('bounds'),
-                'checked' => $node->getAttribute('checked'),
-                'checkable' => $node->getAttribute('checkable'),
-                'enabled' => $node->getAttribute('enabled'),
-                'selected' => $node->getAttribute('selected'),
-            ];
+        if ($root instanceof \DOMElement) {
+            $this->collectNodes($root, null, $nodes);
         }
 
         return json_encode($nodes) ?: '[]';
     }
 
     /**
-     * @return list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}, value: ?string, enabled: bool, selected: bool, checked: bool, chrome: ?string, webview: bool}>
+     * @param  list<array<string, string>>  $nodes
      */
-    private function elementsFrom(string $dump): array
+    private function collectNodes(\DOMElement $parent, ?string $inherited, array &$nodes): void
     {
-        $this->rememberViewport($dump);
+        foreach ($parent->childNodes as $child) {
+            if (! $child instanceof \DOMElement) {
+                continue;
+            }
 
-        return AccessibilityTree::summarize($this->xmlToJson($dump));
+            if ($child->tagName !== 'node') {
+                $this->collectNodes($child, $inherited, $nodes);
+
+                continue;
+            }
+
+            $node = [
+                'text' => $child->getAttribute('text'),
+                'content-desc' => $child->getAttribute('content-desc'),
+                'resource-id' => $child->getAttribute('resource-id'),
+                'class' => $child->getAttribute('class'),
+                'package' => $child->getAttribute('package'),
+                'bounds' => $child->getAttribute('bounds'),
+                'checked' => $child->getAttribute('checked'),
+                'checkable' => $child->getAttribute('checkable'),
+                'enabled' => $child->getAttribute('enabled'),
+                'selected' => $child->getAttribute('selected'),
+            ];
+
+            if ($inherited !== null) {
+                $node['__inherited'] = $inherited;
+            }
+
+            $nodes[] = $node;
+            $this->collectNodes($child, AccessibilityTree::inheritedChrome($node, $inherited), $nodes);
+        }
     }
 
-    private function rememberViewport(string $dump): void
+    /**
+     * @return list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}, value: ?string, enabled: bool, selected: bool, checked: bool, chrome: ?string, webview: bool}>
+     */
+    private function elementsFrom(string $dump, ?string $treePath = null): array
     {
-        if (preg_match('/<hierarchy\b([^>]*)>/', $dump, $matches) !== 1) {
-            return;
+        $json = $this->xmlToJson($dump);
+
+        if ($treePath !== null) {
+            file_put_contents($treePath, $this->publicTree($json));
         }
 
-        $width = [];
-        $height = [];
+        $this->rememberViewport($dump, $json);
 
-        if (preg_match('/\bwidth="([\d.]+)"/', $matches[1], $width) !== 1 || preg_match('/\bheight="([\d.]+)"/', $matches[1], $height) !== 1) {
-            return;
+        return AccessibilityTree::summarize($json);
+    }
+
+    private function publicTree(string $json): string
+    {
+        $parsed = json_decode($json, true);
+
+        if (! is_array($parsed)) {
+            return $json;
         }
 
-        $this->viewport = [(float) $width[1], (float) $height[1]];
+        $parsed = array_map(function (mixed $node): mixed {
+            if (is_array($node)) {
+                unset($node['__inherited']);
+            }
+
+            return $node;
+        }, $parsed);
+
+        return json_encode($parsed, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) ?: $json;
+    }
+
+    private function rememberViewport(string $dump, string $json): void
+    {
+        if (preg_match('/<hierarchy\b([^>]*)>/', $dump, $matches) === 1) {
+            $width = [];
+            $height = [];
+
+            if (preg_match('/\bwidth="([\d.]+)"/', $matches[1], $width) === 1 && preg_match('/\bheight="([\d.]+)"/', $matches[1], $height) === 1) {
+                $this->viewport = [(float) $width[1], (float) $height[1]];
+
+                return;
+            }
+        }
+
+        [$width, $height] = AccessibilityTree::viewport($json);
+
+        if ($width > 0 && $height > 0) {
+            $this->viewport = [$width, $height];
+        }
     }
 
     private function adopt(string $serial): void

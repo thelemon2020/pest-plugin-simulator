@@ -18,6 +18,8 @@ final class FakeDriver implements Driver
 
     public int $clears = 0;
 
+    public int $cleared = 0;
+
     /** @var list<string> */
     public array $texts = [];
 
@@ -34,6 +36,9 @@ final class FakeDriver implements Driver
 
     /** @var list<list<string>> */
     public array $grants = [];
+
+    /** @var list<list<string>> */
+    public array $revokes = [];
 
     /** @var array<string, string> */
     public array $savedLogs = [];
@@ -83,9 +88,10 @@ final class FakeDriver implements Driver
         $this->backs++;
     }
 
-    public function clear(): void
+    public function clear(int $characters = 40): void
     {
         $this->clears++;
+        $this->cleared = $characters;
     }
 
     public function text(string $text): void
@@ -106,6 +112,11 @@ final class FakeDriver implements Driver
     public function grant(array $services): void
     {
         $this->grants[] = array_values($services);
+    }
+
+    public function revoke(array $services): void
+    {
+        $this->revokes[] = array_values($services);
     }
 
     public function captureLogs(string $directory): array

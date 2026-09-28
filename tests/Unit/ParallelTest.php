@@ -130,6 +130,84 @@ it('gives a parallel worker its own emulator port', function () {
     });
 });
 
+it('keeps waiting when the emulator console is not ready', function () {
+    $command = new RecordingCommand;
+    $names = 0;
+    $command->responder = function (string $binary, array $arguments) use (&$names): ?string {
+        if (in_array('devices', $arguments, true)) {
+            return "List of devices attached\nemulator-5554\tdevice\n";
+        }
+
+        if (in_array('name', $arguments, true)) {
+            $names++;
+
+            if ($names === 1) {
+                throw new SimulatorException('device offline');
+            }
+
+            return "Pixel 8\nOK\n";
+        }
+
+        if (in_array('getprop', $arguments, true)) {
+            $property = $arguments[array_search('getprop', $arguments, true) + 1] ?? '';
+
+            return $property === 'init.svc.bootanim' ? "stopped\n" : "1\n";
+        }
+
+        if (in_array('path', $arguments, true)) {
+            return "package:/system/framework/framework-res.apk\n";
+        }
+
+        return null;
+    };
+    $driver = new AndroidDriver(new Device('android', 'Pixel 8', true), Configuration::resolve(), $command);
+
+    (new ReflectionMethod(AndroidDriver::class, 'waitUntilBooted'))->invoke($driver, '/tmp/app/emulator.log', null, 5);
+
+    expect($names)->toBe(2)
+        ->and((new ReflectionProperty(AndroidDriver::class, 'serial'))->getValue($driver))->toBe('emulator-5554');
+});
+
+it('starts its own companion when the listener belongs to another simulator', function () {
+    withWorker(null, function (): void {
+        $socket = new ScriptedSocket;
+        $socket->portsListening = [10882 => true];
+        $command = new RecordingCommand;
+        $command->afterStart = function () use ($socket): void {
+            $socket->portsListening[10883] = true;
+        };
+        $command->responder = function (string $binary, array $arguments): ?string {
+            if (in_array('-j', $arguments, true)) {
+                return simulatorJson();
+            }
+
+            if ($binary === 'lsof') {
+                return "999\n";
+            }
+
+            if ($binary === 'ps') {
+                return "/opt/homebrew/bin/idb_companion --udid OTHER --grpc-port 10882\n";
+            }
+
+            if (in_array('get_app_container', $arguments, true)) {
+                return "/tmp/NativePHP.app\n";
+            }
+
+            if (in_array('--entitlements', $arguments, true)) {
+                return '<key>get-task-allow</key><true/>';
+            }
+
+            return null;
+        };
+        $driver = new IosDriver(new Device('ios', 'iPhone 17', true), Configuration::resolve(), $command, $socket);
+
+        $driver->ensureReady();
+
+        expect($command->calls)->toContain(['/bin/echo', ['--udid', 'SOURCE', '--grpc-port', '10883', '--log-level', 'info']])
+            ->and($command->calls)->not->toContain(['kill', ['999']]);
+    });
+});
+
 it('names the emulator log when a cold boot does not finish', function () {
     $driver = new AndroidDriver(new Device('android', 'Pixel 8', true), Configuration::resolve(), new RecordingCommand);
 
@@ -283,7 +361,9 @@ function bootRecorder(bool $alreadyRunning = false): RecordingCommand
         }
 
         if (in_array('getprop', $arguments, true)) {
-            return "1\n";
+            $property = $arguments[array_search('getprop', $arguments, true) + 1] ?? '';
+
+            return $property === 'init.svc.bootanim' ? "stopped\n" : "1\n";
         }
 
         return null;

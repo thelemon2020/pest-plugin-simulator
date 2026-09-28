@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace NativePhp\Simulator;
 
+use NativePhp\Simulator\Exceptions\AmbiguousMatch;
 use NativePhp\Simulator\Exceptions\NoMatch;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 use PHPUnit\Framework\Assert;
@@ -45,7 +46,7 @@ final class Screen
 
         $match = $this->finder->match($elements, $label);
         $this->driver->tap((float) $match['center'][0], (float) $match['center'][1]);
-        $this->driver->clear();
+        $this->driver->clear($this->replacementLength($match));
 
         if ($text !== '') {
             $this->driver->text($text);
@@ -63,7 +64,7 @@ final class Screen
 
         $match = $this->finder->match($elements, $label);
         $this->driver->tap((float) $match['center'][0], (float) $match['center'][1]);
-        $this->driver->clear();
+        $this->driver->clear($this->replacementLength($match));
 
         return $this;
     }
@@ -330,8 +331,12 @@ final class Screen
                 continue;
             }
 
-            if ($predicate($last)) {
-                return $last;
+            try {
+                if ($predicate($last)) {
+                    return $last;
+                }
+            } catch (AmbiguousMatch $ambiguous) {
+                $this->fail($ambiguous->getMessage(), $last);
             }
 
             if ($this->timeoutSeconds <= 0) {
@@ -341,12 +346,29 @@ final class Screen
             usleep(400_000);
         } while (microtime(true) < $deadline);
 
-        $artifact = $this->captureFailure();
-        $webview = $this->finder->hasWebView($last)
+        $this->fail($failure, $last);
+    }
+
+    /**
+     * @param  array{value?: ?string}  $match
+     */
+    private function replacementLength(array $match): int
+    {
+        $value = $match['value'] ?? null;
+
+        return max(40, is_string($value) ? mb_strlen($value) : 0);
+    }
+
+    /**
+     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}}>  $elements
+     */
+    private function fail(string $failure, array $elements): never
+    {
+        $webview = $this->finder->hasWebView($elements)
             ? "\n\nA WebView is on screen. Blade and Livewire inside <webview> are outside the native accessibility tree."
             : '';
 
-        throw new AssertionFailedError($failure."\n\n".$this->finder->describe($last).$webview.$artifact);
+        throw new AssertionFailedError($failure."\n\n".$this->finder->describe($elements).$webview.$this->captureFailure());
     }
 
     /**

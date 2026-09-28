@@ -168,6 +168,26 @@ it('skips a platform when its devices cannot be listed', function () {
     }
 });
 
+it('gives a dataset value to the test after the device key', function () {
+    $seen = null;
+    $method = new TestCaseMethodFactory(__FILE__, function (string $name) use (&$seen): void {
+        $seen = [$name, \NativePhp\Simulator\Run::device()->name];
+    });
+    $method->datasets[] = [['Ada']];
+
+    SuiteRegistration::run([
+        new Device('ios', 'iPhone 17', true),
+    ], function () use ($method): void {
+        (new MobileTestFilter)->accept($method);
+    });
+
+    ($method->closure)('ios:1:iPhone 17', 'Ada');
+
+    expect($method->datasets[0])->toBe([['ios:1:iPhone 17']])
+        ->and($method->datasets[1])->toBe([['Ada']])
+        ->and($seen)->toBe(['Ada', 'iPhone 17']);
+});
+
 it('still rejects an ambiguous device name', function () {
     Arguments::intercept(['--device=Pixel']);
 

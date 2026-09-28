@@ -9,7 +9,7 @@ use NativePhp\Simulator\Doctor;
 
 final class SimulatorCommand extends Command
 {
-    protected $signature = 'nativephp:simulator {action=doctor : doctor}';
+    protected $signature = 'nativephp:simulator {action=doctor : The action to run (doctor)}';
 
     protected $description = 'Check that this machine can run NativePHP simulator tests';
 
