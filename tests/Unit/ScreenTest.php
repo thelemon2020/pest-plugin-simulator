@@ -45,5 +45,6 @@ it('focuses a field and types', function () {
     (new Screen($driver, timeoutSeconds: 0))->type('Email', 'ada@example.com');
 
     expect($driver->taps)->toBe([[200.0, 300.0]])
+        ->and($driver->clears)->toBe(1)
         ->and($driver->texts)->toBe(['ada@example.com']);
 });

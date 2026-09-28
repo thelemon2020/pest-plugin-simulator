@@ -80,6 +80,29 @@ mobile(function () {
 
 `mobile()` with no platform runs the newest iPhone and the first Android AVD, one after the other. `->ios()` and `->android()` narrow the suite. `->group('ios')` or `->group('android')` narrows one test.
 
+## Drive the screen
+
+```php
+screen('/notes')
+    ->assertNavTitle('Notes')
+    ->assertTabActive('Home')
+    ->type('Title', "Ada's note: 1+1")
+    ->assertValue('Title', "Ada's note: 1+1")
+    ->scroll('down')
+    ->tap('Save');
+
+screen('/notes/1')
+    ->swipe('down')
+    ->goBack()
+    ->assertNavigatedTo('/notes');
+```
+
+`type()` replaces the field. `scroll('down')` reveals content further down the list. `swipe('down')` moves a finger down, which dismisses a modal. `swipe('left', 'Note')` starts that gesture on a row. `goBack()` presses Android back and swipes in from the left edge on iOS.
+
+`assertNavTitle()` reads the navigation bar. `assertTabActive()` reads the selected bottom nav or tab. `assertNavigatedTo('/notes')` passes when that path is an accessibility id, or when the navigation title is the path's last segment. `assertEnabled()`, `assertDisabled()`, and `assertChecked()` read those states from the same tree.
+
+The plugin reads native components. A `<webview>` is one node, so Blade and Livewire inside it are outside `tap()`, `type()`, and `assertSee()`.
+
 iOS needs Xcode and [`idb_companion`](https://github.com/facebook/idb) (`brew install idb-companion`). Android needs `ANDROID_HOME` (or `ANDROID_SDK_ROOT`) with `adb` and `emulator`. The first `screen()` on a device runs `php artisan native:run` for that platform.
 
 ## Choose a device from the CLI

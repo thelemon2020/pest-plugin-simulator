@@ -17,7 +17,18 @@ interface Driver
 
     public function tap(float $x, float $y): void;
 
+    public function swipe(float $x1, float $y1, float $x2, float $y2): void;
+
+    public function back(): void;
+
+    public function clear(): void;
+
     public function text(string $text): void;
+
+    /**
+     * @return array{0: float, 1: float}
+     */
+    public function viewport(): array;
 
     public function screenshot(string $path): void;
 

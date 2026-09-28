@@ -28,8 +28,16 @@ final class Hid
         '1' => [30, false], '2' => [31, false], '3' => [32, false], '4' => [33, false],
         '5' => [34, false], '6' => [35, false], '7' => [36, false], '8' => [37, false],
         '9' => [38, false], '0' => [39, false],
-        ' ' => [44, false], '-' => [45, false], '=' => [46, false], '.' => [55, false],
-        ',' => [54, false], '/' => [56, false], '@' => [31, true],
+        ' ' => [44, false], "\n" => [40, false],
+        '-' => [45, false], '=' => [46, false], '[' => [47, false], ']' => [48, false],
+        '\\' => [49, false], ';' => [51, false], "'" => [52, false], '`' => [53, false],
+        ',' => [54, false], '.' => [55, false], '/' => [56, false],
+        '!' => [30, true], '@' => [31, true], '#' => [32, true], '$' => [33, true],
+        '%' => [34, true], '^' => [35, true], '&' => [36, true], '*' => [37, true],
+        '(' => [38, true], ')' => [39, true], '_' => [45, true], '+' => [46, true],
+        '{' => [47, true], '}' => [48, true], '|' => [49, true], ':' => [51, true],
+        '"' => [52, true], '~' => [53, true], '<' => [54, true], '>' => [55, true],
+        '?' => [56, true],
     ];
 
     public static function point(float $x, float $y): string
@@ -55,14 +63,48 @@ final class Hid
      */
     public static function text(string $text): array
     {
+        $characters = preg_split('//u', $text, -1, PREG_SPLIT_NO_EMPTY);
+
+        if ($characters === false) {
+            throw new SimulatorException('Could not read the text.');
+        }
+
         $events = [];
 
-        foreach (str_split($text) as $character) {
+        foreach ($characters as $character) {
             $key = self::KEYS[$character] ?? throw new SimulatorException("No key for [{$character}].");
             $events = array_merge($events, self::key($key[0], $key[1]));
         }
 
         return $events;
+    }
+
+    /**
+     * @return list<string>
+     */
+    public static function swipe(float $x1, float $y1, float $x2, float $y2): array
+    {
+        $swipe = Protobuf::messageField(1, self::point($x1, $y1))
+            .Protobuf::messageField(2, self::point($x2, $y2))
+            .Protobuf::doubleField(6, 0.3);
+
+        return [Protobuf::messageField(2, $swipe)];
+    }
+
+    /**
+     * @return list<string>
+     */
+    public static function selectAll(): array
+    {
+        return self::chord(227, 4);
+    }
+
+    /**
+     * @return list<string>
+     */
+    public static function backspace(): array
+    {
+        return self::key(42, false);
     }
 
     /**
@@ -83,6 +125,22 @@ final class Hid
         $shiftUp = Protobuf::messageField(1, $shiftPress.Protobuf::varintField(2, 1));
 
         return [$shiftDown, $down, $up, $shiftUp];
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function chord(int $modifier, int $keycode): array
+    {
+        $modifierPress = Protobuf::messageField(1, Protobuf::messageField(3, Protobuf::varintField(1, $modifier)));
+        $keyPress = Protobuf::messageField(1, Protobuf::messageField(3, Protobuf::varintField(1, $keycode)));
+
+        return [
+            Protobuf::messageField(1, $modifierPress),
+            Protobuf::messageField(1, $keyPress),
+            Protobuf::messageField(1, $keyPress.Protobuf::varintField(2, 1)),
+            Protobuf::messageField(1, $modifierPress.Protobuf::varintField(2, 1)),
+        ];
     }
 
     public static function accessibilityInfo(): string

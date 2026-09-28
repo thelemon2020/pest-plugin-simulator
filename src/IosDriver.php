@@ -16,6 +16,9 @@ final class IosDriver implements Driver
 
     private ?Client $client = null;
 
+    /** @var array{0: float, 1: float} */
+    private array $viewport = [390.0, 844.0];
+
     public function __construct(
         private readonly Device $device,
         private readonly Configuration $configuration,
@@ -105,6 +108,12 @@ final class IosDriver implements Driver
             file_put_contents($treePath, $json);
         }
 
+        [$width, $height] = AccessibilityTree::viewport($json);
+
+        if ($width > 0 && $height > 0) {
+            $this->viewport = [$width, $height];
+        }
+
         return AccessibilityTree::summarize($json);
     }
 
@@ -113,9 +122,36 @@ final class IosDriver implements Driver
         $this->client()->stream('hid', Hid::tap($x, $y));
     }
 
+    public function swipe(float $x1, float $y1, float $x2, float $y2): void
+    {
+        $this->client()->stream('hid', Hid::swipe($x1, $y1, $x2, $y2));
+    }
+
+    public function back(): void
+    {
+        [$width, $height] = $this->viewport();
+        [$x1, $y1, $x2, $y2] = Gesture::back($width, $height);
+        $this->swipe($x1, $y1, $x2, $y2);
+    }
+
+    public function clear(): void
+    {
+        $this->client()->stream('hid', Hid::selectAll());
+        $this->client()->stream('hid', Hid::backspace());
+    }
+
     public function text(string $text): void
     {
+        if ($text === '') {
+            return;
+        }
+
         $this->client()->stream('hid', Hid::text($text));
+    }
+
+    public function viewport(): array
+    {
+        return $this->viewport;
     }
 
     public function screenshot(string $path): void

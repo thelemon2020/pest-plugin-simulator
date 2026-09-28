@@ -12,6 +12,9 @@ final class AndroidDriver implements Driver
 
     private ?string $serial = null;
 
+    /** @var array{0: float, 1: float} */
+    private array $viewport = [390.0, 844.0];
+
     private bool $launchedEmulator = false;
 
     private bool $emulatorTracked = false;
@@ -102,7 +105,7 @@ final class AndroidDriver implements Driver
             file_put_contents($treePath, $dump);
         }
 
-        return $this->dismissSystemDialog(AccessibilityTree::summarize($this->xmlToJson($dump)), 0);
+        return $this->dismissSystemDialog($this->elementsFrom($dump), 0);
     }
 
     /**
@@ -120,7 +123,7 @@ final class AndroidDriver implements Driver
                 $this->tap((float) $element['center'][0], (float) $element['center'][1]);
                 usleep(1_000_000);
 
-                return $this->dismissSystemDialog(AccessibilityTree::summarize($this->xmlToJson($this->dumpHierarchy())), $attempt + 1);
+                return $this->dismissSystemDialog($this->elementsFrom($this->dumpHierarchy()), $attempt + 1);
             }
         }
 
@@ -148,10 +151,48 @@ final class AndroidDriver implements Driver
         $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'input', 'tap', (string) $x, (string) $y]);
     }
 
+    public function swipe(float $x1, float $y1, float $x2, float $y2): void
+    {
+        $this->command->run($this->adb(), [
+            '-s', $this->serial(), 'shell', 'input', 'swipe',
+            (string) (int) round($x1),
+            (string) (int) round($y1),
+            (string) (int) round($x2),
+            (string) (int) round($y2),
+            '300',
+        ]);
+    }
+
+    public function back(): void
+    {
+        $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'input', 'keyevent', '4']);
+    }
+
+    public function clear(): void
+    {
+        $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'input', 'keycombination', '113', '29']);
+        $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'input', 'keyevent', '67']);
+    }
+
     public function text(string $text): void
     {
-        $escaped = str_replace([' ', '%', '&', '<', '>', '|', ';'], ['%s', '\%', '\&', '\&lt;', '\&gt;', '\|', '\;'], $text);
-        $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'input', 'text', $escaped]);
+        $lines = explode("\n", $text);
+        $last = count($lines) - 1;
+
+        foreach ($lines as $index => $line) {
+            if ($line !== '') {
+                $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'input', 'text', AndroidText::argument($line)]);
+            }
+
+            if ($index < $last) {
+                $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'input', 'keyevent', '66']);
+            }
+        }
+    }
+
+    public function viewport(): array
+    {
+        return $this->viewport;
     }
 
     public function screenshot(string $path): void
@@ -283,10 +324,39 @@ final class AndroidDriver implements Driver
                 'resource-id' => $node->getAttribute('resource-id'),
                 'class' => $node->getAttribute('class'),
                 'bounds' => $node->getAttribute('bounds'),
+                'checked' => $node->getAttribute('checked'),
+                'enabled' => $node->getAttribute('enabled'),
+                'selected' => $node->getAttribute('selected'),
             ];
         }
 
         return json_encode($nodes) ?: '[]';
+    }
+
+    /**
+     * @return list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}, value: ?string, enabled: bool, selected: bool, checked: bool, chrome: ?string, webview: bool}>
+     */
+    private function elementsFrom(string $dump): array
+    {
+        $this->rememberViewport($dump);
+
+        return AccessibilityTree::summarize($this->xmlToJson($dump));
+    }
+
+    private function rememberViewport(string $dump): void
+    {
+        if (preg_match('/<hierarchy\b([^>]*)>/', $dump, $matches) !== 1) {
+            return;
+        }
+
+        $width = [];
+        $height = [];
+
+        if (preg_match('/\bwidth="([\d.]+)"/', $matches[1], $width) !== 1 || preg_match('/\bheight="([\d.]+)"/', $matches[1], $height) !== 1) {
+            return;
+        }
+
+        $this->viewport = [(float) $width[1], (float) $height[1]];
     }
 
     private function adopt(string $serial): void

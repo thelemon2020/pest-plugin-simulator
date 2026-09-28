@@ -45,7 +45,151 @@ final class Screen
 
         $match = $this->finder->match($elements, $label);
         $this->driver->tap((float) $match['center'][0], (float) $match['center'][1]);
-        $this->driver->text($text);
+        $this->driver->clear();
+
+        if ($text !== '') {
+            $this->driver->text($text);
+        }
+
+        return $this;
+    }
+
+    public function clear(string $label): self
+    {
+        $elements = $this->until(
+            fn (array $visible): bool => $this->canMatch($visible, $label),
+            "Could not find [{$label}] to clear.",
+        );
+
+        $match = $this->finder->match($elements, $label);
+        $this->driver->tap((float) $match['center'][0], (float) $match['center'][1]);
+        $this->driver->clear();
+
+        return $this;
+    }
+
+    public function scroll(string $direction = 'down'): self
+    {
+        $this->read();
+        [$width, $height] = $this->driver->viewport();
+        [$x1, $y1, $x2, $y2] = Gesture::scroll($direction, $width, $height);
+        $this->driver->swipe($x1, $y1, $x2, $y2);
+
+        return $this;
+    }
+
+    public function swipe(string $direction, ?string $from = null): self
+    {
+        $originX = null;
+        $originY = null;
+
+        if ($from !== null) {
+            $elements = $this->until(
+                fn (array $visible): bool => $this->canMatch($visible, $from),
+                "Could not find [{$from}] to swipe.",
+            );
+            $match = $this->finder->match($elements, $from);
+            $originX = (float) $match['center'][0];
+            $originY = (float) $match['center'][1];
+        } else {
+            $this->read();
+        }
+
+        [$width, $height] = $this->driver->viewport();
+        [$x1, $y1, $x2, $y2] = Gesture::swipe($direction, $width, $height, $originX, $originY);
+        $this->driver->swipe($x1, $y1, $x2, $y2);
+
+        return $this;
+    }
+
+    public function goBack(): self
+    {
+        $this->read();
+        $this->driver->back();
+
+        return $this;
+    }
+
+    public function assertValue(string $label, string $value): self
+    {
+        $elements = $this->until(
+            fn (array $elements): bool => $this->finder->hasValue($elements, $label, $value),
+            "[{$label}] did not have value [{$value}].",
+        );
+
+        Assert::assertTrue($this->finder->hasValue($elements, $label, $value));
+
+        return $this;
+    }
+
+    public function assertEnabled(string $label): self
+    {
+        $elements = $this->until(
+            fn (array $elements): bool => $this->finder->isEnabled($elements, $label, true),
+            "[{$label}] was disabled.",
+        );
+
+        Assert::assertTrue($this->finder->isEnabled($elements, $label, true));
+
+        return $this;
+    }
+
+    public function assertDisabled(string $label): self
+    {
+        $elements = $this->until(
+            fn (array $elements): bool => $this->finder->isEnabled($elements, $label, false),
+            "[{$label}] was enabled.",
+        );
+
+        Assert::assertTrue($this->finder->isEnabled($elements, $label, false));
+
+        return $this;
+    }
+
+    public function assertChecked(string $label): self
+    {
+        $elements = $this->until(
+            fn (array $elements): bool => $this->finder->isChecked($elements, $label, true),
+            "[{$label}] was unchecked.",
+        );
+
+        Assert::assertTrue($this->finder->isChecked($elements, $label, true));
+
+        return $this;
+    }
+
+    public function assertNavTitle(string $title): self
+    {
+        $elements = $this->until(
+            fn (array $elements): bool => $this->finder->navTitle($elements, $title),
+            "The navigation title was not [{$title}].",
+        );
+
+        Assert::assertTrue($this->finder->navTitle($elements, $title));
+
+        return $this;
+    }
+
+    public function assertTabActive(string $label): self
+    {
+        $elements = $this->until(
+            fn (array $elements): bool => $this->finder->tabActive($elements, $label),
+            "[{$label}] was not the active tab.",
+        );
+
+        Assert::assertTrue($this->finder->tabActive($elements, $label));
+
+        return $this;
+    }
+
+    public function assertNavigatedTo(string $path): self
+    {
+        $elements = $this->until(
+            fn (array $elements): bool => $this->finder->navigatedTo($elements, $path),
+            "Did not navigate to [{$path}].",
+        );
+
+        Assert::assertTrue($this->finder->navigatedTo($elements, $path));
 
         return $this;
     }
@@ -123,8 +267,11 @@ final class Screen
         } while (microtime(true) < $deadline);
 
         $artifact = $this->captureFailure();
+        $webview = $this->finder->hasWebView($last)
+            ? "\n\nA WebView is on screen. Blade and Livewire inside <webview> are outside the native accessibility tree."
+            : '';
 
-        throw new AssertionFailedError($failure."\n\n".$this->finder->describe($last).$artifact);
+        throw new AssertionFailedError($failure."\n\n".$this->finder->describe($last).$webview.$artifact);
     }
 
     /**

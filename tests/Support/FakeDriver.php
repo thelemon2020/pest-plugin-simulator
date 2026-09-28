@@ -11,6 +11,13 @@ final class FakeDriver implements Driver
     /** @var list<array{0: float, 1: float}> */
     public array $taps = [];
 
+    /** @var list<array{0: float, 1: float, 2: float, 3: float}> */
+    public array $swipes = [];
+
+    public int $backs = 0;
+
+    public int $clears = 0;
+
     /** @var list<string> */
     public array $texts = [];
 
@@ -51,9 +58,29 @@ final class FakeDriver implements Driver
         $this->taps[] = [$x, $y];
     }
 
+    public function swipe(float $x1, float $y1, float $x2, float $y2): void
+    {
+        $this->swipes[] = [$x1, $y1, $x2, $y2];
+    }
+
+    public function back(): void
+    {
+        $this->backs++;
+    }
+
+    public function clear(): void
+    {
+        $this->clears++;
+    }
+
     public function text(string $text): void
     {
         $this->texts[] = $text;
+    }
+
+    public function viewport(): array
+    {
+        return [390.0, 844.0];
     }
 
     public function screenshot(string $path): void {}

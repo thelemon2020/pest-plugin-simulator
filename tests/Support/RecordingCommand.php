@@ -15,6 +15,8 @@ final class RecordingCommand extends Command
     /** @var array<string, string> */
     public array $failures = [];
 
+    public string $output = '';
+
     public function __construct(private readonly string $container = '') {}
 
     public function run(string $binary, array $arguments, ?string $cwd = null): string
@@ -25,6 +27,10 @@ final class RecordingCommand extends Command
             if (in_array($token, $arguments, true)) {
                 throw new SimulatorException($message);
             }
+        }
+
+        if ($this->output !== '') {
+            return $this->output;
         }
 
         if (in_array('get_app_container', $arguments, true)) {
