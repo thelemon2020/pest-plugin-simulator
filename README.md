@@ -7,7 +7,7 @@ Pest 4 and 5 load the plugin on their own. A NativePHP app also gets `php artisa
 ## Install
 
 ```bash
-composer require nativephp/pest-plugin-simulator --dev
+composer require thelemon2020/pest-plugin-simulator --dev
 ```
 
 Allow Pest's plugin manager in the app's `composer.json` if Composer has not already:
