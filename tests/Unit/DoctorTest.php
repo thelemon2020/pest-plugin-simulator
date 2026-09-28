@@ -65,6 +65,11 @@ it('still passes when only android tools are installed', function () {
         ->and($result->render())->toContain('Android Emulator tests can run on this machine.');
 });
 
+it('names the platforms this machine can run', function () {
+    expect((new Doctor(new FakeMachine(xcrun: null, companion: null)))->platforms())->toBe(['android'])
+        ->and((new Doctor(new FakeMachine(sdk: null, adb: null, emulator: null)))->platforms())->toBe(['ios']);
+});
+
 it('fails when neither platform can run', function () {
     Configuration::configure([
         'scheme' => 'myapp',

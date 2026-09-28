@@ -10,6 +10,10 @@ final class AndroidDriver implements Driver
 {
     private static array $built = [];
 
+    private static ?string $privateSerial = null;
+
+    private static ?string $privateDevice = null;
+
     private ?string $serial = null;
 
     /** @var array{0: float, 1: float} */
@@ -27,6 +31,13 @@ final class AndroidDriver implements Driver
 
     public function ensureReady(): void
     {
+        if (Worker::parallel()) {
+            $this->bootForWorker();
+            $this->buildOnce();
+
+            return;
+        }
+
         $booted = $this->bootedAvds();
 
         foreach (BootPlan::shutdowns($this->device->named, $this->device->name, array_keys($booted)) as $name) {
@@ -248,26 +259,55 @@ final class AndroidDriver implements Driver
         }
 
         $log = $this->configuration->appDirectory().'/emulator.log';
+        $this->launch($log, EmulatorBoot::arguments($this->device->name), null);
+    }
+
+    private function bootForWorker(): void
+    {
+        if ($this->serial !== null && self::$privateDevice === $this->device->key()) {
+            return;
+        }
+
+        if (self::$privateSerial !== null) {
+            try {
+                $this->command->run($this->adb(), ['-s', self::$privateSerial, 'emu', 'kill']);
+            } catch (SimulatorException) {
+            }
+
+            self::$privateSerial = null;
+            self::$privateDevice = null;
+        }
+
+        $port = Worker::emulatorPort();
+        $log = $this->configuration->appDirectory().'/emulator-'.Worker::index().'.log';
+        $this->launch($log, EmulatorBoot::arguments($this->device->name, $port), 'emulator-'.$port);
+        self::$privateSerial = $this->serial;
+        self::$privateDevice = $this->device->key();
+    }
+
+    /**
+     * @param  list<string>  $arguments
+     */
+    private function launch(string $log, array $arguments, ?string $serial): void
+    {
         $this->launchedEmulator = true;
-        $pid = $this->command->start($this->emulator(), ['-avd', $this->device->name, '-no-window', '-no-audio', '-no-snapshot-save'], $log);
+        $pid = $this->command->start($this->emulator(), $arguments, $log);
         $command = $this->command;
         Shutdown::defer(function () use ($command, $pid): void {
             $command->stop($pid);
         });
-        $deadline = microtime(true) + 120;
+        $this->waitUntilBooted($log, $serial);
+    }
+
+    private function waitUntilBooted(string $log, ?string $serial, int $timeoutSeconds = EmulatorBoot::TIMEOUT_SECONDS): void
+    {
+        $deadline = microtime(true) + $timeoutSeconds;
 
         while (microtime(true) < $deadline) {
-            $booted = $this->bootedAvds();
+            $match = $this->matchingSerial($serial);
 
-            if (isset($booted[$this->device->name])) {
-                $this->adopt($booted[$this->device->name]);
-                $this->command->run($this->adb(), ['-s', $this->serial(), 'wait-for-device']);
-
-                return;
-            }
-
-            if (! $this->device->named && $booted !== []) {
-                $this->adopt(array_values($booted)[0]);
+            if ($match !== null && $this->bootCompleted($match)) {
+                $this->adopt($match);
 
                 return;
             }
@@ -276,6 +316,38 @@ final class AndroidDriver implements Driver
         }
 
         throw new SimulatorException("The Android Emulator [{$this->device->name}] did not boot. See {$log}.");
+    }
+
+    private function matchingSerial(?string $serial): ?string
+    {
+        if ($serial !== null) {
+            $attached = AvdList::booted($this->command->run($this->adb(), ['devices']));
+
+            return in_array($serial, $attached, true) ? $serial : null;
+        }
+
+        $booted = $this->bootedAvds();
+
+        if (isset($booted[$this->device->name])) {
+            return $booted[$this->device->name];
+        }
+
+        if (! $this->device->named && $booted !== []) {
+            return array_values($booted)[0];
+        }
+
+        return null;
+    }
+
+    private function bootCompleted(string $serial): bool
+    {
+        try {
+            $completed = trim($this->command->run($this->adb(), ['-s', $serial, 'shell', 'getprop', 'sys.boot_completed']));
+        } catch (SimulatorException) {
+            return false;
+        }
+
+        return $completed === '1';
     }
 
     /**
@@ -303,6 +375,14 @@ final class AndroidDriver implements Driver
             return;
         }
 
+        $bundle = $this->configuration->appId();
+
+        if ($bundle !== null && ! Arguments::wantsRebuild() && $this->debugInstalled($bundle)) {
+            self::$built[$key] = true;
+
+            return;
+        }
+
         $arguments = ['artisan', 'native:run', 'android'];
 
         if ($this->serial !== null) {
@@ -313,6 +393,30 @@ final class AndroidDriver implements Driver
 
         $this->command->run('php', $arguments, $this->configuration->appDirectory());
         self::$built[$key] = true;
+    }
+
+    private function debugInstalled(string $bundle): bool
+    {
+        $adb = $this->adb();
+        $serial = $this->serial();
+
+        try {
+            $path = $this->command->run($adb, ['-s', $serial, 'shell', 'pm', 'path', $bundle]);
+        } catch (SimulatorException) {
+            return false;
+        }
+
+        if (! str_contains($path, 'package:')) {
+            return false;
+        }
+
+        try {
+            $dump = $this->command->run($adb, ['-s', $serial, 'shell', 'dumpsys', 'package', $bundle]);
+        } catch (SimulatorException) {
+            return false;
+        }
+
+        return preg_match('/\bDEBUGGABLE\b/', $dump) === 1;
     }
 
     private function xmlToJson(string $dump): string

@@ -27,6 +27,8 @@ final class FakeDriver implements Driver
     /** @var list<string> */
     public array $databases = [];
 
+    public string $databaseContents = '';
+
     /** @var list<array{0: string, 1: string}> */
     public array $events = [];
 
@@ -43,7 +45,10 @@ final class FakeDriver implements Driver
      */
     public function __construct(private readonly array $trees) {}
 
-    public function ensureReady(): void {}
+    public function ensureReady(): void
+    {
+        $this->events[] = ['ready'];
+    }
 
     public function open(string $url): void
     {
@@ -118,6 +123,8 @@ final class FakeDriver implements Driver
 
     public function installDatabase(string $sqlitePath): void
     {
+        $contents = file_get_contents($sqlitePath);
+        $this->databaseContents = is_string($contents) ? $contents : '';
         $this->databases[] = $sqlitePath;
         $this->events[] = ['install', $sqlitePath];
     }

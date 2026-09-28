@@ -12,6 +12,8 @@ final class Arguments
 
     private const DEVICES = 'NATIVEPHP_SIMULATOR_DEVICES';
 
+    private const REBUILD = 'NATIVEPHP_SIMULATOR_REBUILD';
+
     /** @var list<'ios'|'android'>|null */
     private static ?array $platforms = null;
 
@@ -19,6 +21,8 @@ final class Arguments
     private static array $devices = [];
 
     private static bool $doctor = false;
+
+    private static bool $rebuild = false;
 
     /**
      * @param  array<int, string>  $arguments
@@ -28,7 +32,7 @@ final class Arguments
     {
         $parsed = self::parse($arguments);
 
-        if ($parsed['platforms'] === [] && $parsed['devices'] === [] && ! $parsed['doctor']) {
+        if ($parsed['platforms'] === [] && $parsed['devices'] === [] && ! $parsed['doctor'] && ! $parsed['rebuild']) {
             self::hydrate();
 
             return $parsed['kept'];
@@ -37,6 +41,7 @@ final class Arguments
         self::$platforms = $parsed['platforms'] === [] ? null : $parsed['platforms'];
         self::$devices = $parsed['devices'];
         self::$doctor = $parsed['doctor'];
+        self::$rebuild = $parsed['rebuild'];
         self::publish();
 
         return $parsed['kept'];
@@ -45,6 +50,11 @@ final class Arguments
     public static function wantsDoctor(): bool
     {
         return self::$doctor;
+    }
+
+    public static function wantsRebuild(): bool
+    {
+        return self::$rebuild;
     }
 
     /**
@@ -67,7 +77,7 @@ final class Arguments
         }
 
         if (self::$devices === []) {
-            return self::present($pool);
+            return $pool;
         }
 
         $selected = [];
@@ -99,6 +109,10 @@ final class Arguments
                 continue;
             }
 
+            if ($pool === []) {
+                continue;
+            }
+
             $platform = self::overridePlatform($pool);
 
             if ($platform === null) {
@@ -116,19 +130,22 @@ final class Arguments
         self::$platforms = null;
         self::$devices = [];
         self::$doctor = false;
+        self::$rebuild = false;
         putenv(self::PLATFORMS);
         putenv(self::DEVICES);
+        putenv(self::REBUILD);
     }
 
     /**
      * @param  array<int, string>  $arguments
-     * @return array{platforms: list<'ios'|'android'>, devices: list<array{platform: 'ios'|'android'|null, name: string}>, doctor: bool, kept: list<string>}
+     * @return array{platforms: list<'ios'|'android'>, devices: list<array{platform: 'ios'|'android'|null, name: string}>, doctor: bool, rebuild: bool, kept: list<string>}
      */
     private static function parse(array $arguments): array
     {
         $platforms = [];
         $devices = [];
         $doctor = false;
+        $rebuild = false;
         $kept = [];
         $count = count($arguments);
 
@@ -137,6 +154,12 @@ final class Arguments
 
             if ($argument === '--simulator-doctor') {
                 $doctor = true;
+
+                continue;
+            }
+
+            if ($argument === '--rebuild') {
+                $rebuild = true;
 
                 continue;
             }
@@ -175,6 +198,7 @@ final class Arguments
             'platforms' => $platforms,
             'devices' => $devices,
             'doctor' => $doctor,
+            'rebuild' => $rebuild,
             'kept' => $kept,
         ];
     }
@@ -225,6 +249,10 @@ final class Arguments
     private static function present(array $devices): array
     {
         if ($devices === []) {
+            if (self::$platforms !== null) {
+                return [];
+            }
+
             throw new SimulatorException('No device matches '.self::requested().'.');
         }
 
@@ -260,10 +288,18 @@ final class Arguments
         } else {
             putenv(self::DEVICES.'='.json_encode(self::$devices, JSON_THROW_ON_ERROR));
         }
+
+        if (self::$rebuild) {
+            putenv(self::REBUILD.'=1');
+        } else {
+            putenv(self::REBUILD);
+        }
     }
 
     private static function hydrate(): void
     {
+        self::$rebuild = getenv(self::REBUILD) === '1';
+
         $platforms = getenv(self::PLATFORMS);
 
         if (is_string($platforms) && $platforms !== '') {

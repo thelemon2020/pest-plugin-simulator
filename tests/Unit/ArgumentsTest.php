@@ -100,3 +100,19 @@ it('records a doctor request', function () {
 
     expect(Arguments::wantsDoctor())->toBeTrue();
 });
+
+it('strips a rebuild request and keeps it for a worker', function () {
+    $remaining = Arguments::intercept(['vendor/bin/pest', '--rebuild', 'tests/Feature/LightsTest.php']);
+
+    expect($remaining)->toBe([
+        'vendor/bin/pest',
+        'tests/Feature/LightsTest.php',
+    ])->and(Arguments::wantsRebuild())->toBeTrue();
+
+    $rebuild = getenv('NATIVEPHP_SIMULATOR_REBUILD');
+    Arguments::reset();
+    putenv('NATIVEPHP_SIMULATOR_REBUILD='.$rebuild);
+    Arguments::intercept(['vendor/bin/pest']);
+
+    expect(Arguments::wantsRebuild())->toBeTrue();
+});

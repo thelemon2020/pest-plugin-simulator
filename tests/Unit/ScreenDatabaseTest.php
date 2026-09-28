@@ -31,6 +31,7 @@ mobile(function () {
         screen('/lights');
 
         expect($this->driver->events)->toBe([
+            ['ready'],
             ['install', $this->path],
             ['open', 'myapp://lights'],
         ]);
@@ -38,8 +39,10 @@ mobile(function () {
         screen('/settings');
 
         expect($this->driver->events)->toBe([
+            ['ready'],
             ['install', $this->path],
             ['open', 'myapp://lights'],
+            ['ready'],
             ['open', 'myapp://settings'],
         ]);
     });
@@ -48,6 +51,7 @@ mobile(function () {
         screen('/lights');
 
         expect($this->driver->events)->toBe([
+            ['ready'],
             ['install', $this->path],
             ['open', 'myapp://lights'],
         ]);

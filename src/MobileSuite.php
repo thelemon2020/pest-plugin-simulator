@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace NativePhp\Simulator;
 
 use Closure;
-use NativePhp\Simulator\Exceptions\SimulatorException;
 
 final class MobileSuite
 {
@@ -59,33 +58,16 @@ final class MobileSuite
 
     public function __destruct()
     {
-        $catalog = DeviceCatalog::resolve();
-
-        try {
-            $latest = $this->iosTouched || (! $this->iosTouched && ! $this->androidTouched) ? $catalog->latestIphone() : '';
-            $avd = $this->androidTouched || (! $this->iosTouched && ! $this->androidTouched) ? $catalog->defaultAvd() : '';
-        } catch (SimulatorException $exception) {
-            $latest = '';
-            $avd = '';
-
-            if ($this->needsIos() || $this->needsAndroid()) {
-                throw $exception;
-            }
-        }
-
         SuiteRegistration::run(
-            Arguments::select(DevicePlan::resolve($this->iosTouched, $this->ios, $this->androidTouched, $this->android, $latest, $avd)),
+            Arguments::select(SuitePlan::devices(
+                $this->iosTouched,
+                $this->ios,
+                $this->androidTouched,
+                $this->android,
+                Platforms::runnable(),
+                DeviceCatalog::resolve(),
+            )),
             $this->tests,
         );
-    }
-
-    private function needsIos(): bool
-    {
-        return $this->iosTouched || (! $this->iosTouched && ! $this->androidTouched);
-    }
-
-    private function needsAndroid(): bool
-    {
-        return $this->androidTouched || (! $this->iosTouched && ! $this->androidTouched);
     }
 }

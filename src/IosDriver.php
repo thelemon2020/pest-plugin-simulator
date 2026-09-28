@@ -12,6 +12,12 @@ final class IosDriver implements Driver
 {
     private static array $built = [];
 
+    private static ?int $companionPid = null;
+
+    private static ?string $companionSimulator = null;
+
+    private static ?string $workerSimulator = null;
+
     private ?string $udid = null;
 
     private ?Client $client = null;
@@ -23,9 +29,22 @@ final class IosDriver implements Driver
         private readonly Device $device,
         private readonly Configuration $configuration,
         private readonly Command $command = new Command,
+        private readonly Socket $socket = new Socket,
     ) {}
 
     public function ensureReady(): void
+    {
+        if (Worker::parallel()) {
+            $this->bootForWorker();
+        } else {
+            $this->bootShared();
+        }
+
+        $this->startCompanion();
+        $this->buildOnce();
+    }
+
+    private function bootShared(): void
     {
         $json = $this->command->run('xcrun', ['simctl', 'list', 'devices', 'available', '-j']);
         $booted = SimulatorList::booted($json);
@@ -53,9 +72,50 @@ final class IosDriver implements Driver
                 });
             }
         }
+    }
 
-        $this->startCompanion();
-        $this->buildOnce();
+    private function bootForWorker(): void
+    {
+        if ($this->udid !== null && self::$workerSimulator === $this->udid) {
+            return;
+        }
+
+        $this->releaseWorkerSimulator();
+        $json = $this->command->run('xcrun', ['simctl', 'list', 'devices', 'available', '-j']);
+        $source = SimulatorList::udidFor($json, $this->device->name);
+        $this->udid = trim($this->command->run('xcrun', ['simctl', 'clone', $source, $this->device->name.' '.Worker::nameSuffix()]));
+        self::$workerSimulator = $this->udid;
+        $this->command->run('xcrun', ['simctl', 'boot', $this->udid]);
+        $this->command->run('xcrun', ['simctl', 'bootstatus', $this->udid, '-b']);
+        $simulator = $this->udid;
+        $command = $this->command;
+        Shutdown::defer(function () use ($command, $simulator): void {
+            self::forgetSimulator($command, $simulator);
+        });
+    }
+
+    private function releaseWorkerSimulator(): void
+    {
+        if (self::$workerSimulator === null) {
+            return;
+        }
+
+        $simulator = self::$workerSimulator;
+        self::$workerSimulator = null;
+        self::forgetSimulator($this->command, $simulator);
+    }
+
+    private static function forgetSimulator(Command $command, string $simulator): void
+    {
+        try {
+            $command->run('xcrun', ['simctl', 'shutdown', $simulator]);
+        } catch (SimulatorException) {
+        }
+
+        try {
+            $command->run('xcrun', ['simctl', 'delete', $simulator]);
+        } catch (SimulatorException) {
+        }
     }
 
     public function open(string $url): void
@@ -201,6 +261,14 @@ final class IosDriver implements Driver
             return;
         }
 
+        $bundle = $this->configuration->appId();
+
+        if ($bundle !== null && ! Arguments::wantsRebuild() && $this->debugInstalled($bundle)) {
+            self::$built[$key] = true;
+
+            return;
+        }
+
         $this->command->run('php', [
             'artisan', 'native:run', 'ios', $this->udid(), '--build=debug', '--no-tty',
         ], $this->configuration->appDirectory());
@@ -208,21 +276,62 @@ final class IosDriver implements Driver
         self::$built[$key] = true;
     }
 
+    private function debugInstalled(string $bundle): bool
+    {
+        try {
+            $container = rtrim(trim($this->command->run('xcrun', [
+                'simctl', 'get_app_container', $this->udid(), $bundle, 'app',
+            ])), '/');
+        } catch (SimulatorException) {
+            return false;
+        }
+
+        if ($container === '' || ! str_ends_with($container, '.app')) {
+            return false;
+        }
+
+        try {
+            $entitlements = $this->command->run('codesign', ['-d', '--entitlements', '-', $container]);
+        } catch (SimulatorException) {
+            return false;
+        }
+
+        return preg_match('/get-task-allow<\/key>\s*<true\s*\/>/i', $entitlements) === 1
+            || preg_match('/\[Key\]\s*get-task-allow\s*\[Value\]\s*\[Bool\]\s*true/i', $entitlements) === 1;
+    }
+
     private function startCompanion(): void
     {
-        $port = 10882;
-        $socket = @fsockopen('127.0.0.1', $port, $errno, $error, 0.2);
+        if ($this->client !== null) {
+            return;
+        }
 
-        if (is_resource($socket)) {
-            fclose($socket);
+        $port = Worker::grpcPort();
+        $simulator = $this->udid();
+
+        if (self::$companionSimulator === $simulator && $this->socket->reachable($port)) {
             $this->client = new Client('http://127.0.0.1:'.$port);
 
             return;
         }
 
-        $binary = Companion::binary();
-        $log = $this->configuration->appDirectory().'/companion.log';
-        $pid = $this->command->start($binary, ['--udid', $this->udid(), '--grpc-port', (string) $port, '--log-level', 'info'], $log);
+        if (self::$companionPid !== null) {
+            $this->command->stop(self::$companionPid);
+            self::$companionPid = null;
+            self::$companionSimulator = null;
+        }
+
+        if (! Worker::parallel() && $this->socket->reachable($port)) {
+            $this->client = new Client('http://127.0.0.1:'.$port);
+
+            return;
+        }
+
+        $suffix = Worker::parallel() ? '-'.Worker::index() : '';
+        $log = $this->configuration->appDirectory().'/companion'.$suffix.'.log';
+        $pid = $this->command->start(Companion::binary(), ['--udid', $simulator, '--grpc-port', (string) $port, '--log-level', 'info'], $log);
+        self::$companionPid = $pid;
+        self::$companionSimulator = $simulator;
         $command = $this->command;
         Shutdown::defer(function () use ($command, $pid): void {
             $command->stop($pid);
@@ -231,10 +340,7 @@ final class IosDriver implements Driver
         $deadline = microtime(true) + 10;
 
         while (microtime(true) < $deadline) {
-            $socket = @fsockopen('127.0.0.1', $port, $errno, $error, 0.2);
-
-            if (is_resource($socket)) {
-                fclose($socket);
+            if ($this->socket->reachable($port)) {
                 $this->client = new Client('http://127.0.0.1:'.$port);
 
                 return;

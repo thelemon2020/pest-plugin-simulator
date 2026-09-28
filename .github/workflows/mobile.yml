@@ -1,0 +1,74 @@
+name: mobile
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+# iOS Simulator on macOS. Android Emulator on Linux or macOS.
+# Installing the SDK is best-effort: a missing SDK skips those tests.
+jobs:
+  ios:
+    name: iOS Simulator
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          coverage: none
+          tools: composer
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Install idb_companion
+        continue-on-error: true
+        run: brew install idb-companion
+
+      - name: Run iOS tests
+        run: vendor/bin/pest --ios
+
+  android:
+    name: Android Emulator
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          coverage: none
+          tools: composer
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - uses: android-actions/setup-android@v3
+        continue-on-error: true
+
+      - name: Enable KVM
+        continue-on-error: true
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install an Android emulator
+        continue-on-error: true
+        run: |
+          if ! command -v sdkmanager >/dev/null 2>&1; then
+            echo "Android SDK is unavailable. Tests that need it will skip."
+            exit 0
+          fi
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install "platform-tools" "emulator" "platforms;android-35" "system-images;android-35;google_apis;x86_64"
+          echo no | avdmanager create avd --force --name pest --package "system-images;android-35;google_apis;x86_64" --device pixel_6
+
+      - name: Run Android tests
+        run: vendor/bin/pest --android

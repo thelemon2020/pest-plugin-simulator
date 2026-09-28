@@ -34,10 +34,10 @@ final class DoctorResult
         $lines[] = '';
         $lines[] = ($this->ready('Xcode simctl') && $this->ready('idb_companion'))
             ? 'iOS Simulator tests can run on this machine.'
-            : 'iOS Simulator tests need Xcode and idb_companion (`brew install idb-companion`).';
+            : Doctor::unavailable('ios');
         $lines[] = ($this->ready('Android SDK') && $this->ready('adb') && $this->ready('emulator'))
             ? 'Android Emulator tests can run on this machine.'
-            : 'Android Emulator tests need the Android SDK, adb, and the emulator package.';
+            : Doctor::unavailable('android');
         $lines[] = '';
 
         return implode("\n", $lines);

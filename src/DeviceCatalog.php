@@ -30,6 +30,13 @@ final class DeviceCatalog
         self::$instance = new self;
     }
 
+    public static function reset(): void
+    {
+        self::$instance = null;
+        self::$latestIphone = null;
+        self::$defaultAvd = null;
+    }
+
     public static function resolve(): self
     {
         return self::$instance ??= new self(new Command);

@@ -6,6 +6,7 @@ namespace NativePhp\Simulator;
 
 use Pest\Contracts\TestCaseMethodFilter;
 use Pest\Factories\TestCaseMethodFactory;
+use PHPUnit\Framework\Assert;
 use PHPUnit\Framework\Attributes\Group;
 
 final class MobileTestFilter implements TestCaseMethodFilter
@@ -17,17 +18,27 @@ final class MobileTestFilter implements TestCaseMethodFilter
         }
 
         $devices = DevicePlan::filter(SuiteRegistration::devices(), $this->platforms($method));
-        $original = $method->closure;
 
         if ($devices === []) {
-            $method->datasets[] = ['missing'];
-            $method->closure = function (): void {
-                throw new Exceptions\SimulatorException('This test is limited to a platform the mobile suite does not run.');
-            };
+            $this->skip($method, 'This test is limited to a platform the mobile suite does not run.');
 
             return true;
         }
 
+        $runnable = Platforms::runnable();
+        $matched = $devices;
+        $devices = array_values(array_filter(
+            $devices,
+            fn (Device $device): bool => in_array($device->platform, $runnable, true),
+        ));
+
+        if ($devices === []) {
+            $this->skip($method, $this->unavailable($matched));
+
+            return true;
+        }
+
+        $original = $method->closure;
         $method->datasets[] = array_map(
             fn (Device $device): array => [$device->key()],
             $devices,
@@ -47,6 +58,37 @@ final class MobileTestFilter implements TestCaseMethodFilter
         };
 
         return true;
+    }
+
+    private function skip(TestCaseMethodFactory $method, string $reason): void
+    {
+        $method->closure = function () use ($reason): void {
+            Assert::markTestSkipped($reason);
+        };
+    }
+
+    /**
+     * @param  list<Device>  $devices
+     */
+    private function unavailable(array $devices): string
+    {
+        $platforms = [];
+
+        foreach ($devices as $device) {
+            $platforms[$device->platform] = true;
+        }
+
+        $messages = [];
+
+        if (isset($platforms['ios'])) {
+            $messages[] = Doctor::unavailable('ios');
+        }
+
+        if (isset($platforms['android'])) {
+            $messages[] = Doctor::unavailable('android');
+        }
+
+        return implode(' ', $messages);
     }
 
     /**

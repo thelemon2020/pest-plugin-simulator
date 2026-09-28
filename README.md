@@ -80,6 +80,14 @@ mobile(function () {
 
 `mobile()` with no platform runs the newest iPhone and the first Android AVD, one after the other. `->ios()` and `->android()` narrow the suite. `->group('ios')` or `->group('android')` narrows one test.
 
+## Prepare the app
+
+The first `screen()` on a device skips the build when a debug app for this bundle is already on the booted device. That check does not start the app. When no debug app is installed, the screen runs `php artisan native:run` with `--build=debug`, which installs and launches, and the plugin then force-stops the app. Pass `--rebuild` to compile again.
+
+The first `screen()` of each test copies the host SQLite database into the app container while the app is stopped, and only then opens the route. NativePHP runs migrations when the app starts, so that open migrates the snapshot. An install-time database does not replace it. On iOS the file is `Library/Application Support/database/database.sqlite`. On Android it is `app_storage/persisted_data/database/database.sqlite`. A later `screen()` in the same test leaves rows the app wrote. The next test copies the snapshot again before it opens the app.
+
+The host connection has to be a file (`DB_CONNECTION=sqlite`). An in-memory database stops the test: the snapshot needs a file-backed SQLite database.
+
 ## Drive the screen
 
 ```php
@@ -103,7 +111,7 @@ screen('/notes/1')
 
 The plugin reads native components. A `<webview>` is one node, so Blade and Livewire inside it are outside `tap()`, `type()`, and `assertSee()`.
 
-iOS needs Xcode and [`idb_companion`](https://github.com/facebook/idb) (`brew install idb-companion`). Android needs `ANDROID_HOME` (or `ANDROID_SDK_ROOT`) with `adb` and `emulator`. The first `screen()` on a device runs `php artisan native:run` for that platform.
+iOS needs Xcode and [`idb_companion`](https://github.com/facebook/idb) (`brew install idb-companion`). Android needs `ANDROID_HOME` (or `ANDROID_SDK_ROOT`) with `adb` and `emulator`.
 
 ## Grant permissions
 
@@ -174,9 +182,10 @@ vendor/bin/pest --ios
 vendor/bin/pest --android
 vendor/bin/pest --ios --device="iPhone 17 Pro"
 vendor/bin/pest --device=ios:"iPhone 17 Pro" --device=android:"Pixel 8"
+vendor/bin/pest --rebuild
 ```
 
-`--ios` and `--android` keep that platform from the suite. `--device` runs that named device. Prefix a name with `ios:` or `android:` to pin both platforms in one command. A bare name on a single-platform run replaces the suite's device. These options are removed before PHPUnit starts, and a parallel worker inherits the same selection.
+`--ios` and `--android` keep that platform from the suite. A suite or test that specifies the other platform is skipped. `--device` runs that named device. Prefix a name with `ios:` or `android:` to pin both platforms in one command. A bare name on a single-platform run replaces the suite's device. `--rebuild` runs `native:run` even when a debug build is already installed. These options are removed before PHPUnit starts, and a parallel worker inherits the same selection on its own idb_companion port and booted device.
 
 ## Check the machine
 
@@ -188,6 +197,14 @@ vendor/bin/pest --simulator-doctor
 
 The doctor reports Xcode's `simctl`, `idb_companion`, the Android SDK, `adb`, `emulator`, the deep link scheme, the deep link host, and the app id. The command exits with a failure when the app id is missing, both link values are missing, or neither platform has its tools.
 
+## Run in CI
+
+[`.github/workflows/mobile.yml`](.github/workflows/mobile.yml) runs the iOS Simulator on macOS and the Android Emulator on Linux. A job installs that platform's tools and runs `vendor/bin/pest --ios` or `vendor/bin/pest --android`. macOS can host the Android Emulator as well.
+
+Each Pest worker gets its own `idb_companion` port and its own booted device. The Android Emulator starts headless, renders in software, and cold-boots from a wiped snapshot. If it does not finish, the failure names the emulator log.
+
+A test limited to a platform the suite does not run is skipped. A machine without Xcode and `idb_companion`, or without the Android SDK, skips the tests that needed that platform.
+
 ## Cleanup
 
-A finished Pest process shuts down the Simulator, Emulator, and `idb_companion` that the run started. A device that was already booted, and a companion that was already listening, stay up.
+A finished Pest process shuts down the Simulator, Emulator, and `idb_companion` that the run started. A device that was already booted, and an `idb_companion` that was already listening, stay up.
