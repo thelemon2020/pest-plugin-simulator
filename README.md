@@ -2,7 +2,7 @@
 
 Pest plugin that drives a NativePHP app on an iOS Simulator or Android Emulator. Tests registered in `mobile()` open a route with `screen()`, then tap, type, and assert against the real screen.
 
-Pest 3, 4, and 5 load the plugin on their own. A NativePHP app also gets `php artisan nativephp:simulator`, which checks the machine before the first run.
+Pest 4 and 5 load the plugin on their own. A NativePHP app also gets `php artisan nativephp:simulator`, which checks the machine before the first run.
 
 ## Install
 
