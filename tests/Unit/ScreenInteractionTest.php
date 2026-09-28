@@ -64,6 +64,27 @@ it('reads chrome, tabs, and control state', function () {
         ->assertEnabled('Home');
 });
 
+it('names an unlabeled control when a tap misses', function () {
+    $driver = new FakeDriver([[
+        control('Home'),
+        control('', ['id' => 'save-button', 'center' => [8.0, 9.0]]),
+    ]]);
+
+    expect(fn () => (new Screen($driver, timeoutSeconds: 0, failureDirectory: sys_get_temp_dir().'/simulator-unlabeled-test'))
+        ->tap('Save'))
+        ->toThrow(AssertionFailedError::class, 'These controls have no accessibility label: Button [save-button].');
+});
+
+it('taps a control by its accessibility id', function () {
+    $driver = new FakeDriver([[
+        control('', ['id' => 'save-button', 'center' => [8.0, 9.0]]),
+    ]]);
+
+    (new Screen($driver, timeoutSeconds: 0))->tap('save-button');
+
+    expect($driver->taps)->toBe([[8.0, 9.0]]);
+});
+
 it('says when the screen is a web view', function () {
     $driver = new FakeDriver([[
         control('Page', ['role' => 'WebView', 'webview' => true]),

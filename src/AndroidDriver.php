@@ -181,8 +181,12 @@ final class AndroidDriver implements Driver
 
     public function clear(): void
     {
-        $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'input', 'keycombination', '113', '29']);
-        $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'input', 'keyevent', '67']);
+        // Select-all is Ctrl+A. On the emulator that modifier stays down, so the
+        // next "input text" treats c as Copy and the character never lands.
+        $this->command->run($this->adb(), [
+            '-s', $this->serial(), 'shell', 'input', 'keyevent', '123',
+            ...array_fill(0, 40, '67'),
+        ]);
     }
 
     public function text(string $text): void
@@ -191,14 +195,30 @@ final class AndroidDriver implements Driver
         $last = count($lines) - 1;
 
         foreach ($lines as $index => $line) {
-            if ($line !== '') {
-                $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'input', 'text', AndroidText::argument($line)]);
+            // One character per call. A single "input text" of the whole
+            // string overflows the emulator queue, and Compose drops letters.
+            foreach ($this->characters($line) as $character) {
+                $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'input', 'text', AndroidText::argument($character)]);
             }
 
             if ($index < $last) {
                 $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'input', 'keyevent', '66']);
             }
         }
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function characters(string $text): array
+    {
+        $characters = preg_split('//u', $text, -1, PREG_SPLIT_NO_EMPTY);
+
+        if ($characters === false) {
+            throw new SimulatorException('Could not read the text.');
+        }
+
+        return $characters;
     }
 
     public function viewport(): array
@@ -458,6 +478,7 @@ final class AndroidDriver implements Driver
                 'package' => $node->getAttribute('package'),
                 'bounds' => $node->getAttribute('bounds'),
                 'checked' => $node->getAttribute('checked'),
+                'checkable' => $node->getAttribute('checkable'),
                 'enabled' => $node->getAttribute('enabled'),
                 'selected' => $node->getAttribute('selected'),
             ];

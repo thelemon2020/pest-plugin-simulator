@@ -11,6 +11,28 @@ $button = fn (string $label, ?string $id = null, array $center = [10, 10], strin
     'center' => $center,
 ];
 
+it('taps an accessibility id when the control has no label', function () use ($button) {
+    $match = (new ElementFinder)->match([
+        $button('', 'save-button', [8, 9]),
+    ], 'save-button');
+
+    expect($match['center'])->toBe([8, 9]);
+});
+
+it('names unlabeled controls in the failure description', function () use ($button) {
+    $description = (new ElementFinder)->describe([
+        $button('Home'),
+        $button('', 'save-button', [8, 9]),
+        $button('', null, [1, 2], 'Image'),
+    ]);
+
+    expect($description)
+        ->toContain('Button: Home')
+        ->toContain('Button: [save-button]')
+        ->toContain('Image: (no label)')
+        ->toContain('These controls have no accessibility label: Button [save-button], Image.');
+});
+
 it('prefers an accessibility identifier over a label', function () use ($button) {
     $match = (new ElementFinder)->match([
         $button('Something else', 'vibrate-card', [1, 2]),
@@ -45,6 +67,16 @@ it('matches a label that contains the text when nothing is exact', function () u
     ], 'lights on');
 
     expect($match['label'])->toBe('Turn the lights on');
+});
+
+it('types into the field when its label is also static text', function () use ($button) {
+    $match = (new ElementFinder)->match([
+        $button('Email', null, [49, 344], 'StaticText'),
+        $button('Email', null, [201, 380], 'TextField'),
+    ], 'Email');
+
+    expect($match['role'])->toBe('TextField')
+        ->and($match['center'])->toBe([201, 380]);
 });
 
 it('refuses to guess between two buttons with the same label', function () use ($button) {

@@ -111,6 +111,8 @@ screen('/notes/1')
 
 The plugin reads native components. A `<webview>` is one node, so Blade and Livewire inside it are outside `tap()`, `type()`, and `assertSee()`.
 
+`tap()`, `type()`, and the assertions match an accessibility id, then an exact label, then a label that contains the text. That label is the text the platform announces: the control's visible text, or its `a11y-label`. An icon button, chip, tab, or nav action announces nothing until that prop is set. `screen()->tap('save-button')` matches an accessibility id, including when the control has no visible text. NativePHP's in-process `ref` reaches this tree when the native view publishes that ref as the accessibility id. `assertAccessible()` flags a missing label on the wire tree before a device run.
+
 iOS needs Xcode and [`idb_companion`](https://github.com/facebook/idb) (`brew install idb-companion`). Android needs `ANDROID_HOME` (or `ANDROID_SDK_ROOT`) with `adb` and `emulator`.
 
 ## Grant permissions
@@ -173,7 +175,7 @@ The iOS "Open in…" dialog and Android's "Wait" button are still dismissed auto
 
 ## When an assertion fails
 
-A failed assertion writes `tree.json` and `screen.png`. It also copies the app's PHP log, `laravel.log`, out of the app container: `Library/Application Support/storage/logs/laravel.log` on iOS, and `app_storage/persisted_data/storage/logs/laravel.log` on Android. Android adds `logcat.txt`, a slice of logcat for that app id. The failure message lists each path that was written.
+A failed assertion writes `tree.json` and `screen.png`. It also copies the app's PHP log, `laravel.log`, out of the app container: `Library/Application Support/storage/logs/laravel.log` on iOS, and `app_storage/persisted_data/storage/logs/laravel.log` on Android. Android adds `logcat.txt`, a slice of logcat for that app id. The failure message lists each path that was written, and it lists the controls on screen. A control with no accessibility label is named by its role, and by its accessibility id when it has one.
 
 ## Choose a device from the CLI
 

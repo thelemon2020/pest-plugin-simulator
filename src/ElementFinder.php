@@ -306,10 +306,20 @@ final class ElementFinder
     public function describe(array $elements): string
     {
         $lines = [];
+        $unlabeled = [];
 
         foreach ($elements as $element) {
             $role = $element['role'] ?? 'Element';
-            $line = "{$role}: {$element['label']}";
+            $id = $element['id'] ?? null;
+            $id = is_string($id) && $id !== '' ? $id : null;
+
+            if ($element['label'] === '') {
+                $line = $id !== null ? "{$role}: [{$id}]" : "{$role}: (no label)";
+                $unlabeled[] = $id !== null ? "{$role} [{$id}]" : $role;
+            } else {
+                $line = "{$role}: {$element['label']}";
+            }
+
             $value = $element['value'] ?? null;
 
             if (is_string($value) && $value !== '' && $value !== $element['label']) {
@@ -319,7 +329,17 @@ final class ElementFinder
             $lines[] = $line;
         }
 
-        return $lines === [] ? '(no labels)' : implode("\n", $lines);
+        if ($lines === []) {
+            return '(no labels)';
+        }
+
+        $body = implode("\n", $lines);
+
+        if ($unlabeled === []) {
+            return $body;
+        }
+
+        return $body."\n\nThese controls have no accessibility label: ".implode(', ', $unlabeled).'.';
     }
 
     /**
@@ -375,6 +395,17 @@ final class ElementFinder
         ));
 
         $pool = $buttons === [] ? $matches : $buttons;
+
+        if (count($pool) > 1) {
+            $fields = array_values(array_filter(
+                $pool,
+                fn (array $element): bool => $element['role'] === 'TextField',
+            ));
+
+            if (count($fields) === 1) {
+                return $fields[0];
+            }
+        }
 
         if (count($pool) > 1) {
             throw new AmbiguousMatch($target, $pool);

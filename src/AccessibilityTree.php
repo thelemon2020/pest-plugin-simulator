@@ -18,15 +18,20 @@ final class AccessibilityTree
         }
 
         $nodes = [];
+        $selections = [];
 
         if (array_is_list($parsed)) {
+            $parsed = self::prepareFlatNodes($parsed);
+
             foreach ($parsed as $node) {
                 if (is_array($node)) {
                     self::walk($node, $nodes);
+                    self::selectionFrames($node, $selections);
                 }
             }
         } else {
             self::walk($parsed, $nodes);
+            self::selectionFrames($parsed, $selections);
         }
 
         $rows = [];
@@ -47,21 +52,28 @@ final class AccessibilityTree
                 $label = 'Photo';
             }
 
-            if ($label === '') {
+            $identifier = $node['AXUniqueId'] ?? $node['identifier'] ?? $node['resource-id'] ?? null;
+            $identifier = is_string($identifier) && $identifier !== '' ? $identifier : null;
+            $center = self::center($node);
+
+            if ($label === '' && $identifier === null && ! self::interactive($role, $center)) {
                 continue;
             }
 
-            $identifier = $node['AXUniqueId'] ?? $node['identifier'] ?? $node['resource-id'] ?? null;
-            $identifier = is_string($identifier) && $identifier !== '' ? $identifier : null;
+            $selected = self::selected($node);
+
+            if (! $selected && self::covered($center, $selections)) {
+                $selected = true;
+            }
 
             $rows[] = [
                 'label' => $label,
                 'role' => $role,
                 'id' => $identifier,
-                'center' => self::center($node),
+                'center' => $center,
                 'value' => $value,
                 'enabled' => self::enabled($node),
-                'selected' => self::selected($node),
+                'selected' => $selected,
                 'checked' => self::checked($node, $role),
                 'chrome' => $chrome,
                 'webview' => $role === 'WebView',
@@ -85,6 +97,181 @@ final class AccessibilityTree
         }
 
         return [$width, $height];
+    }
+
+    /**
+     * Compose draws an outlined field as an EditText whose text is the value
+     * and a TextView inside it whose text is the label. A checkbox is a
+     * checkable view with the label on a child. The dump is flat, so containment
+     * is how those belong together.
+     *
+     * @param  list<array<mixed>>  $nodes
+     * @return list<array<mixed>>
+     */
+    private static function prepareFlatNodes(array $nodes): array
+    {
+        $frames = [];
+
+        foreach ($nodes as $index => $node) {
+            $frames[$index] = is_array($node) ? self::frame($node) : null;
+        }
+
+        $drop = [];
+
+        foreach ($nodes as $index => $node) {
+            if (! is_array($node) || ! self::isField($node)) {
+                continue;
+            }
+
+            $outer = $frames[$index];
+
+            if ($outer === null || trim((string) ($node['content-desc'] ?? '')) !== '') {
+                continue;
+            }
+
+            foreach ($nodes as $otherIndex => $other) {
+                if ($otherIndex === $index || ! is_array($other) || ! self::isCaption($other)) {
+                    continue;
+                }
+
+                $label = trim((string) ($other['text'] ?? ''));
+                $inner = $frames[$otherIndex];
+
+                if ($label === '' || $label === trim((string) ($node['text'] ?? '')) || $inner === null || ! self::frameInside($inner, $outer)) {
+                    continue;
+                }
+
+                $nodes[$index]['content-desc'] = $label;
+                $drop[$otherIndex] = true;
+
+                break;
+            }
+        }
+
+        foreach ($nodes as $index => $node) {
+            if (! is_array($node) || ! self::truthy($node['checkable'] ?? false) || ! self::truthy($node['checked'] ?? false)) {
+                continue;
+            }
+
+            if (trim((string) ($node['text'] ?? '')) !== '' || trim((string) ($node['content-desc'] ?? '')) !== '') {
+                continue;
+            }
+
+            $outer = $frames[$index];
+
+            if ($outer === null) {
+                continue;
+            }
+
+            foreach ($nodes as $otherIndex => $other) {
+                if ($otherIndex === $index || isset($drop[$otherIndex]) || ! is_array($other)) {
+                    continue;
+                }
+
+                $inner = $frames[$otherIndex];
+                $label = trim((string) ($other['content-desc'] ?? $other['text'] ?? ''));
+
+                if ($label === '' || $inner === null || ! self::frameInside($inner, $outer)) {
+                    continue;
+                }
+
+                $nodes[$otherIndex]['checked'] = 'true';
+            }
+        }
+
+        $kept = [];
+
+        foreach ($nodes as $index => $node) {
+            if (! isset($drop[$index])) {
+                $kept[] = $node;
+            }
+        }
+
+        return $kept;
+    }
+
+    /**
+     * @param  array<mixed>  $node
+     */
+    private static function isField(array $node): bool
+    {
+        $class = strtolower((string) ($node['class'] ?? $node['type'] ?? ''));
+
+        return str_contains($class, 'edittext') || str_contains($class, 'textfield');
+    }
+
+    /**
+     * @param  array<mixed>  $node
+     */
+    private static function isCaption(array $node): bool
+    {
+        $class = strtolower((string) ($node['class'] ?? $node['type'] ?? ''));
+
+        return str_contains($class, 'textview') || str_contains($class, 'statictext');
+    }
+
+    /**
+     * @param  array{0: float, 1: float, 2: float, 3: float}  $inner
+     * @param  array{0: float, 1: float, 2: float, 3: float}  $outer
+     */
+    private static function frameInside(array $inner, array $outer): bool
+    {
+        return $inner[0] >= $outer[0] - 1
+            && $inner[1] >= $outer[1] - 1
+            && ($inner[0] + $inner[2]) <= ($outer[0] + $outer[2] + 1)
+            && ($inner[1] + $inner[3]) <= ($outer[1] + $outer[3] + 1);
+    }
+
+    /**
+     * iOS 26 draws the active tab as a lens over the button, and that lens
+     * carries no selected trait of its own. Android draws the same kind of
+     * pill as an empty selected view.
+     *
+     * @param  array<mixed>  $node
+     * @param  list<array{0: float, 1: float, 2: float, 3: float}>  $frames
+     */
+    private static function selectionFrames(array $node, array &$frames): void
+    {
+        $type = strtolower((string) ($node['type'] ?? $node['role'] ?? $node['AXRole'] ?? $node['class'] ?? ''));
+
+        $frame = self::frame($node);
+        $label = trim((string) ($node['AXLabel'] ?? $node['label'] ?? $node['text'] ?? $node['content-desc'] ?? ''));
+        $small = $frame !== null && $frame[2] <= 400 && $frame[3] <= 400;
+
+        if ($frame !== null && (str_contains($type, 'tabselection') || ($small && $label === '' && self::truthy($node['selected'] ?? false)))) {
+            $frames[] = $frame;
+        }
+
+        foreach (['children', 'AXChildren', 'nodes', 'elements'] as $key) {
+            if (! isset($node[$key]) || ! is_array($node[$key])) {
+                continue;
+            }
+
+            foreach ($node[$key] as $child) {
+                if (is_array($child)) {
+                    self::selectionFrames($child, $frames);
+                }
+            }
+        }
+    }
+
+    /**
+     * @param  array{0: float, 1: float}|null  $center
+     * @param  list<array{0: float, 1: float, 2: float, 3: float}>  $frames
+     */
+    private static function covered(?array $center, array $frames): bool
+    {
+        if ($center === null) {
+            return false;
+        }
+
+        foreach ($frames as [$x, $y, $width, $height]) {
+            if ($center[0] >= $x && $center[0] <= $x + $width && $center[1] >= $y && $center[1] <= $y + $height) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -114,6 +301,17 @@ final class AccessibilityTree
                 }
             }
         }
+    }
+
+    /**
+     * Buttons, fields, switches, images, and web views stay in the tree
+     * when they have a frame, so a failure can name one that has no label.
+     *
+     * @param  array{0: float, 1: float}|null  $center
+     */
+    private static function interactive(?string $role, ?array $center): bool
+    {
+        return $center !== null && in_array($role, ['Button', 'TextField', 'Switch', 'Image', 'WebView'], true);
     }
 
     /**
@@ -204,6 +402,10 @@ final class AccessibilityTree
         }
 
         $value = $node['AXValue'] ?? $node['value'] ?? null;
+
+        if (is_string($value) && strcasecmp(trim($value), 'checked') === 0) {
+            return true;
+        }
 
         return $value === true || $value === 1 || $value === 1.0 || $value === '1' || $value === 'true';
     }

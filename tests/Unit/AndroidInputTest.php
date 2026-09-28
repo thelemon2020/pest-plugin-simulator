@@ -18,22 +18,38 @@ it('types punctuation and a newline through adb', function () {
     $driver->text("a+b:c'd");
     $driver->text("a b\nc");
 
-    expect($command->calls[0][1])->toBe(['-s', 'emulator-5554', 'shell', 'input', 'text', "a+b:c'd"])
-        ->and($command->calls[1][1])->toBe(['-s', 'emulator-5554', 'shell', 'input', 'text', 'a%sb'])
-        ->and($command->calls[2][1])->toBe(['-s', 'emulator-5554', 'shell', 'input', 'keyevent', '66'])
-        ->and($command->calls[3][1])->toBe(['-s', 'emulator-5554', 'shell', 'input', 'text', 'c']);
+    $typed = array_map(
+        fn (array $call): string => implode(' ', array_slice($call[1], 4)),
+        $command->calls,
+    );
+
+    expect($typed)->toBe([
+        'text a',
+        'text +',
+        'text b',
+        'text :',
+        'text c',
+        "text '",
+        'text d',
+        'text a',
+        'text %s',
+        'text b',
+        'keyevent 66',
+        'text c',
+    ]);
 });
 
-it('clears with select-all and presses back', function () {
+it('clears by deleting from the end of the field', function () {
     $command = new RecordingCommand;
     $driver = androidDriver($command);
 
     $driver->clear();
     $driver->back();
 
-    expect($command->calls[0][1])->toBe(['-s', 'emulator-5554', 'shell', 'input', 'keycombination', '113', '29'])
-        ->and($command->calls[1][1])->toBe(['-s', 'emulator-5554', 'shell', 'input', 'keyevent', '67'])
-        ->and($command->calls[2][1])->toBe(['-s', 'emulator-5554', 'shell', 'input', 'keyevent', '4']);
+    expect($command->calls[0][1])->toBe([
+        '-s', 'emulator-5554', 'shell', 'input', 'keyevent', '123',
+        ...array_fill(0, 40, '67'),
+    ])->and($command->calls[1][1])->toBe(['-s', 'emulator-5554', 'shell', 'input', 'keyevent', '4']);
 });
 
 it('reads the emulator screen size from the hierarchy', function () {
