@@ -41,6 +41,12 @@ final class AccessibilityTree
                 $label = $value;
             }
 
+            $chrome = is_string($node['__chrome'] ?? null) ? $node['__chrome'] : null;
+
+            if ($label === '' && $role === 'Image' && $chrome === 'photos') {
+                $label = 'Photo';
+            }
+
             if ($label === '') {
                 continue;
             }
@@ -57,7 +63,7 @@ final class AccessibilityTree
                 'enabled' => self::enabled($node),
                 'selected' => self::selected($node),
                 'checked' => self::checked($node, $role),
-                'chrome' => is_string($node['__chrome'] ?? null) ? $node['__chrome'] : null,
+                'chrome' => $chrome,
                 'webview' => $role === 'WebView',
             ];
         }
@@ -87,7 +93,13 @@ final class AccessibilityTree
      */
     private static function walk(array $node, array &$nodes, ?string $chrome = null): void
     {
-        $chrome = self::chrome($node) ?? $chrome;
+        $own = self::chrome($node);
+
+        if (self::isSystem($chrome) && ($own === null || $own === 'navigation' || $own === 'tab')) {
+            $own = $chrome;
+        }
+
+        $chrome = $own ?? $chrome;
         $node['__chrome'] = $chrome;
         $nodes[] = $node;
 
@@ -196,11 +208,22 @@ final class AccessibilityTree
         return $value === true || $value === 1 || $value === 1.0 || $value === '1' || $value === 'true';
     }
 
+    private static function isSystem(?string $chrome): bool
+    {
+        return $chrome === 'alert' || $chrome === 'share' || $chrome === 'photos';
+    }
+
     /**
      * @param  array<mixed>  $node
      */
     private static function chrome(array $node): ?string
     {
+        $system = self::systemChrome($node);
+
+        if ($system !== null) {
+            return $system;
+        }
+
         $role = strtolower((string) ($node['type'] ?? $node['role'] ?? $node['AXRole'] ?? $node['class'] ?? ''));
 
         if (str_contains($role, 'navigationbar') || str_contains($role, 'toolbar') || str_contains($role, 'actionbar')) {
@@ -209,6 +232,56 @@ final class AccessibilityTree
 
         if (str_contains($role, 'tabbar') || str_contains($role, 'bottomnavigation') || str_contains($role, 'tabwidget')) {
             return 'tab';
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<mixed>  $node
+     */
+    private static function systemChrome(array $node): ?string
+    {
+        $role = strtolower((string) ($node['type'] ?? $node['role'] ?? $node['AXRole'] ?? $node['class'] ?? ''));
+        $id = strtolower((string) ($node['resource-id'] ?? $node['AXUniqueId'] ?? $node['identifier'] ?? ''));
+        $package = strtolower((string) ($node['package'] ?? ''));
+        $label = strtolower(trim((string) ($node['AXLabel'] ?? $node['label'] ?? $node['text'] ?? $node['content-desc'] ?? '')));
+        $sheet = str_contains($role, 'sheet');
+
+        if (
+            str_contains($package, 'intentresolver')
+            || str_contains($package, 'chooser')
+            || str_contains($role, 'chooser')
+            || str_contains($role, 'uiactivity')
+            || str_contains($role, 'activitylist')
+            || str_contains($role, 'activityview')
+            || str_contains($id, 'resolver')
+            || str_contains($id, 'chooser')
+            || ($sheet && ($label === 'share' || $label === 'share via'))
+        ) {
+            return 'share';
+        }
+
+        if (
+            str_contains($package, 'providers.media')
+            || str_contains($role, 'phpicker')
+            || str_contains($role, 'photospicker')
+            || (str_contains($role, 'picker') && str_contains($role, 'photo'))
+            || ($sheet && ($label === 'photos' || $label === 'recents' || $label === 'photo library'))
+        ) {
+            return 'photos';
+        }
+
+        if (
+            str_contains($role, 'alert')
+            || str_contains($role, 'actionsheet')
+            || str_contains($role, 'action sheet')
+            || str_contains($id, 'android:id/button')
+            || str_contains($id, 'android:id/alerttitle')
+            || str_contains($id, 'android:id/parentpanel')
+            || $sheet
+        ) {
+            return 'alert';
         }
 
         return null;
@@ -344,6 +417,10 @@ final class AccessibilityTree
 
         if (str_contains($role, 'Button')) {
             return 'Button';
+        }
+
+        if (str_contains($role, 'Image')) {
+            return 'Image';
         }
 
         return $role;

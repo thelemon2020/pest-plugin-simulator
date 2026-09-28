@@ -30,6 +30,12 @@ final class FakeDriver implements Driver
     /** @var list<array{0: string, 1: string}> */
     public array $events = [];
 
+    /** @var list<list<string>> */
+    public array $grants = [];
+
+    /** @var array<string, string> */
+    public array $savedLogs = [];
+
     private int $reads = 0;
 
     /**
@@ -49,6 +55,10 @@ final class FakeDriver implements Driver
     {
         $tree = $this->trees[min($this->reads, count($this->trees) - 1)];
         $this->reads++;
+
+        if ($treePath !== null) {
+            file_put_contents($treePath, json_encode($tree) ?: '[]');
+        }
 
         return $tree;
     }
@@ -83,7 +93,28 @@ final class FakeDriver implements Driver
         return [390.0, 844.0];
     }
 
-    public function screenshot(string $path): void {}
+    public function screenshot(string $path): void
+    {
+        file_put_contents($path, 'png');
+    }
+
+    public function grant(array $services): void
+    {
+        $this->grants[] = array_values($services);
+    }
+
+    public function captureLogs(string $directory): array
+    {
+        $paths = [];
+
+        foreach ($this->savedLogs as $name => $contents) {
+            $path = $directory.'/'.$name;
+            file_put_contents($path, $contents);
+            $paths[] = $path;
+        }
+
+        return $paths;
+    }
 
     public function installDatabase(string $sqlitePath): void
     {

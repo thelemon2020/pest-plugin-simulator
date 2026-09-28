@@ -159,6 +159,40 @@ final class IosDriver implements Driver
         $this->command->run('xcrun', ['simctl', 'io', $this->udid(), 'screenshot', $path]);
     }
 
+    public function grant(array $services): void
+    {
+        $bundle = $this->configuration->bundleId();
+
+        foreach (Permissions::targets('ios', $services) as $service) {
+            Permissions::attempt(fn () => $this->command->run('xcrun', [
+                'simctl', 'privacy', $this->udid(), 'grant', $service, $bundle,
+            ]));
+        }
+    }
+
+    public function captureLogs(string $directory): array
+    {
+        try {
+            $container = rtrim(trim($this->command->run('xcrun', [
+                'simctl', 'get_app_container', $this->udid(), $this->configuration->bundleId(), 'data',
+            ])), '/');
+        } catch (SimulatorException) {
+            return [];
+        }
+
+        if ($container === '') {
+            return [];
+        }
+
+        $source = $container.'/Library/Application Support/storage/logs/laravel.log';
+
+        if (! is_file($source) || ! copy($source, $directory.'/laravel.log')) {
+            return [];
+        }
+
+        return [$directory.'/laravel.log'];
+    }
+
     private function buildOnce(): void
     {
         $key = $this->device->key();

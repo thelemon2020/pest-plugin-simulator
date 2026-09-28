@@ -15,6 +15,9 @@ final class RecordingCommand extends Command
     /** @var array<string, string> */
     public array $failures = [];
 
+    /** @var array<string, string> */
+    public array $outputs = [];
+
     public string $output = '';
 
     public function __construct(private readonly string $container = '') {}
@@ -26,6 +29,12 @@ final class RecordingCommand extends Command
         foreach ($this->failures as $token => $message) {
             if (in_array($token, $arguments, true)) {
                 throw new SimulatorException($message);
+            }
+        }
+
+        foreach ($this->outputs as $token => $body) {
+            if (in_array($token, $arguments, true)) {
+                return $body;
             }
         }
 

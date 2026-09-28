@@ -32,5 +32,15 @@ interface Driver
 
     public function screenshot(string $path): void;
 
+    /**
+     * @param  list<string>  $services
+     */
+    public function grant(array $services): void;
+
+    /**
+     * @return list<string>
+     */
+    public function captureLogs(string $directory): array;
+
     public function installDatabase(string $sqlitePath): void;
 }

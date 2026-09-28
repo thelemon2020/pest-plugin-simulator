@@ -110,6 +110,81 @@ final class Screen
         return $this;
     }
 
+    public function alert(string $label): self
+    {
+        $elements = $this->until(
+            fn (array $elements): bool => $this->finder->alertButton($elements, $label) !== null,
+            "The alert did not offer [{$label}].",
+        );
+        $button = $this->finder->alertButton($elements, $label);
+        $this->driver->tap((float) $button['center'][0], (float) $button['center'][1]);
+
+        return $this;
+    }
+
+    public function share(?string $target = null): self
+    {
+        if ($target === null) {
+            $elements = $this->until(
+                fn (array $elements): bool => $this->finder->sharing($elements),
+                'The share sheet was not open.',
+            );
+            $button = $this->finder->shareDismiss($elements);
+
+            if ($button === null) {
+                $this->driver->back();
+
+                return $this;
+            }
+
+            $this->driver->tap((float) $button['center'][0], (float) $button['center'][1]);
+
+            return $this;
+        }
+
+        $elements = $this->until(
+            fn (array $elements): bool => $this->finder->shareButton($elements, $target) !== null,
+            "The share sheet did not offer [{$target}].",
+        );
+        $button = $this->finder->shareButton($elements, $target);
+        $this->driver->tap((float) $button['center'][0], (float) $button['center'][1]);
+
+        return $this;
+    }
+
+    public function pickPhoto(): self
+    {
+        $elements = $this->until(
+            fn (array $elements): bool => $this->finder->firstPhoto($elements) !== null,
+            'The photo picker had no image.',
+        );
+        $photo = $this->finder->firstPhoto($elements);
+        $this->driver->tap((float) $photo['center'][0], (float) $photo['center'][1]);
+        $confirm = $this->finder->photoConfirm($elements);
+
+        if ($confirm === null) {
+            $confirm = $this->finder->photoConfirm($this->read());
+        }
+
+        if ($confirm !== null) {
+            $this->driver->tap((float) $confirm['center'][0], (float) $confirm['center'][1]);
+        }
+
+        return $this;
+    }
+
+    public function cancelPhoto(): self
+    {
+        $elements = $this->until(
+            fn (array $elements): bool => $this->finder->photoButton($elements, 'Cancel') !== null,
+            'The photo picker had no [Cancel] button.',
+        );
+        $button = $this->finder->photoButton($elements, 'Cancel');
+        $this->driver->tap((float) $button['center'][0], (float) $button['center'][1]);
+
+        return $this;
+    }
+
     public function assertValue(string $label, string $value): self
     {
         $elements = $this->until(
@@ -324,9 +399,15 @@ final class Screen
             mkdir($root, 0777, true);
         }
 
+        $saved = [];
+
         try {
             $this->driver->describe($root.'/tree.json');
         } catch (SimulatorException) {
+        }
+
+        if (is_file($root.'/tree.json')) {
+            $saved[] = $root.'/tree.json';
         }
 
         try {
@@ -334,6 +415,26 @@ final class Screen
         } catch (SimulatorException) {
         }
 
-        return "\n\nSaved {$root}";
+        if (is_file($root.'/screen.png')) {
+            $saved[] = $root.'/screen.png';
+        }
+
+        try {
+            foreach ($this->driver->captureLogs($root) as $path) {
+                if (is_file($path)) {
+                    $saved[] = $path;
+                }
+            }
+        } catch (SimulatorException) {
+        }
+
+        if ($saved === []) {
+            return "\n\nSaved {$root}";
+        }
+
+        return "\n\n".implode("\n", array_map(
+            fn (string $path): string => "Saved {$path}",
+            $saved,
+        ));
     }
 }

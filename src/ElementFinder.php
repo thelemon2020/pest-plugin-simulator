@@ -194,6 +194,99 @@ final class ElementFinder
     }
 
     /**
+     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}, chrome?: ?string}>  $elements
+     * @return array{label: string, role: ?string, id: ?string, center: array{0: float, 1: float}}|null
+     */
+    public function alertButton(array $elements, string $label): ?array
+    {
+        return $this->labeled($elements, 'alert', $label);
+    }
+
+    /**
+     * @param  list<array{label: string, role: ?string, chrome?: ?string}>  $elements
+     */
+    public function sharing(array $elements): bool
+    {
+        return $this->within($elements, 'share') !== [];
+    }
+
+    /**
+     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}, chrome?: ?string}>  $elements
+     * @return array{label: string, role: ?string, id: ?string, center: array{0: float, 1: float}}|null
+     */
+    public function shareButton(array $elements, string $label): ?array
+    {
+        return $this->labeled($elements, 'share', $label);
+    }
+
+    /**
+     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}, chrome?: ?string}>  $elements
+     * @return array{label: string, role: ?string, id: ?string, center: array{0: float, 1: float}}|null
+     */
+    public function shareDismiss(array $elements): ?array
+    {
+        foreach (['Close', 'Cancel'] as $label) {
+            $button = $this->shareButton($elements, $label);
+
+            if ($button !== null) {
+                return $button;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}, chrome?: ?string}>  $elements
+     * @return array{label: string, role: ?string, id: ?string, center: array{0: float, 1: float}}|null
+     */
+    public function photoButton(array $elements, string $label): ?array
+    {
+        return $this->labeled($elements, 'photos', $label);
+    }
+
+    /**
+     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}, chrome?: ?string}>  $elements
+     * @return array{label: string, role: ?string, id: ?string, center: array{0: float|int, 1: float|int}}|null
+     */
+    public function firstPhoto(array $elements): ?array
+    {
+        $photos = array_values(array_filter(
+            $elements,
+            fn (array $element): bool => $this->isPhoto($element),
+        ));
+
+        if ($photos === []) {
+            return null;
+        }
+
+        usort($photos, function (array $left, array $right): int {
+            $vertical = $left['center'][1] <=> $right['center'][1];
+
+            return $vertical !== 0 ? $vertical : $left['center'][0] <=> $right['center'][0];
+        });
+
+        return $photos[0];
+    }
+
+    /**
+     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}, chrome?: ?string}>  $elements
+     * @return array{label: string, role: ?string, id: ?string, center: array{0: float, 1: float}}|null
+     */
+    public function photoConfirm(array $elements): ?array
+    {
+        foreach (['Add', 'Done'] as $label) {
+            $button = $this->photoButton($elements, $label);
+
+            if ($button !== null) {
+                return $button;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * @param  list<array{label: string, role: ?string, webview?: bool}>  $elements
      */
     public function hasWebView(array $elements): bool
@@ -227,6 +320,47 @@ final class ElementFinder
         }
 
         return $lines === [] ? '(no labels)' : implode("\n", $lines);
+    }
+
+    /**
+     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}, chrome?: ?string}>  $elements
+     * @return array{label: string, role: ?string, id: ?string, center: array{0: float, 1: float}}|null
+     */
+    private function labeled(array $elements, string $chrome, string $label): ?array
+    {
+        try {
+            return $this->match($this->within($elements, $chrome), $label);
+        } catch (NoMatch) {
+            return null;
+        }
+    }
+
+    /**
+     * @param  list<array{chrome?: ?string}>  $elements
+     * @return list<array{chrome?: ?string}>
+     */
+    private function within(array $elements, string $chrome): array
+    {
+        return array_values(array_filter(
+            $elements,
+            fn (array $element): bool => ($element['chrome'] ?? null) === $chrome,
+        ));
+    }
+
+    /**
+     * @param  array{label: string, role: ?string, center?: ?array{0: float|int, 1: float|int}, chrome?: ?string}  $element
+     */
+    private function isPhoto(array $element): bool
+    {
+        if (($element['chrome'] ?? null) !== 'photos' || ! is_array($element['center'] ?? null)) {
+            return false;
+        }
+
+        if (in_array($element['label'], ['Photos', 'Recents', 'Photo Library', 'Cancel', 'Add', 'Done', 'Close', 'Back'], true)) {
+            return false;
+        }
+
+        return ($element['role'] ?? null) === 'Image' || str_starts_with($element['label'], 'Photo');
     }
 
     /**

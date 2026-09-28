@@ -105,6 +105,68 @@ The plugin reads native components. A `<webview>` is one node, so Blade and Live
 
 iOS needs Xcode and [`idb_companion`](https://github.com/facebook/idb) (`brew install idb-companion`). Android needs `ANDROID_HOME` (or `ANDROID_SDK_ROOT`) with `adb` and `emulator`. The first `screen()` on a device runs `php artisan native:run` for that platform.
 
+## Grant permissions
+
+The first `screen()` on a booted device grants privacy access after the app is installed and before that screen opens. Later screens on the same device do not grant again.
+
+iOS runs `xcrun simctl privacy <udid> grant <service> <bundle-id>`. Android runs `adb shell pm grant <bundle-id> <permission>`. A permission the app did not declare is skipped. These are the services the NativePHP facades prompt for:
+
+| Service | What asks for it | iOS | Android |
+| --- | --- | --- | --- |
+| `camera` | `Camera::getPhoto()`, `Camera::recordVideo()` | `microphone`. `simctl` has no camera service; recording asks for the microphone | `CAMERA`, `RECORD_AUDIO` |
+| `photos` | `Camera::pickImages()` | `photos`, `media-library` | `READ_MEDIA_IMAGES`, `READ_MEDIA_VIDEO`, `READ_MEDIA_AUDIO`, `ACCESS_MEDIA_LOCATION` |
+| `location` | `Geolocation` while the app is in use, and `Camera` when `includeLocation` is set | `location` | `ACCESS_COARSE_LOCATION`, `ACCESS_FINE_LOCATION` |
+| `notifications` | `LocalNotifications::requestPermission()` | none. `simctl` has no notifications service | `POST_NOTIFICATIONS` |
+| `contacts` | contact read and write | `contacts` | `READ_CONTACTS`, `WRITE_CONTACTS` |
+
+`Biometrics::prompt()` is the system authentication sheet, not one of these grants.
+
+The default is the whole set. Opt into a smaller set before the first `screen()` on that device:
+
+```php
+permissions(['camera', 'photos']);
+
+screen('/profile')->tap('Take photo');
+```
+
+`permissions([])` grants nothing. Set the same list for every test with `Configuration::configure(['permissions' => ['location']])`. A `permissions()` call in the test wins.
+
+An iOS camera prompt or notification prompt cannot be pre-granted. Answer it with `alert('Allow')` when the test expects the app to ask.
+
+## Answer system sheets
+
+`Dialog::alert()` and an action sheet stay up until the test taps a button. `Share::url()` and `Share::file()` open the share sheet. `Camera::pickImages()` opens the photo picker. None of these are dismissed on their own, so the call fails when the app did not ask.
+
+```php
+screen('/notes/1')
+    ->tap('Delete')
+    ->alert('Delete');
+
+screen('/notes/1')
+    ->tap('Share')
+    ->share('Copy');
+
+screen('/notes/1')
+    ->tap('Share')
+    ->share();
+
+screen('/profile')
+    ->tap('Choose')
+    ->pickPhoto();
+
+screen('/profile')
+    ->tap('Choose')
+    ->cancelPhoto();
+```
+
+`alert()` taps that label on the alert or action sheet. `share()` dismisses the sheet, and `share('Copy')` taps a named target. `pickPhoto()` taps the first image, then Add or Done when the picker is showing one. `cancelPhoto()` taps Cancel.
+
+The iOS "Open in…" dialog and Android's "Wait" button are still dismissed automatically.
+
+## When an assertion fails
+
+A failed assertion writes `tree.json` and `screen.png`. It also copies the app's PHP log, `laravel.log`, out of the app container: `Library/Application Support/storage/logs/laravel.log` on iOS, and `app_storage/persisted_data/storage/logs/laravel.log` on Android. Android adds `logcat.txt`, a slice of logcat for that app id. The failure message lists each path that was written.
+
 ## Choose a device from the CLI
 
 ```bash

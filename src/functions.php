@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use NativePhp\Simulator\Configuration;
 use NativePhp\Simulator\MobileSuite;
+use NativePhp\Simulator\Permissions;
 use NativePhp\Simulator\Run;
 use NativePhp\Simulator\Screen;
 use NativePhp\Simulator\Sessions;
@@ -14,6 +15,14 @@ function mobile(Closure $tests): MobileSuite
     return new MobileSuite($tests);
 }
 
+/**
+ * @param  list<string>  $services
+ */
+function permissions(array $services): void
+{
+    Permissions::only($services);
+}
+
 function screen(string $path): Screen
 {
     $device = Run::device();
@@ -21,6 +30,7 @@ function screen(string $path): Screen
     $driver = Sessions::get($device);
     $driver->ensureReady();
     TestDatabase::publish($driver);
+    Permissions::apply($driver, $device->key());
     $driver->open($configuration->urlFor($path));
 
     return new Screen($driver, timeoutSeconds: $configuration->timeout());

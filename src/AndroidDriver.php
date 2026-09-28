@@ -202,6 +202,34 @@ final class AndroidDriver implements Driver
         file_put_contents($path, $png);
     }
 
+    public function grant(array $services): void
+    {
+        $bundle = $this->configuration->bundleId();
+
+        foreach (Permissions::targets('android', $services) as $permission) {
+            Permissions::attempt(fn () => $this->command->run($this->adb(), [
+                '-s', $this->serial(), 'shell', 'pm', 'grant', $bundle, $permission,
+            ]));
+        }
+    }
+
+    public function captureLogs(string $directory): array
+    {
+        $bundle = $this->configuration->bundleId();
+        $saved = [];
+        $php = $this->read(['shell', 'run-as', $bundle, 'cat', 'app_storage/persisted_data/storage/logs/laravel.log']);
+
+        if ($this->keep($php, $directory.'/laravel.log')) {
+            $saved[] = $directory.'/laravel.log';
+        }
+
+        if ($this->keep($this->logcat($bundle), $directory.'/logcat.txt')) {
+            $saved[] = $directory.'/logcat.txt';
+        }
+
+        return $saved;
+    }
+
     /**
      * @param  array<string, string>  $booted
      */
@@ -323,6 +351,7 @@ final class AndroidDriver implements Driver
                 'content-desc' => $node->getAttribute('content-desc'),
                 'resource-id' => $node->getAttribute('resource-id'),
                 'class' => $node->getAttribute('class'),
+                'package' => $node->getAttribute('package'),
                 'bounds' => $node->getAttribute('bounds'),
                 'checked' => $node->getAttribute('checked'),
                 'enabled' => $node->getAttribute('enabled'),
@@ -376,6 +405,54 @@ final class AndroidDriver implements Driver
             } catch (SimulatorException) {
             }
         });
+    }
+
+    private function logcat(string $bundle): ?string
+    {
+        $parts = preg_split('/\s+/', trim($this->read(['shell', 'pidof', $bundle]) ?? '')) ?: [];
+        $pid = $parts[0] ?? '';
+
+        if ($pid !== '' && ctype_digit($pid)) {
+            return $this->read(['logcat', '-d', '-t', '400', '--pid='.$pid]);
+        }
+
+        $dump = $this->read(['logcat', '-d', '-t', '400']);
+
+        if ($dump === null || $dump === '') {
+            return null;
+        }
+
+        $lines = array_values(array_filter(
+            preg_split('/\r\n|\n|\r/', $dump) ?: [],
+            fn (string $line): bool => str_contains($line, $bundle),
+        ));
+
+        if ($lines === []) {
+            return null;
+        }
+
+        return implode("\n", array_slice($lines, -200))."\n";
+    }
+
+    /**
+     * @param  list<string>  $arguments
+     */
+    private function read(array $arguments): ?string
+    {
+        try {
+            return $this->command->run($this->adb(), array_merge(['-s', $this->serial()], $arguments));
+        } catch (SimulatorException) {
+            return null;
+        }
+    }
+
+    private function keep(?string $contents, string $path): bool
+    {
+        if ($contents === null || $contents === '') {
+            return false;
+        }
+
+        return file_put_contents($path, $contents) !== false;
     }
 
     private function serial(): string

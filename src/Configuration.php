@@ -18,8 +18,11 @@ final class Configuration
 
     private static ?string $appDirectory = null;
 
+    /** @var list<string>|null */
+    private static ?array $permissions = null;
+
     /**
-     * @param  array{scheme?: string, host?: string, bundle_id?: string, timeout?: float, app_directory?: string}  $values
+     * @param  array{scheme?: string, host?: string, bundle_id?: string, timeout?: float, app_directory?: string, permissions?: list<string>|null}  $values
      */
     public static function configure(array $values): void
     {
@@ -42,6 +45,10 @@ final class Configuration
         if (isset($values['app_directory'])) {
             self::$appDirectory = $values['app_directory'];
         }
+
+        if (array_key_exists('permissions', $values)) {
+            self::$permissions = $values['permissions'];
+        }
     }
 
     public static function reset(): void
@@ -51,6 +58,7 @@ final class Configuration
         self::$bundleId = null;
         self::$timeout = 15.0;
         self::$appDirectory = null;
+        self::$permissions = null;
     }
 
     public static function resolve(): self
@@ -61,15 +69,20 @@ final class Configuration
             resolvedBundleId: self::present(self::$bundleId ?? self::env('NATIVEPHP_APP_ID') ?? self::laravel('app_id')),
             resolvedTimeout: self::$timeout,
             resolvedAppDirectory: self::$appDirectory ?? getcwd(),
+            resolvedPermissions: self::$permissions,
         );
     }
 
+    /**
+     * @param  list<string>|null  $resolvedPermissions
+     */
     private function __construct(
         private readonly ?string $resolvedScheme,
         private readonly ?string $resolvedHost,
         private readonly ?string $resolvedBundleId,
         private readonly float $resolvedTimeout,
         private readonly string $resolvedAppDirectory,
+        private readonly ?array $resolvedPermissions,
     ) {}
 
     public function scheme(): string
@@ -109,6 +122,14 @@ final class Configuration
     public function appDirectory(): string
     {
         return $this->resolvedAppDirectory;
+    }
+
+    /**
+     * @return list<string>|null
+     */
+    public function permissions(): ?array
+    {
+        return $this->resolvedPermissions;
     }
 
     public function urlFor(string $path): string
