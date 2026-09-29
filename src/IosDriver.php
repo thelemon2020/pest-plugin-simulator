@@ -20,6 +20,8 @@ final class IosDriver implements Driver
 
     private ?string $udid = null;
 
+    private ?int $recordingPid = null;
+
     private ?Client $client = null;
 
     /** @var array{0: float, 1: float} */
@@ -217,6 +219,25 @@ final class IosDriver implements Driver
     public function screenshot(string $path): void
     {
         $this->command->run('xcrun', ['simctl', 'io', $this->udid(), 'screenshot', $path]);
+    }
+
+    public function startRecording(string $path): void
+    {
+        $this->recordingPid = $this->command->start('xcrun', [
+            'simctl', 'io', $this->udid(), 'recordVideo', '--codec=h264', '--force', $path,
+        ], $this->recordingLog());
+    }
+
+    public function stopRecording(): void
+    {
+        if ($this->recordingPid === null) {
+            return;
+        }
+
+        $pid = $this->recordingPid;
+        $this->recordingPid = null;
+        // simctl writes the movie when this process receives SIGINT.
+        $this->command->interrupt($pid);
     }
 
     public function grant(array $services): void
@@ -429,5 +450,10 @@ final class IosDriver implements Driver
     private function udid(): string
     {
         return $this->udid ?? throw new SimulatorException('No iOS Simulator is selected.');
+    }
+
+    private function recordingLog(): string
+    {
+        return sys_get_temp_dir().'/pest-simulator-record-'.Worker::index().'.log';
     }
 }

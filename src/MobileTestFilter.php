@@ -52,9 +52,13 @@ final class MobileTestFilter implements TestCaseMethodFilter
             try {
                 return $original instanceof \Closure ? $original->call($this, ...$args) : null;
             } finally {
-                Permissions::forgetRequest();
-                TestDatabase::end();
-                Run::clear();
+                try {
+                    Recording::finish();
+                } finally {
+                    Permissions::forgetRequest();
+                    TestDatabase::end();
+                    Run::clear();
+                }
             }
         };
 

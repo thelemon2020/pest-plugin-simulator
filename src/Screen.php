@@ -307,6 +307,29 @@ final class Screen
         return $this;
     }
 
+    public function record(?string $path = null): self
+    {
+        if (! Run::inside()) {
+            throw new SimulatorException('record() only works inside a mobile() suite.');
+        }
+
+        Recording::request($path === '' ? null : $path);
+        Recording::begin($this->driver, Run::device());
+
+        return $this;
+    }
+
+    public function stopRecord(): self
+    {
+        if (! Run::inside()) {
+            throw new SimulatorException('stopRecord() only works inside a mobile() suite.');
+        }
+
+        Recording::stop($this->driver);
+
+        return $this;
+    }
+
     /**
      * @param  callable(list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}}): bool>  $predicate
      * @return list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}}>

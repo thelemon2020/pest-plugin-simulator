@@ -51,16 +51,46 @@ class Command
 
     public function stop(int $pid): void
     {
+        $this->signal($pid, SIGTERM, 'kill ');
+    }
+
+    public function interrupt(int $pid): void
+    {
+        $this->signal($pid, SIGINT, 'kill -INT ');
+        $this->wait($pid);
+    }
+
+    public function wait(int $pid, float $seconds = 10): bool
+    {
+        if ($pid <= 0 || ! function_exists('posix_kill')) {
+            return true;
+        }
+
+        $deadline = microtime(true) + $seconds;
+
+        while (microtime(true) < $deadline) {
+            if (! posix_kill($pid, 0)) {
+                return true;
+            }
+
+            usleep(50_000);
+        }
+
+        return posix_kill($pid, 0) === false;
+    }
+
+    private function signal(int $pid, int $signal, string $command): void
+    {
         if ($pid <= 0) {
             return;
         }
 
         if (function_exists('posix_kill')) {
-            posix_kill($pid, SIGTERM);
+            posix_kill($pid, $signal);
 
             return;
         }
 
-        exec('kill '.$pid.' >/dev/null 2>&1');
+        exec($command.$pid.' >/dev/null 2>&1');
     }
 }

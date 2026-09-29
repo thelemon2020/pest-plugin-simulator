@@ -32,6 +32,10 @@ interface Driver
 
     public function screenshot(string $path): void;
 
+    public function startRecording(string $path): void;
+
+    public function stopRecording(): void;
+
     /**
      * @param  list<string>  $services
      */

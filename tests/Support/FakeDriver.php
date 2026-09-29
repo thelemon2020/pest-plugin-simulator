@@ -43,6 +43,8 @@ final class FakeDriver implements Driver
     /** @var array<string, string> */
     public array $savedLogs = [];
 
+    public ?string $recording = null;
+
     private int $reads = 0;
 
     /**
@@ -107,6 +109,17 @@ final class FakeDriver implements Driver
     public function screenshot(string $path): void
     {
         file_put_contents($path, 'png');
+    }
+
+    public function startRecording(string $path): void
+    {
+        $this->recording = $path;
+        $this->events[] = ['record', $path];
+    }
+
+    public function stopRecording(): void
+    {
+        $this->events[] = ['record-stop'];
     }
 
     public function grant(array $services): void

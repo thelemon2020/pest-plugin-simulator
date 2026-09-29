@@ -58,6 +58,27 @@ it('clears a long field before replacing it', function () {
     expect($driver->cleared)->toBe(80);
 });
 
+it('writes a screenshot of the current screen', function () {
+    $path = sys_get_temp_dir().'/simulator-shot-'.uniqid('', true).'/screen.png';
+    $driver = new FakeDriver([[control('Save')]]);
+
+    try {
+        (new Screen($driver, timeoutSeconds: 0))->screenshot($path);
+
+        expect(file_get_contents($path))->toBe('png');
+    } finally {
+        if (is_file($path)) {
+            unlink($path);
+        }
+
+        $directory = dirname($path);
+
+        if (is_dir($directory)) {
+            rmdir($directory);
+        }
+    }
+});
+
 it('saves the screen when a label matches more than one control', function () {
     $directory = sys_get_temp_dir().'/simulator-ambiguous-'.uniqid('', true);
     $driver = new FakeDriver([[

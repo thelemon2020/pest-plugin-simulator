@@ -78,4 +78,14 @@ final class RecordingCommand extends Command
     {
         $this->calls[] = ['kill', [(string) $pid]];
     }
+
+    public function interrupt(int $pid): void
+    {
+        $this->calls[] = ['interrupt', [(string) $pid]];
+    }
+
+    public function wait(int $pid, float $seconds = 10): bool
+    {
+        return true;
+    }
 }

@@ -8,6 +8,8 @@ use NativePhp\Simulator\Exceptions\SimulatorException;
 
 final class AndroidDriver implements Driver
 {
+    private const RECORDING = '/sdcard/pest-simulator-recording.mp4';
+
     private static array $built = [];
 
     private static ?string $privateSerial = null;
@@ -15,6 +17,10 @@ final class AndroidDriver implements Driver
     private static ?string $privateDevice = null;
 
     private ?string $serial = null;
+
+    private ?int $recordingPid = null;
+
+    private ?string $recordingPath = null;
 
     /** @var array{0: float, 1: float} */
     private array $viewport = [390.0, 844.0];
@@ -242,6 +248,41 @@ final class AndroidDriver implements Driver
     {
         $png = $this->command->run($this->adb(), ['-s', $this->serial(), 'exec-out', 'screencap', '-p']);
         file_put_contents($path, $png);
+    }
+
+    public function startRecording(string $path): void
+    {
+        $this->recordingPath = $path;
+        // screenrecord will not write more than 180 seconds.
+        $this->recordingPid = $this->command->start($this->adb(), [
+            '-s', $this->serial(), 'shell', 'screenrecord', '--time-limit', '180', self::RECORDING,
+        ], sys_get_temp_dir().'/pest-simulator-record-'.Worker::index().'.log');
+    }
+
+    public function stopRecording(): void
+    {
+        if ($this->recordingPid === null || $this->recordingPath === null) {
+            return;
+        }
+
+        $pid = $this->recordingPid;
+        $path = $this->recordingPath;
+        $this->recordingPid = null;
+        $this->recordingPath = null;
+        $this->stopScreenRecord();
+
+        if (! $this->command->wait($pid)) {
+            $this->command->interrupt($pid);
+        }
+
+        try {
+            $this->command->run($this->adb(), ['-s', $this->serial(), 'pull', self::RECORDING, $path]);
+        } finally {
+            try {
+                $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'rm', '-f', self::RECORDING]);
+            } catch (SimulatorException) {
+            }
+        }
     }
 
     public function grant(array $services): void
@@ -677,6 +718,32 @@ final class AndroidDriver implements Driver
         }
 
         return file_put_contents($path, $contents) !== false;
+    }
+
+    private function stopScreenRecord(): void
+    {
+        try {
+            $pids = preg_split('/\s+/', trim($this->command->run($this->adb(), [
+                '-s', $this->serial(), 'shell', 'pidof', 'screenrecord',
+            ]))) ?: [];
+        } catch (SimulatorException) {
+            return;
+        }
+
+        $pids = array_values(array_filter($pids, fn (string $pid): bool => $pid !== ''));
+
+        if ($pids === []) {
+            return;
+        }
+
+        // The on-device process finalizes the mp4 on SIGINT. Stopping adb does not.
+        try {
+            $this->command->run($this->adb(), array_merge(
+                ['-s', $this->serial(), 'shell', 'kill', '-INT'],
+                $pids,
+            ));
+        } catch (SimulatorException) {
+        }
     }
 
     private function serial(): string

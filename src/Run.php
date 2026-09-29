@@ -13,6 +13,11 @@ final class Run
         self::$device = $device;
     }
 
+    public static function inside(): bool
+    {
+        return self::$device !== null;
+    }
+
     public static function device(): Device
     {
         return self::$device ?? throw new Exceptions\SimulatorException('screen() only works inside a mobile() suite.');

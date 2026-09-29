@@ -198,6 +198,59 @@ The plugin only sees native controls. A `<webview>` is one node. Blade and Livew
 
 `tap()`, `type()`, and the assertions look for an accessibility id first, then an exact label, then a label that contains the text. The label is what the phone reads aloud: the visible text, or the `a11y-label`. An icon button, chip, tab, or nav action has no label until that prop is set. `tap('save-button')` matches an accessibility id even when the control has no visible text.
 
+## Screenshots and recordings
+
+These calls go inside a test that is wrapped in `mobile()`.
+
+`screenshot()` writes a PNG of the current screen. Pass the file path. The directory is created when it is missing. The call stays on the screen, so the test can keep going.
+
+```php
+screen('/settings')
+    ->tap('Save')
+    ->screenshot('build/settings.png')
+    ->assertSee('Saved');
+```
+
+A failed assertion also writes its own `screen.png`, next to `tree.json`. That file is separate from a path you passed to `screenshot()`.
+
+`record()` saves an mp4 of the device. `stopRecord()` ends that clip. Both work as their own call, and both work on the screen.
+
+```php
+it('saves the form', function () {
+    record();
+
+    screen('/settings')
+        ->tap('Save')
+        ->assertSee('Saved');
+
+    stopRecord();
+});
+```
+
+`record()` before `screen()` starts once the device is booted, so the video includes the app opening. `screen()->record()` starts at that moment in the chain.
+
+```php
+screen('/settings')
+    ->record()
+    ->tap('Save')
+    ->stopRecord();
+```
+
+`stopRecord()` and `screen()->stopRecord()` end whichever recording is in progress. Either call can follow the other. After the clip stops, `record()` can start another one. `stopRecord()` throws `No recording is in progress.` when nothing is recording.
+
+Leave the path off and the file is written under `simulator-recordings/`. The name is the test, the platform, and the device.
+
+```text
+simulator-recordings/saves-the-form-ios-iphone-17-pro.mp4
+simulator-recordings/saves-the-form-android-pixel-8.mp4
+```
+
+A test that runs on an iPhone and a Pixel writes two files. If you never call `stopRecord()`, the clip ends when the test ends. A failed assertion ends it too, and the video is kept.
+
+`record('build/signup.mp4')` and `->record('build/signup.mp4')` write that path. The directory is created when it is missing. A second device in the same test overwrites that path, so leave the path off when the test runs on more than one device.
+
+iOS records with `xcrun simctl io recordVideo`. Android records with `adb shell screenrecord`. Android keeps at most 3 minutes. The emulator has no window. The video is still the screen.
+
 ## Grant permissions
 
 The first `screen()` in a test grants privacy access after the app is installed and before that screen opens. Later screens in the same test do not grant again. The next test can ask for a different list. Permissions it drops are revoked. Permissions it adds are granted.
@@ -258,7 +311,7 @@ The iOS "Open in…" dialog and Android's "Wait" button are closed automatically
 
 ## When an assertion fails
 
-A failed assertion writes `tree.json` and `screen.png`. It also copies `laravel.log` out of the app: `Library/Application Support/storage/logs/laravel.log` on iOS, and `app_storage/persisted_data/storage/logs/laravel.log` on Android. Android also writes `logcat.txt` for that app id. The failure message lists each file it wrote, and it lists the controls on screen. A control with no label is named by its role, and by its accessibility id when it has one.
+A failed assertion writes `tree.json` and `screen.png`. A recording that is still running is stopped and kept. It also copies `laravel.log` out of the app: `Library/Application Support/storage/logs/laravel.log` on iOS, and `app_storage/persisted_data/storage/logs/laravel.log` on Android. Android also writes `logcat.txt` for that app id. The failure message lists each file it wrote, and it lists the controls on screen. A control with no label is named by its role, and by its accessibility id when it has one.
 
 ## Choose a device from the CLI
 
