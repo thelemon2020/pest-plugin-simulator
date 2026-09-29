@@ -49,7 +49,10 @@ it('selects all, pastes, and deletes', function () {
 it('pastes an email and types a password', function () {
     expect(IosText::paste('Ada@example.com'))->toBeTrue()
         ->and(IosText::paste('secret'))->toBeFalse()
-        ->and(IosText::paste("hello\n"))->toBeFalse();
+        ->and(IosText::paste("hello\n"))->toBeFalse()
+        ->and(IosText::pieces('Ada@example.com'))->toBe(['Ada', '@', 'example', '.', 'com'])
+        ->and(IosText::pieces('secret'))->toBe(['secret'])
+        ->and(IosText::pieces("hello\n"))->toBe(["hello\n"]);
 });
 
 it('keeps spaces and percent signs for adb input text', function () {

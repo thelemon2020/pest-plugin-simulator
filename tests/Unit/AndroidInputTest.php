@@ -3,8 +3,10 @@
 declare(strict_types=1);
 
 use NativePhp\Simulator\AndroidDriver;
+use NativePhp\Simulator\AndroidText;
 use NativePhp\Simulator\Configuration;
 use NativePhp\Simulator\Device;
+use NativePhp\Simulator\Exceptions\SimulatorException;
 use Tests\Support\RecordingCommand;
 
 afterEach(function () {
@@ -38,20 +40,15 @@ it('types punctuation and a newline through adb', function () {
     }
 
     expect($typed)->toBe([
-        "'a'",
-        "'+'",
-        "'b'",
-        "':'",
-        "'c'",
-        "''\\'''",
-        "'d'",
+        AndroidText::argument("a+b:c'd"),
+        'paste',
         "'a'",
         "'%s'",
         "'b'",
         "'\n'",
         'paste',
         "'c'",
-        "'é'",
+        AndroidText::argument('é'),
         'paste',
     ]);
 });
@@ -116,6 +113,49 @@ it('reads a stock hierarchy from node bounds', function () {
             @unlink($path);
         }
     }
+});
+
+it('retries a native build that nativephp timed out', function () {
+    (new ReflectionProperty(AndroidDriver::class, 'built'))->setValue(null, []);
+    $command = new RecordingCommand;
+    $attempts = 0;
+    $command->responder = function (string $binary, array $arguments) use (&$attempts): ?string {
+        if ($binary !== 'php' || ! in_array('native:run', $arguments, true)) {
+            return null;
+        }
+
+        $attempts++;
+
+        if ($attempts === 1) {
+            throw new SimulatorException('The process "./gradlew assembleDebug" exceeded the timeout of 600 seconds.');
+        }
+
+        return '';
+    };
+    $driver = androidDriver($command);
+    $build = new ReflectionMethod(AndroidDriver::class, 'buildOnce');
+
+    $build->invoke($driver);
+    $build->invoke($driver);
+
+    expect($attempts)->toBe(2);
+});
+
+it('does not retry a native build that failed to compile', function () {
+    (new ReflectionProperty(AndroidDriver::class, 'built'))->setValue(null, []);
+    $command = new RecordingCommand;
+    $command->failures = ['native:run' => 'Gradle build failed'];
+    $driver = androidDriver($command);
+
+    expect(fn () => (new ReflectionMethod(AndroidDriver::class, 'buildOnce'))->invoke($driver))
+        ->toThrow(SimulatorException::class, 'Gradle build failed');
+
+    $builds = array_values(array_filter(
+        $command->calls,
+        fn (array $call): bool => $call[0] === 'php' && in_array('native:run', $call[1], true),
+    ));
+
+    expect($builds)->toHaveCount(1);
 });
 
 function androidDriver(RecordingCommand $command): AndroidDriver

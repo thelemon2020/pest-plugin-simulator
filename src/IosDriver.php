@@ -209,17 +209,38 @@ final class IosDriver implements Driver
             return;
         }
 
-        // The email keyboard has its own @ key. Shift-2 does not insert @,
-        // and the rest of that HID burst never lands. Paste the line instead.
-        if (IosText::paste($text)) {
-            $this->command->input('xcrun', ['simctl', 'pbcopy', $this->udid()], $text);
-            usleep(100_000);
-            $this->client()->stream('hid', Hid::paste());
+        foreach (IosText::pieces($text) as $piece) {
+            if (IosText::paste($piece)) {
+                $this->insertSymbol($piece);
+
+                continue;
+            }
+
+            $this->client()->stream('hid', Hid::text($piece));
+        }
+    }
+
+    /**
+     * Shift-2 does not insert @ on the email keyboard, and the command-V
+     * chord does not paste into that field. The key is on screen.
+     */
+    private function insertSymbol(string $character): void
+    {
+        foreach ($this->describe() as $element) {
+            $center = $element['center'] ?? null;
+
+            if (($element['role'] ?? null) !== 'Key' || $element['label'] !== $character || ! is_array($center)) {
+                continue;
+            }
+
+            $this->tap((float) $center[0], (float) $center[1]);
 
             return;
         }
 
-        $this->client()->stream('hid', Hid::text($text));
+        $this->command->input('xcrun', ['simctl', 'pbcopy', $this->udid()], $character);
+        usleep(100_000);
+        $this->client()->stream('hid', Hid::paste());
     }
 
     public function viewport(): array
@@ -383,10 +404,10 @@ final class IosDriver implements Driver
             $command->stop($pid);
         });
 
-        // A cold simulator on CI takes longer than a laptop to bind the port.
-        // The process from a failed wait is still starting, so the next test
-        // used to kill it and start again.
-        $deadline = microtime(true) + 45;
+        // A cold companion on CI sat in "Loaded All Private Frameworks" for
+        // about a minute, then bound the port. Giving up at 45s failed the
+        // first test while that process was still starting.
+        $deadline = microtime(true) + 120;
 
         while (microtime(true) < $deadline) {
             if ($this->socket->reachable($port)) {

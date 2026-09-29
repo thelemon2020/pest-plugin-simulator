@@ -198,20 +198,31 @@ final class AndroidDriver implements Driver
         foreach ($lines as $index => $line) {
             // One character per call. A single "input text" of the whole
             // string overflows the emulator queue, and Compose drops letters.
-            foreach ($this->characters($line) as $character) {
-                if ($this->onKeyboard($character)) {
-                    $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'input', 'text', AndroidText::argument($character)]);
+            // Punctuation is pasted instead: on the email keyboard, input
+            // text sends @ as Shift-2, and the letters around it never land.
+            if ($this->needsPaste($line)) {
+                $this->paste($line);
+            } else {
+                foreach ($this->characters($line) as $character) {
+                    if ($this->onKeyboard($character)) {
+                        $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'input', 'text', AndroidText::argument($character)]);
 
-                    continue;
+                        continue;
+                    }
+
+                    $this->paste($character);
                 }
-
-                $this->paste($character);
             }
 
             if ($index < $last) {
                 $this->paste("\n");
             }
         }
+    }
+
+    private function needsPaste(string $line): bool
+    {
+        return preg_match('/[^A-Za-z0-9 ]/u', $line) === 1;
     }
 
     private function onKeyboard(string $character): bool
@@ -506,7 +517,19 @@ final class AndroidDriver implements Driver
 
         array_push($arguments, '--build=debug', '--no-tty');
 
-        $this->command->run('php', $arguments, $this->configuration->appDirectory());
+        try {
+            $this->command->run('php', $arguments, $this->configuration->appDirectory());
+        } catch (SimulatorException $exception) {
+            // NativePHP kills ./gradlew at 600s. On a cold CI runner that
+            // lands in the middle of the native compile, and the next
+            // assembleDebug finishes from the outputs already on disk.
+            if (! str_contains($exception->getMessage(), 'exceeded the timeout')) {
+                throw $exception;
+            }
+
+            $this->command->run('php', $arguments, $this->configuration->appDirectory());
+        }
+
         self::$built[$key] = true;
     }
 

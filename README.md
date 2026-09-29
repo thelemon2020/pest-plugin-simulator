@@ -188,7 +188,7 @@ screen('/settings/edit')
     ->assertNavigatedTo('/settings');
 ```
 
-`type()` replaces the current text. On iOS, letters, digits, and spaces use a US keyboard. A character that keyboard does not have throws. Anything else, including `@`, is pasted: the email keyboard does not insert Shift-2, and that event drops the rest of the line. On Android, normal ASCII is typed one character at a time, because typing a whole string at once drops letters. Any other character, including a new line, is pasted. A new line does not press Enter.
+`type()` replaces the current text. On iOS, letters, digits, and spaces use a US keyboard. A character that keyboard does not have throws. Anything else, including `@` and `.`, is tapped on the software keyboard when that key is showing. The email keyboard does not insert Shift-2, and a paste chord does not land in the field. On Android, letters, digits, and spaces are typed one character at a time, because typing a whole string at once drops letters. A line with anything else is pasted, because `input text` sends `@` as Shift-2 on the email keyboard and drops the letters around it. A new line is pasted and does not press Enter.
 
 `scroll('down')` moves the page so you can see what is further down. The finger stays on the glass: a scrolled page reports rows below the fold, and those coordinates are not the screen. `swipe('down')` moves a finger down, which closes a sheet. `swipe('left', 'Item')` starts that swipe on a row. `goBack()` presses Back on Android. On iOS it taps the navigation Back button when that button is on screen, and otherwise swipes in from the left edge.
 
