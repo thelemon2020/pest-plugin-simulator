@@ -69,8 +69,6 @@ NATIVEPHP_DEEPLINK_HOST=example.net
 NATIVEPHP_APP_ID=com.example.app
 ```
 
-Write a path, not a URL. `screen('/settings')` is the call. The plugin builds the link the phone opens.
-
 `NATIVEPHP_DEEPLINK_SCHEME` is the app's own scheme. `screen('/settings')` opens `demo://settings`.
 
 `NATIVEPHP_DEEPLINK_HOST` is the website host. It is used only when the scheme is empty. Then the same call opens `https://example.net/settings`, and the phone still opens it in the app. That is an app link, not a page in a browser.
