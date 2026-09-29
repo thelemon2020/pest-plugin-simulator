@@ -20,6 +20,7 @@ final class EmulatorBoot
             '-no-snapshot-save',
             '-no-snapshot-load',
             '-wipe-data',
+            '-no-metrics',
             '-gpu', 'swiftshader_indirect',
         ];
 

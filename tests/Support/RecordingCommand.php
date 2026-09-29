@@ -26,6 +26,8 @@ final class RecordingCommand extends Command
 
     public ?Closure $afterStart = null;
 
+    public bool $alive = true;
+
     public function __construct(private readonly string $container = '') {}
 
     public function run(string $binary, array $arguments, ?string $cwd = null): string
@@ -82,6 +84,11 @@ final class RecordingCommand extends Command
     public function interrupt(int $pid): void
     {
         $this->calls[] = ['interrupt', [(string) $pid]];
+    }
+
+    public function running(int $pid): bool
+    {
+        return $this->alive;
     }
 
     public function wait(int $pid, float $seconds = 10): bool

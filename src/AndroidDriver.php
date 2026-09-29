@@ -29,6 +29,8 @@ final class AndroidDriver implements Driver
 
     private bool $emulatorTracked = false;
 
+    private ?int $emulatorPid = null;
+
     public function __construct(
         private readonly Device $device,
         private readonly Configuration $configuration,
@@ -377,10 +379,12 @@ final class AndroidDriver implements Driver
     {
         $this->launchedEmulator = true;
         $pid = $this->command->start($this->emulator(), $arguments, $log);
+        $this->emulatorPid = $pid;
         $command = $this->command;
         Shutdown::defer(function () use ($command, $pid): void {
             $command->stop($pid);
         });
+        fwrite(STDERR, "Waiting for the Android Emulator [{$this->device->name}] to boot.\n");
         $this->waitUntilBooted($log, $serial);
     }
 
@@ -389,6 +393,10 @@ final class AndroidDriver implements Driver
         $deadline = microtime(true) + $timeoutSeconds;
 
         while (microtime(true) < $deadline) {
+            if ($this->emulatorPid !== null && ! $this->command->running($this->emulatorPid)) {
+                break;
+            }
+
             $match = $this->matchingSerial($serial);
 
             if ($match !== null && $this->bootCompleted($match)) {
@@ -400,7 +408,7 @@ final class AndroidDriver implements Driver
             usleep(1_000_000);
         }
 
-        throw new SimulatorException("The Android Emulator [{$this->device->name}] did not boot. See {$log}.");
+        throw new SimulatorException("The Android Emulator [{$this->device->name}] did not boot. See {$log}.".$this->logTail($log));
     }
 
     private function matchingSerial(?string $serial): ?string
@@ -754,6 +762,21 @@ final class AndroidDriver implements Driver
     private function adb(): string
     {
         return AndroidSdk::binary('platform-tools/adb', 'adb');
+    }
+
+    private function logTail(string $log): string
+    {
+        if (! is_file($log)) {
+            return '';
+        }
+
+        $lines = file($log, FILE_IGNORE_NEW_LINES);
+
+        if (! is_array($lines) || $lines === []) {
+            return '';
+        }
+
+        return "\n".implode("\n", array_slice($lines, -15));
     }
 
     private function emulator(): string

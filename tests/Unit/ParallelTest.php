@@ -215,6 +215,26 @@ it('names the emulator log when a cold boot does not finish', function () {
         ->toThrow(SimulatorException::class, 'The Android Emulator [Pixel 8] did not boot. See /tmp/app/emulator.log.');
 });
 
+it('stops waiting when the emulator process has already exited', function () {
+    $log = tempnam(sys_get_temp_dir(), 'emulator');
+    file_put_contents($log, "FATAL        | Not enough space to create userdata partition. Available: 7355 MB, need 12288 MB.\n");
+    $command = new RecordingCommand;
+    $command->alive = false;
+    $driver = new AndroidDriver(new Device('android', 'Pixel 8', true), Configuration::resolve(), $command);
+    (new ReflectionProperty(AndroidDriver::class, 'emulatorPid'))->setValue($driver, 4242);
+    $started = microtime(true);
+
+    try {
+        expect(fn () => (new ReflectionMethod(AndroidDriver::class, 'waitUntilBooted'))->invoke($driver, $log, null, 30))
+            ->toThrow(SimulatorException::class, 'Not enough space to create userdata partition');
+        expect(microtime(true) - $started)->toBeLessThan(2);
+    } finally {
+        if (is_string($log)) {
+            @unlink($log);
+        }
+    }
+});
+
 function withWorker(?int $index, Closure $test, ?string $unique = null): void
 {
     $token = getenv('TEST_TOKEN');
