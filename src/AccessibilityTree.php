@@ -90,14 +90,24 @@ final class AccessibilityTree
     public static function viewport(string $json): array
     {
         $parsed = json_decode($json, true);
-        $width = 0.0;
-        $height = 0.0;
 
-        if (is_array($parsed)) {
-            self::measure($parsed, $width, $height);
+        if (! is_array($parsed)) {
+            return [0.0, 0.0];
         }
 
-        return [$width, $height];
+        $frames = [];
+        self::collectFrames($parsed, $frames);
+        $display = self::display($frames);
+
+        if ($display !== null) {
+            return $display;
+        }
+
+        $width = 0.0;
+        $height = 0.0;
+        self::measure($parsed, $width, $height);
+
+        return self::cap($width, $height);
     }
 
     /**
@@ -551,6 +561,84 @@ final class AccessibilityTree
         }
 
         return [$frame[0] + $frame[2] / 2, $frame[1] + $frame[3] / 2];
+    }
+
+    /**
+     * The display is the frame that starts at the origin and has a phone or
+     * tablet aspect ratio. A scroll view also reports the rows below the
+     * fold, and a finger dragged to that content is off the glass.
+     *
+     * @param  list<array{0: float, 1: float, 2: float, 3: float}>  $frames
+     * @return array{0: float, 1: float}|null
+     */
+    private static function display(array $frames): ?array
+    {
+        $best = null;
+        $area = 0.0;
+
+        foreach ($frames as [$x, $y, $width, $height]) {
+            if ($x > 1 || $y > 1 || $width < 200 || $height < 200) {
+                continue;
+            }
+
+            $portrait = $height / $width;
+            $landscape = $width / $height;
+            $phone = ($portrait >= 1.2 && $portrait <= 2.8) || ($landscape >= 1.2 && $landscape <= 2.8);
+
+            if (! $phone) {
+                continue;
+            }
+
+            $frameArea = $width * $height;
+
+            if ($frameArea > $area) {
+                $area = $frameArea;
+                $best = [$x + $width, $y + $height];
+            }
+        }
+
+        return $best;
+    }
+
+    /**
+     * @param  array<mixed>|list<mixed>  $node
+     * @param  list<array{0: float, 1: float, 2: float, 3: float}>  $frames
+     */
+    private static function collectFrames(array $node, array &$frames): void
+    {
+        if (array_is_list($node)) {
+            foreach ($node as $child) {
+                if (is_array($child)) {
+                    self::collectFrames($child, $frames);
+                }
+            }
+
+            return;
+        }
+
+        $frame = self::frame($node);
+
+        if ($frame !== null) {
+            $frames[] = $frame;
+        }
+
+        foreach (['children', 'AXChildren', 'nodes', 'elements'] as $key) {
+            if (isset($node[$key]) && is_array($node[$key])) {
+                self::collectFrames($node[$key], $frames);
+            }
+        }
+    }
+
+    /**
+     * @return array{0: float, 1: float}
+     */
+    private static function cap(float $width, float $height): array
+    {
+        if ($width >= 200 && $height > $width * 2.2) {
+            $height = $width * 2.2;
+        }
+
+        return [$width, $height];
     }
 
     /**

@@ -6,6 +6,7 @@ use NativePhp\Simulator\AndroidText;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 use NativePhp\Simulator\Gesture;
 use NativePhp\Simulator\Hid;
+use NativePhp\Simulator\IosText;
 
 it('scrolls down by dragging a finger up', function () {
     expect(Gesture::scroll('down', 390, 844))->toBe([195.0, 633.0, 195.0, 211.0])
@@ -22,7 +23,7 @@ it('swipes in the direction of the finger', function () {
 });
 
 it('swipes in from the left edge to go back', function () {
-    expect(Gesture::back(390, 844))->toBe([8.0, 422.0, 273.0, 422.0]);
+    expect(Gesture::back(390, 844))->toBe([1.0, 422.0, 273.0, 422.0]);
 });
 
 it('refuses an unknown direction', function () {
@@ -39,9 +40,16 @@ it('encodes a swipe as an hid event', function () {
     expect($event[0])->toBe("\x12");
 });
 
-it('selects all and deletes', function () {
+it('selects all, pastes, and deletes', function () {
     expect(Hid::selectAll())->toHaveCount(4)
+        ->and(Hid::paste())->toHaveCount(4)
         ->and(Hid::backspace())->toHaveCount(2);
+});
+
+it('pastes an email and types a password', function () {
+    expect(IosText::paste('Ada@example.com'))->toBeTrue()
+        ->and(IosText::paste('secret'))->toBeFalse()
+        ->and(IosText::paste("hello\n"))->toBeFalse();
 });
 
 it('keeps spaces and percent signs for adb input text', function () {

@@ -82,11 +82,11 @@ final class Hid
     /**
      * @return list<string>
      */
-    public static function swipe(float $x1, float $y1, float $x2, float $y2): array
+    public static function swipe(float $x1, float $y1, float $x2, float $y2, float $seconds = 0.3): array
     {
         $swipe = Protobuf::messageField(1, self::point($x1, $y1))
             .Protobuf::messageField(2, self::point($x2, $y2))
-            .Protobuf::doubleField(6, 0.3);
+            .Protobuf::doubleField(6, $seconds);
 
         return [Protobuf::messageField(2, $swipe)];
     }
@@ -97,6 +97,14 @@ final class Hid
     public static function selectAll(): array
     {
         return self::chord(227, 4);
+    }
+
+    /**
+     * @return list<string>
+     */
+    public static function paste(): array
+    {
+        return self::chord(227, 25);
     }
 
     /**

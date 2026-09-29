@@ -31,6 +31,18 @@ it('scrolls, swipes, and goes back', function () {
         ->and($driver->backs)->toBe(1);
 });
 
+it('taps the navigation back button', function () {
+    $driver = new FakeDriver([[
+        control('Back', ['chrome' => 'navigation', 'center' => [24.0, 60.0]]),
+        control('QR sign in', ['role' => 'StaticText']),
+    ]]);
+
+    (new Screen($driver, timeoutSeconds: 0))->goBack();
+
+    expect($driver->taps)->toBe([[24.0, 60.0]])
+        ->and($driver->backs)->toBe(0);
+});
+
 it('replaces a field and reads its value', function () {
     $driver = new FakeDriver([[
         control('Title', ['role' => 'TextField', 'value' => 'old', 'center' => [20.0, 30.0]]),

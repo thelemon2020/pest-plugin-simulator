@@ -53,7 +53,8 @@ final class Gesture
      */
     public static function back(float $width, float $height): array
     {
-        return [8.0, $height / 2, $width * 0.7, $height / 2];
+        // iOS only treats the drag as Back when the finger starts on the bezel.
+        return [1.0, $height / 2, $width * 0.7, $height / 2];
     }
 
     /**

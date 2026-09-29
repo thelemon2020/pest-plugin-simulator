@@ -170,6 +170,18 @@ it('marks navigation chrome and the screen size', function () {
         ->and(AccessibilityTree::viewport($json))->toBe([390.0, 844.0]);
 });
 
+it('keeps the display when a scrolled page is taller than the glass', function () {
+    $json = (string) json_encode([
+        'role' => 'Application',
+        'AXFrame' => '{{0, 0}, {402, 874}}',
+        'children' => [
+            ['AXLabel' => 'Tasks and a table', 'role' => 'StaticText', 'AXFrame' => '{{20, 1800}, {300, 40}}'],
+        ],
+    ]);
+
+    expect(AccessibilityTree::viewport($json))->toBe([402.0, 874.0]);
+});
+
 it('keeps a control that only has an accessibility id', function () {
     $rows = AccessibilityTree::summarize((string) json_encode([
         ['type' => 'Button', 'AXUniqueId' => 'save-button', 'AXFrame' => '{{10, 20}, {40, 40}}'],

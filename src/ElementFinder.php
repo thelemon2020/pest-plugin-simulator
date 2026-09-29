@@ -66,6 +66,38 @@ final class ElementFinder
     }
 
     /**
+     * The system chevron. A pushed screen has one Back button; a screen that
+     * also has its own control named Back is left for the edge swipe.
+     *
+     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}, chrome?: ?string}>  $elements
+     * @return array{label: string, role: ?string, id: ?string, center: array{0: float, 1: float}}|null
+     */
+    public function navigationBack(array $elements): ?array
+    {
+        $inBar = $this->labeled($elements, 'navigation', 'Back');
+
+        if ($inBar !== null && ($inBar['role'] ?? null) === 'Button') {
+            return $inBar;
+        }
+
+        $buttons = array_values(array_filter(
+            $elements,
+            fn (array $element): bool => ($element['role'] ?? null) === 'Button'
+                && $element['label'] === 'Back'
+                && is_array($element['center'] ?? null),
+        ));
+
+        if (count($buttons) !== 1) {
+            return null;
+        }
+
+        /** @var array{label: string, role: ?string, id: ?string, center: array{0: float, 1: float}} $button */
+        $button = $buttons[0];
+
+        return $button;
+    }
+
+    /**
      * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}}>  $elements
      */
     public function sees(array $elements, string $text): bool

@@ -105,7 +105,15 @@ final class Screen
 
     public function goBack(): self
     {
-        $this->read();
+        $elements = $this->read();
+        $button = $this->finder->navigationBack($elements);
+
+        if ($button !== null) {
+            $this->driver->tap((float) $button['center'][0], (float) $button['center'][1]);
+
+            return $this;
+        }
+
         $this->driver->back();
 
         return $this;

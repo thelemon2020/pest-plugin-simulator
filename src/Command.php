@@ -34,6 +34,34 @@ class Command
     /**
      * @param  list<string>  $arguments
      */
+    public function input(string $binary, array $arguments, string $stdin, ?string $cwd = null): string
+    {
+        $command = array_merge([$binary], $arguments);
+        $descriptor = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
+        $process = proc_open($command, $descriptor, $pipes, $cwd);
+
+        if (! is_resource($process)) {
+            throw new SimulatorException('Could not run '.implode(' ', $command));
+        }
+
+        fwrite($pipes[0], $stdin);
+        fclose($pipes[0]);
+        $stdout = stream_get_contents($pipes[1]);
+        $stderr = stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $exit = proc_close($process);
+
+        if ($exit !== 0) {
+            throw new SimulatorException(trim($stderr !== false && $stderr !== '' ? $stderr : (string) $stdout) ?: 'Command failed: '.implode(' ', $command));
+        }
+
+        return $stdout === false ? '' : $stdout;
+    }
+
+    /**
+     * @param  list<string>  $arguments
+     */
     public function start(string $binary, array $arguments, string $log): int
     {
         $command = array_merge([$binary], $arguments);
@@ -77,6 +105,15 @@ class Command
         }
 
         return posix_kill($pid, 0) === false;
+    }
+
+    public function running(int $pid): bool
+    {
+        if ($pid <= 0 || ! function_exists('posix_kill')) {
+            return false;
+        }
+
+        return @posix_kill($pid, 0);
     }
 
     private function signal(int $pid, int $signal, string $command): void

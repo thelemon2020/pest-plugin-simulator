@@ -193,7 +193,8 @@ final class IosDriver implements Driver
     {
         [$width, $height] = $this->viewport();
         [$x1, $y1, $x2, $y2] = Gesture::back($width, $height);
-        $this->swipe($x1, $y1, $x2, $y2);
+        // A flick from the bezel is read as a scroll. Back needs a slow drag.
+        $this->client()->stream('hid', Hid::swipe($x1, $y1, $x2, $y2, 0.6));
     }
 
     public function clear(int $characters = 40): void
@@ -205,6 +206,16 @@ final class IosDriver implements Driver
     public function text(string $text): void
     {
         if ($text === '') {
+            return;
+        }
+
+        // The email keyboard has its own @ key. Shift-2 does not insert @,
+        // and the rest of that HID burst never lands. Paste the line instead.
+        if (IosText::paste($text)) {
+            $this->command->input('xcrun', ['simctl', 'pbcopy', $this->udid()], $text);
+            usleep(100_000);
+            $this->client()->stream('hid', Hid::paste());
+
             return;
         }
 
@@ -372,7 +383,10 @@ final class IosDriver implements Driver
             $command->stop($pid);
         });
 
-        $deadline = microtime(true) + 10;
+        // A cold simulator on CI takes longer than a laptop to bind the port.
+        // The process from a failed wait is still starting, so the next test
+        // used to kill it and start again.
+        $deadline = microtime(true) + 45;
 
         while (microtime(true) < $deadline) {
             if ($this->socket->reachable($port)) {
@@ -381,10 +395,14 @@ final class IosDriver implements Driver
                 return;
             }
 
+            if (! $this->command->running($pid)) {
+                break;
+            }
+
             usleep(200_000);
         }
 
-        throw new SimulatorException("idb_companion did not open port {$port}. See {$log}.");
+        throw new SimulatorException("idb_companion did not open port {$port}. See {$log}.".$this->logTail($log));
     }
 
     private function companionPort(string $simulator): int
@@ -455,5 +473,20 @@ final class IosDriver implements Driver
     private function recordingLog(): string
     {
         return sys_get_temp_dir().'/pest-simulator-record-'.Worker::index().'.log';
+    }
+
+    private function logTail(string $log): string
+    {
+        if (! is_file($log)) {
+            return '';
+        }
+
+        $lines = file($log, FILE_IGNORE_NEW_LINES);
+
+        if (! is_array($lines) || $lines === []) {
+            return '';
+        }
+
+        return "\n".implode("\n", array_slice($lines, -15));
     }
 }
