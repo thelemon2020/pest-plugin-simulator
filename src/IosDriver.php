@@ -163,12 +163,7 @@ final class IosDriver implements Driver
 
     public function describe(?string $treePath = null): array
     {
-        $payload = $this->client()->unary('accessibility_info', Hid::accessibilityInfo());
-        $json = Protobuf::stringField($payload, 1);
-
-        if ($treePath !== null) {
-            file_put_contents($treePath, $json);
-        }
+        $json = $this->accessibilityJson($treePath);
 
         [$width, $height] = AccessibilityTree::viewport($json);
 
@@ -177,6 +172,18 @@ final class IosDriver implements Driver
         }
 
         return AccessibilityTree::summarize($json);
+    }
+
+    private function accessibilityJson(?string $treePath = null): string
+    {
+        $payload = $this->client()->unary('accessibility_info', Hid::accessibilityInfo());
+        $json = Protobuf::stringField($payload, 1);
+
+        if ($treePath !== null) {
+            file_put_contents($treePath, $json);
+        }
+
+        return $json;
     }
 
     public function tap(float $x, float $y): void
@@ -222,18 +229,22 @@ final class IosDriver implements Driver
 
     /**
      * Shift-2 does not insert @ on the email keyboard, and the command-V
-     * chord does not paste into that field. The key is on screen.
+     * chord does not paste into that field. The key is on screen, in a
+     * window reported below the display.
      */
     private function insertSymbol(string $character): void
     {
-        foreach ($this->describe() as $element) {
-            $center = $element['center'] ?? null;
+        $json = $this->accessibilityJson();
+        [$width, $height] = AccessibilityTree::viewport($json);
 
-            if (($element['role'] ?? null) !== 'Key' || $element['label'] !== $character || ! is_array($center)) {
-                continue;
-            }
+        if ($width > 0 && $height > 0) {
+            $this->viewport = [$width, $height];
+        }
 
-            $this->tap((float) $center[0], (float) $center[1]);
+        $point = AccessibilityTree::keyPoint($json, $character, $this->viewport[0], $this->viewport[1]);
+
+        if ($point !== null) {
+            $this->tap($point[0], $point[1]);
 
             return;
         }
@@ -404,20 +415,16 @@ final class IosDriver implements Driver
             $command->stop($pid);
         });
 
-        // A cold companion on CI sat in "Loaded All Private Frameworks" for
-        // about a minute, then bound the port. Giving up at 45s failed the
-        // first test while that process was still starting.
-        $deadline = microtime(true) + 120;
+        // A cold companion on CI re-execs while it loads MobileDevice, so the
+        // pid from start() is gone before the port opens. The port itself
+        // took 104s. Wait that out instead of treating the old pid as a crash.
+        $deadline = microtime(true) + 180;
 
         while (microtime(true) < $deadline) {
             if ($this->socket->reachable($port)) {
                 $this->client = new Client('http://127.0.0.1:'.$port);
 
                 return;
-            }
-
-            if (! $this->command->running($pid)) {
-                break;
             }
 
             usleep(200_000);

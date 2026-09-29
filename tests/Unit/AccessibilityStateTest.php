@@ -4,6 +4,23 @@ declare(strict_types=1);
 
 use NativePhp\Simulator\AccessibilityTree;
 
+it('shifts a software-keyboard key back onto the display', function () {
+    $json = (string) json_encode([
+        'elements' => [[
+            'type' => 'UIInputSetHostView',
+            'frame' => ['x' => 0, 'y' => 874, 'width' => 402, 'height' => 270],
+            'children' => [[
+                'type' => 'Key',
+                'label' => '@',
+                'frame' => ['x' => 200, 'y' => 1087, 'width' => 50, 'height' => 54],
+            ]],
+        ]],
+    ]);
+
+    expect(AccessibilityTree::keyPoint($json, '@', 402, 874))->toBe([225.0, 844.0])
+        ->and(AccessibilityTree::keyPoint($json, '.', 402, 874))->toBeNull();
+});
+
 it('keeps a field label apart from its value', function () {
     $rows = AccessibilityTree::summarize((string) json_encode([
         [

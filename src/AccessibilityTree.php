@@ -111,6 +111,52 @@ final class AccessibilityTree
     }
 
     /**
+     * The software keyboard is a window whose origin is the bottom of the
+     * display, so a key's frame sits below the screen a tap will accept.
+     * Shift that window up until its bottom edge is the bottom of the screen.
+     *
+     * @return array{0: float, 1: float}|null
+     */
+    public static function keyPoint(string $json, string $label, float $screenWidth, float $screenHeight): ?array
+    {
+        $parsed = json_decode($json, true);
+
+        if (! is_array($parsed)) {
+            return null;
+        }
+
+        $roots = array_is_list($parsed) ? $parsed : [$parsed];
+        $key = null;
+        $host = null;
+
+        foreach ($roots as $root) {
+            if (! is_array($root)) {
+                continue;
+            }
+
+            $key ??= self::findFrame($root, fn (array $node): bool => ($node['type'] ?? null) === 'Key' && ($node['label'] ?? $node['AXLabel'] ?? null) === $label);
+            $host ??= self::findFrame($root, fn (array $node): bool => ($node['type'] ?? null) === 'UIInputSetHostView');
+        }
+
+        if ($key === null) {
+            return null;
+        }
+
+        $x = $key[0] + ($key[2] / 2);
+        $y = $key[1] + ($key[3] / 2);
+
+        if ($y >= $screenHeight && $host !== null) {
+            $y -= ($host[1] + $host[3]) - $screenHeight;
+        }
+
+        if ($x < 0 || $y < 0 || $x >= $screenWidth || $y >= $screenHeight) {
+            return null;
+        }
+
+        return [$x, $y];
+    }
+
+    /**
      * Compose draws an outlined field as an EditText whose text is the value
      * and a TextView inside it whose text is the label. A checkbox is a
      * checkable view with the label on a child. The dump is flat, so containment
@@ -668,6 +714,42 @@ final class AccessibilityTree
                 self::measure($node[$key], $width, $height);
             }
         }
+    }
+
+    /**
+     * @param  array<mixed>  $node
+     * @param  callable(array<mixed>): bool  $matches
+     * @return array{0: float, 1: float, 2: float, 3: float}|null
+     */
+    private static function findFrame(array $node, callable $matches): ?array
+    {
+        if ($matches($node)) {
+            $frame = self::frame($node);
+
+            if ($frame !== null) {
+                return $frame;
+            }
+        }
+
+        foreach (['children', 'AXChildren', 'nodes', 'elements'] as $key) {
+            if (! isset($node[$key]) || ! is_array($node[$key])) {
+                continue;
+            }
+
+            foreach ($node[$key] as $child) {
+                if (! is_array($child)) {
+                    continue;
+                }
+
+                $found = self::findFrame($child, $matches);
+
+                if ($found !== null) {
+                    return $found;
+                }
+            }
+        }
+
+        return null;
     }
 
     /**

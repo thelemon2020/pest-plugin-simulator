@@ -198,31 +198,28 @@ final class AndroidDriver implements Driver
         foreach ($lines as $index => $line) {
             // One character per call. A single "input text" of the whole
             // string overflows the emulator queue, and Compose drops letters.
-            // Punctuation is pasted instead: on the email keyboard, input
-            // text sends @ as Shift-2, and the letters around it never land.
-            if ($this->needsPaste($line)) {
-                $this->paste($line);
-            } else {
-                foreach ($this->characters($line) as $character) {
-                    if ($this->onKeyboard($character)) {
-                        $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'input', 'text', AndroidText::argument($character)]);
+            // @ is the At key. input text sends Shift-2, and the email
+            // keyboard drops the letters around that event.
+            foreach ($this->characters($line) as $character) {
+                if ($character === '@') {
+                    $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'input', 'keyevent', '77']);
 
-                        continue;
-                    }
-
-                    $this->paste($character);
+                    continue;
                 }
+
+                if ($this->onKeyboard($character)) {
+                    $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'input', 'text', AndroidText::argument($character)]);
+
+                    continue;
+                }
+
+                $this->paste($character);
             }
 
             if ($index < $last) {
                 $this->paste("\n");
             }
         }
-    }
-
-    private function needsPaste(string $line): bool
-    {
-        return preg_match('/[^A-Za-z0-9 ]/u', $line) === 1;
     }
 
     private function onKeyboard(string $character): bool

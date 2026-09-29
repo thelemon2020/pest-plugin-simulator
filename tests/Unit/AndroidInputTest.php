@@ -3,7 +3,6 @@
 declare(strict_types=1);
 
 use NativePhp\Simulator\AndroidDriver;
-use NativePhp\Simulator\AndroidText;
 use NativePhp\Simulator\Configuration;
 use NativePhp\Simulator\Device;
 use NativePhp\Simulator\Exceptions\SimulatorException;
@@ -20,6 +19,7 @@ it('types punctuation and a newline through adb', function () {
     $driver->text("a+b:c'd");
     $driver->text("a b\nc");
     $driver->text('é');
+    $driver->text('A@b');
 
     $typed = [];
 
@@ -37,19 +37,31 @@ it('types punctuation and a newline through adb', function () {
         if (($arguments[4] ?? null) === 'keyevent' && ($arguments[5] ?? null) === '279') {
             $typed[] = 'paste';
         }
+
+        if (($arguments[4] ?? null) === 'keyevent' && ($arguments[5] ?? null) === '77') {
+            $typed[] = '@';
+        }
     }
 
     expect($typed)->toBe([
-        AndroidText::argument("a+b:c'd"),
-        'paste',
+        "'a'",
+        "'+'",
+        "'b'",
+        "':'",
+        "'c'",
+        "''\\'''",
+        "'d'",
         "'a'",
         "'%s'",
         "'b'",
         "'\n'",
         'paste',
         "'c'",
-        AndroidText::argument('é'),
+        "'é'",
         'paste',
+        "'A'",
+        '@',
+        "'b'",
     ]);
 });
 
