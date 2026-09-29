@@ -1,5 +1,5 @@
 {
-    "name": "nativephp/pest-plugin-simulator",
+    "name": "thelemon2020/pest-plugin-simulator",
     "description": "Pest plugin that drives NativePHP screens on iOS Simulators and Android Emulators.",
     "type": "library",
     "license": "MIT",
