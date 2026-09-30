@@ -153,13 +153,21 @@ final class Hid
 
     public static function accessibilityInfo(): string
     {
-        // format=COMPLETE (field 3), backend=AX (field 8). AXBRIDGE (the richer backend
-        // COMPLETE was added alongside) times out reading the live tree on at least some
-        // idb_companion/iOS combinations — every element read hangs until the read's own
-        // 60s deadline and comes back empty, even though the screen is rendering correctly
-        // underneath. AX is the older, pre-bridge implementation and does not have this
-        // failure; COMPLETE's extra provenance fields are reported for whichever backend
-        // served the read; see idb's idb.proto AccessibilityInfoRequest.Backend.
-        return Protobuf::varintField(3, 2).Protobuf::varintField(8, 1);
+        // format=COMPLETE (field 3), backend=AXBRIDGE (field 8) — see idb's idb.proto
+        // AccessibilityInfoRequest. AXBRIDGE is the backend that crosses process boundaries,
+        // which a native TabView's tab bar needs: AX reads it as a childless group, with no
+        // per-tab `selected` flag and no tab buttons to tap by label at all.
+        //
+        // Needs idb_companion 1.6.3+ (Companion::supportsAxBridge(), surfaced by `doctor`).
+        // Before that, AXBRIDGE's one-shot guest transport carried a hardcoded 30s silence
+        // deadline per read, and a COMPLETE-format tree read routinely exceeded it — every
+        // read hung to its own 60s ceiling and came back with NOTHING, even though the
+        // screen was rendering correctly underneath (screenshots from the same moment proved
+        // it). 1.6.3 reworked this into a streamed transport and lifted that deadline
+        // (facebook/idb commits 3bbe44fe, b4e0a301). AX was a workaround for exactly this
+        // hang, but AX has its own known gaps on iOS 26.x — element-discovery truncation, a
+        // dead tab bar — that an idb maintainer confirms AXBRIDGE is meant to fix; see
+        // https://github.com/facebook/idb/issues/964.
+        return Protobuf::varintField(3, 2).Protobuf::varintField(8, 2);
     }
 }

@@ -39,7 +39,9 @@ The Composer package does not include a phone. Install the iOS Simulator, the An
 This only runs on a Mac.
 
 1. Install [Xcode](https://developer.apple.com/xcode/) from the App Store. Open it once and let it finish installing the iOS Simulator. `xcrun simctl` has to work.
-2. Install the tool the plugin uses to tap and type:
+2. Install the tool the plugin uses to tap and type. Needs **1.6.3 or newer** — an older
+   build hangs reading a tab bar or anything else that needs `AXBRIDGE` (a 60s hang per
+   read, with nothing to show for it); `brew upgrade idb-companion` if you already have it:
 
 ```bash
 brew install idb-companion
@@ -194,7 +196,7 @@ screen('/settings/edit')
 
 `assertNavTitle()` reads the navigation bar. `assertTabActive()` reads the selected tab. `assertNavigatedTo('/settings')` passes when that path is an accessibility id, or when the navigation title is the last part of the path (`Settings`). `assertEnabled()`, `assertDisabled()`, and `assertChecked()` read those states from the same screen.
 
-On iOS, a native `TabView`'s tab bar is a dead end for the `AX` backend (see below): it reads as a childless group, with no per-tab `selected` flag and no individual tab buttons at all. This costs more than `assertTabActive()` — `tap('SomeTab')` on a tab bar button fails too, since there is nothing in the read for the label match to find. The richer `AXBRIDGE` backend does expose the tab bar's children, but hangs and never answers on at least some idb_companion/iOS combinations (`accessibility_info failed... serve read timed out`), which makes it unusable for a whole suite rather than one screen. Until that is resolved, open a tab's route directly with `screen('/that-route')` rather than tapping its tab bar button, and assert the landing screen's own content rather than which tab is active.
+`assertTabActive()` and `tap()` on a tab bar button both read iOS's native `TabView` through the `AXBRIDGE` backend, which is what crosses process boundaries to see the tab bar's children — the older `AX` backend reads it as a childless group, with no per-tab `selected` flag and no tab buttons to find at all. **AXBRIDGE needs idb_companion 1.6.3 or newer** (`brew upgrade idb-companion`); `php artisan nativephp:simulator doctor` reports the installed build's date and says so if it's too old. Before 1.6.3, AXBRIDGE's guest transport was one-shot with a hardcoded 30s silence deadline per read, and a full tree read routinely exceeded it — every read hung to its own 60s ceiling and came back with nothing, even though the screen was rendering correctly underneath. 1.6.3 reworked the transport to stream and lifted that deadline.
 
 The plugin only sees native controls. A `<webview>` is one node. Blade and Livewire inside it are outside `tap()`, `type()`, and `assertSee()`.
 

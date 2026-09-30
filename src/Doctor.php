@@ -56,7 +56,7 @@ final class Doctor
 
         return new DoctorResult([
             $this->tool('Xcode simctl', $xcrun, 'Install Xcode and the command line tools.', ! $androidReady),
-            $this->tool('idb_companion', $companion, 'Install it with `brew install idb-companion`.', ! $androidReady),
+            $this->companionTool($companion, ! $androidReady),
             $this->tool('Android SDK', $sdk, 'Set ANDROID_HOME to the Android SDK.', ! $iosReady),
             $this->tool('adb', $adb, 'Install Android platform-tools.', ! $iosReady),
             $this->tool('emulator', $emulator, 'Install the Android Emulator package.', ! $iosReady),
@@ -91,6 +91,35 @@ final class Doctor
         return $this->machine->androidSdk() !== null
             && $this->machine->adb() !== null
             && $this->machine->emulator() !== null;
+    }
+
+    /**
+     * Not `required: true` on an old build — AX reads still work, and only AXBRIDGE reads
+     * (native TabView children among them; see Hid::accessibilityInfo()) hang on it — but
+     * an old build is worth surfacing here rather than as a 60-second hang mid-suite.
+     *
+     * @return array{label: string, ok: bool, required: bool, detail: string}
+     */
+    private function companionTool(?string $path, bool $required): array
+    {
+        if ($path === null) {
+            return $this->tool('idb_companion', null, 'Install it with `brew install idb-companion`.', $required);
+        }
+
+        $supportsAxBridge = Companion::supportsAxBridge($path);
+
+        $detail = match ($supportsAxBridge) {
+            true => $path,
+            false => $path.' — built '.Companion::buildDate($path).", too old for AXBRIDGE reads (needs 1.6.3+, 'brew upgrade idb-companion')",
+            null => $path.' (build date unknown)',
+        };
+
+        return [
+            'label' => 'idb_companion',
+            'ok' => true,
+            'required' => false,
+            'detail' => $detail,
+        ];
     }
 
     /**
