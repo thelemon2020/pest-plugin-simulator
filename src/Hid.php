@@ -153,6 +153,13 @@ final class Hid
 
     public static function accessibilityInfo(): string
     {
-        return Protobuf::varintField(3, 2).Protobuf::varintField(8, 2);
+        // format=COMPLETE (field 3), backend=AX (field 8). AXBRIDGE (the richer backend
+        // COMPLETE was added alongside) times out reading the live tree on at least some
+        // idb_companion/iOS combinations — every element read hangs until the read's own
+        // 60s deadline and comes back empty, even though the screen is rendering correctly
+        // underneath. AX is the older, pre-bridge implementation and does not have this
+        // failure; COMPLETE's extra provenance fields are reported for whichever backend
+        // served the read; see idb's idb.proto AccessibilityInfoRequest.Backend.
+        return Protobuf::varintField(3, 2).Protobuf::varintField(8, 1);
     }
 }

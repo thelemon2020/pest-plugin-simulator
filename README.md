@@ -194,6 +194,8 @@ screen('/settings/edit')
 
 `assertNavTitle()` reads the navigation bar. `assertTabActive()` reads the selected tab. `assertNavigatedTo('/settings')` passes when that path is an accessibility id, or when the navigation title is the last part of the path (`Settings`). `assertEnabled()`, `assertDisabled()`, and `assertChecked()` read those states from the same screen.
 
+On iOS, a native `TabView`'s tab bar is a dead end for the `AX` backend (see below): it reads as a childless group, with no per-tab `selected` flag and no individual tab buttons at all. This costs more than `assertTabActive()` — `tap('SomeTab')` on a tab bar button fails too, since there is nothing in the read for the label match to find. The richer `AXBRIDGE` backend does expose the tab bar's children, but hangs and never answers on at least some idb_companion/iOS combinations (`accessibility_info failed... serve read timed out`), which makes it unusable for a whole suite rather than one screen. Until that is resolved, open a tab's route directly with `screen('/that-route')` rather than tapping its tab bar button, and assert the landing screen's own content rather than which tab is active.
+
 The plugin only sees native controls. A `<webview>` is one node. Blade and Livewire inside it are outside `tap()`, `type()`, and `assertSee()`.
 
 `tap()`, `type()`, and the assertions look for an accessibility id first, then an exact label, then a label that contains the text. The label is what the phone reads aloud: the visible text, or the `a11y-label`. An icon button, chip, tab, or nav action has no label until that prop is set. `tap('save-button')` matches an accessibility id even when the control has no visible text.
