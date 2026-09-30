@@ -147,7 +147,14 @@ final class IosDriver implements Driver
         try {
             $this->command->run('xcrun', ['simctl', 'terminate', $this->udid(), $bundle]);
         } catch (SimulatorException $exception) {
-            if (! str_contains(strtolower($exception->getMessage()), 'no such process')) {
+            // The app was never running, which is the ordinary case on a first install — not
+            // a failure to install over it. simctl's wording for that isn't stable across
+            // versions: older Xcodes say "No such process", newer ones say "found nothing to
+            // terminate". Without both, a run on whichever version says the one this wasn't
+            // written for throws on every single test.
+            $message = strtolower($exception->getMessage());
+
+            if (! str_contains($message, 'no such process') && ! str_contains($message, 'nothing to terminate')) {
                 throw $exception;
             }
         }

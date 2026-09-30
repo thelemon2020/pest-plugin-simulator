@@ -67,6 +67,33 @@ it('creates the ios database directory', function () {
     }
 });
 
+it('creates the ios database directory when simctl phrases it as nothing to terminate', function () {
+    // The real-world message on newer Xcode/simctl, distinct from "No such process" above —
+    // this is the one that shipped broken: every test failed on a first install until this
+    // wording was recognised too.
+    $container = sys_get_temp_dir().'/simulator-ios-'.uniqid('', true);
+    mkdir($container);
+    $database = $container.'/Library/Application Support/database/database.sqlite';
+    $source = sys_get_temp_dir().'/simulator-source-'.uniqid('', true).'.sqlite';
+    $bytes = random_bytes(32);
+    file_put_contents($source, $bytes);
+
+    Configuration::configure(['bundle_id' => 'com.example.app']);
+    $command = new RecordingCommand($container);
+    $command->failures = ['terminate' => 'Simulator device failed to terminate com.example.app. found nothing to terminate'];
+    $driver = new IosDriver(new Device('ios', 'iPhone 17', true), Configuration::resolve(), $command);
+    (new ReflectionProperty(IosDriver::class, 'udid'))->setValue($driver, 'UDID');
+
+    try {
+        $driver->installDatabase($source);
+
+        expect(file_get_contents($database))->toBe($bytes);
+    } finally {
+        unlink($source);
+        removeTree($container);
+    }
+});
+
 it('stops installing when the ios app cannot be quit', function () {
     $container = sys_get_temp_dir().'/simulator-ios-'.uniqid('', true);
     mkdir($container);
