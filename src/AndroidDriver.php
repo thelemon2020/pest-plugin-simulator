@@ -198,11 +198,16 @@ final class AndroidDriver implements Driver
         foreach ($lines as $index => $line) {
             // One character per call. A single "input text" of the whole
             // string overflows the emulator queue, and Compose drops letters.
-            // @ is the At key. input text sends Shift-2, and the email
-            // keyboard drops the letters around that event.
+            // input text sends @ as Shift-2, and the software keyboard drops
+            // the letters around that event, whichever field is focused.
             foreach ($this->characters($line) as $character) {
                 if ($character === '@') {
-                    $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'input', 'keyevent', '77']);
+                    // keyevent 77 is At, and the software keyboard throws
+                    // away the letters around it. Tap the @ key, or paste
+                    // that one character.
+                    if (! $this->tapLabeled('@')) {
+                        $this->paste($character);
+                    }
 
                     continue;
                 }
@@ -225,6 +230,21 @@ final class AndroidDriver implements Driver
     private function onKeyboard(string $character): bool
     {
         return strlen($character) === 1 && ord($character) >= 32 && ord($character) <= 126;
+    }
+
+    private function tapLabeled(string $label): bool
+    {
+        foreach ($this->describe() as $element) {
+            if ($element['label'] !== $label || ! is_array($element['center'] ?? null)) {
+                continue;
+            }
+
+            $this->tap((float) $element['center'][0], (float) $element['center'][1]);
+
+            return true;
+        }
+
+        return false;
     }
 
     private function paste(string $text): void

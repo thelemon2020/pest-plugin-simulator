@@ -7,9 +7,9 @@ namespace NativePhp\Simulator;
 final class IosText
 {
     /**
-     * Letters, digits, and spaces go through the hardware keyboard. The email
-     * keyboard does not turn Shift-2 into @, and that event drops the rest of
-     * the line, so anything else is tapped from the keys on screen.
+     * Letters, digits, and spaces go through the hardware keyboard. Anything
+     * else is typed on its own, because Shift-2 on the software keyboard
+     * drops the rest of the line, whichever field is focused.
      */
     public static function paste(string $text): bool
     {

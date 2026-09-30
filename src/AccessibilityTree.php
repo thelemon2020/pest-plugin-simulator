@@ -111,9 +111,9 @@ final class AccessibilityTree
     }
 
     /**
-     * The software keyboard is a window whose origin is the bottom of the
-     * display, so a key's frame sits below the screen a tap will accept.
-     * Shift that window up until its bottom edge is the bottom of the screen.
+     * A key the software keyboard is actually drawing. A key reported below
+     * the display is the keyboard parked off screen; shifting that frame up
+     * lands on the home indicator and dismisses the keyboard.
      *
      * @return array{0: float, 1: float}|null
      */
@@ -127,7 +127,6 @@ final class AccessibilityTree
 
         $roots = array_is_list($parsed) ? $parsed : [$parsed];
         $key = null;
-        $host = null;
 
         foreach ($roots as $root) {
             if (! is_array($root)) {
@@ -135,7 +134,6 @@ final class AccessibilityTree
             }
 
             $key ??= self::findFrame($root, fn (array $node): bool => ($node['type'] ?? null) === 'Key' && ($node['label'] ?? $node['AXLabel'] ?? null) === $label);
-            $host ??= self::findFrame($root, fn (array $node): bool => ($node['type'] ?? null) === 'UIInputSetHostView');
         }
 
         if ($key === null) {
@@ -145,12 +143,17 @@ final class AccessibilityTree
         $x = $key[0] + ($key[2] / 2);
         $y = $key[1] + ($key[3] / 2);
 
-        if ($y >= $screenHeight && $host !== null) {
-            $y -= ($host[1] + $host[3]) - $screenHeight;
-        }
-
         if ($x < 0 || $y < 0 || $x >= $screenWidth || $y >= $screenHeight) {
             return null;
+        }
+
+        // The center of a key on the home indicator dismisses the keyboard.
+        if ($y >= $screenHeight - 34) {
+            $y = $key[1] + min(12.0, $key[3] / 4);
+
+            if ($y < 0 || $y >= $screenHeight - 34) {
+                return null;
+            }
         }
 
         return [$x, $y];
@@ -236,6 +239,8 @@ final class AccessibilityTree
             }
         }
 
+        self::liftBottomLabels($nodes, $frames);
+
         $kept = [];
 
         foreach ($nodes as $index => $node) {
@@ -245,6 +250,79 @@ final class AccessibilityTree
         }
 
         return $kept;
+    }
+
+    /**
+     * A tab label sits in the gesture-navigation strip. Tapping the text
+     * itself is swallowed, so the press goes to the tab cell above it.
+     *
+     * @param  list<array<mixed>>  $nodes
+     * @param  array<int, array{0: float, 1: float, 2: float, 3: float}|null>  $frames
+     */
+    private static function liftBottomLabels(array &$nodes, array $frames): void
+    {
+        $screenHeight = 0.0;
+
+        foreach ($frames as $frame) {
+            if ($frame !== null) {
+                $screenHeight = max($screenHeight, $frame[1] + $frame[3]);
+            }
+        }
+
+        if ($screenHeight < 400) {
+            return;
+        }
+
+        $gestureTop = $screenHeight - ($screenHeight * 0.08);
+
+        foreach ($nodes as $index => $node) {
+            if (! is_array($node)) {
+                continue;
+            }
+
+            $label = trim((string) ($node['text'] ?? $node['content-desc'] ?? ''));
+            $frame = $frames[$index] ?? null;
+
+            if ($label === '' || $frame === null) {
+                continue;
+            }
+
+            $labelCenterY = $frame[1] + ($frame[3] / 2);
+
+            if ($labelCenterY < $gestureTop) {
+                continue;
+            }
+
+            $best = null;
+            $bestArea = INF;
+
+            foreach ($frames as $other) {
+                if ($other === null || $other === $frame || ! self::frameInside($frame, $other)) {
+                    continue;
+                }
+
+                if ($other[1] >= $frame[1] || $other[2] > 500 || $other[3] > 500) {
+                    continue;
+                }
+
+                $centerY = $other[1] + ($other[3] / 2);
+
+                if ($centerY > $screenHeight - ($screenHeight * 0.055)) {
+                    continue;
+                }
+
+                $area = $other[2] * $other[3];
+
+                if ($area < $bestArea) {
+                    $best = $other;
+                    $bestArea = $area;
+                }
+            }
+
+            if ($best !== null) {
+                $nodes[$index]['__press'] = $best;
+            }
+        }
     }
 
     /**
@@ -600,6 +678,12 @@ final class AccessibilityTree
      */
     private static function center(array $node): ?array
     {
+        $pressed = $node['__press'] ?? null;
+
+        if (is_array($pressed) && count($pressed) >= 4) {
+            return [$pressed[0] + $pressed[2] / 2, $pressed[1] + $pressed[3] / 2];
+        }
+
         $frame = self::frame($node);
 
         if ($frame === null) {

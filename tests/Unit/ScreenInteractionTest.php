@@ -43,6 +43,18 @@ it('taps the navigation back button', function () {
         ->and($driver->backs)->toBe(0);
 });
 
+it('taps the android back icon', function () {
+    $driver = new FakeDriver([[
+        control('arrow_back', ['role' => 'android.widget.TextView', 'center' => [74.5, 220.5]]),
+        control('QR sign in', ['role' => 'StaticText']),
+    ]]);
+
+    (new Screen($driver, timeoutSeconds: 0))->goBack();
+
+    expect($driver->taps)->toBe([[74.5, 220.5]])
+        ->and($driver->backs)->toBe(0);
+});
+
 it('replaces a field and reads its value', function () {
     $driver = new FakeDriver([[
         control('Title', ['role' => 'TextField', 'value' => 'old', 'center' => [20.0, 30.0]]),

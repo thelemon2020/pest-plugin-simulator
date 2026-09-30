@@ -60,9 +60,25 @@ it('types punctuation and a newline through adb', function () {
         "'é'",
         'paste',
         "'A'",
-        '@',
+        "'@'",
+        'paste',
         "'b'",
     ]);
+});
+
+it('taps the at key when the keyboard shows it', function () {
+    $command = new RecordingCommand;
+    $command->outputs['uiautomator'] = '<hierarchy rotation="0" width="1080" height="2400"><node text="@" class="android.widget.TextView" bounds="[100,1600][200,1700]" /></hierarchy>';
+    $driver = androidDriver($command);
+
+    $driver->text('A@b');
+
+    $taps = array_values(array_filter(
+        $command->calls,
+        fn (array $call): bool => ($call[1][4] ?? null) === 'tap',
+    ));
+
+    expect($taps[0][1])->toBe(['-s', 'emulator-5554', 'shell', 'input', 'tap', '150', '1650']);
 });
 
 it('clears by deleting from the end of the field', function () {

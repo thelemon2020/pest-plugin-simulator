@@ -87,14 +87,31 @@ final class ElementFinder
                 && is_array($element['center'] ?? null),
         ));
 
-        if (count($buttons) !== 1) {
+        if (count($buttons) === 1) {
+            /** @var array{label: string, role: ?string, id: ?string, center: array{0: float, 1: float}} $button */
+            $button = $buttons[0];
+
+            return $button;
+        }
+
+        if ($buttons !== []) {
             return null;
         }
 
-        /** @var array{label: string, role: ?string, id: ?string, center: array{0: float, 1: float}} $button */
-        $button = $buttons[0];
+        $icons = array_values(array_filter(
+            $elements,
+            fn (array $element): bool => in_array($element['label'], ['arrow_back', 'Navigate up'], true)
+                && is_array($element['center'] ?? null),
+        ));
 
-        return $button;
+        if (count($icons) !== 1) {
+            return null;
+        }
+
+        /** @var array{label: string, role: ?string, id: ?string, center: array{0: float, 1: float}} $icon */
+        $icon = $icons[0];
+
+        return $icon;
     }
 
     /**

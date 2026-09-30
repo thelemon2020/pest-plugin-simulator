@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 use NativePhp\Simulator\AccessibilityTree;
 
-it('shifts a software-keyboard key back onto the display', function () {
+it('ignores a software-keyboard key parked below the display', function () {
     $json = (string) json_encode([
         'elements' => [[
             'type' => 'UIInputSetHostView',
@@ -17,8 +17,20 @@ it('shifts a software-keyboard key back onto the display', function () {
         ]],
     ]);
 
-    expect(AccessibilityTree::keyPoint($json, '@', 402, 874))->toBe([225.0, 844.0])
+    expect(AccessibilityTree::keyPoint($json, '@', 402, 874))->toBeNull()
         ->and(AccessibilityTree::keyPoint($json, '.', 402, 874))->toBeNull();
+});
+
+it('taps a software-keyboard key that is on the display', function () {
+    $json = (string) json_encode([
+        'elements' => [[
+            'type' => 'Key',
+            'label' => '@',
+            'frame' => ['x' => 200, 'y' => 700, 'width' => 50, 'height' => 54],
+        ]],
+    ]);
+
+    expect(AccessibilityTree::keyPoint($json, '@', 402, 874))->toBe([225.0, 727.0]);
 });
 
 it('keeps a field label apart from its value', function () {
@@ -125,6 +137,27 @@ it('reads a compose outlined field, checkbox, and tab pill', function () {
         ->and($byLabel['Show the password you typed']['checked'])->toBeTrue()
         ->and($byLabel['More']['selected'])->toBeTrue()
         ->and($byLabel['Playing']['selected'])->toBeFalse();
+});
+
+it('presses a bottom tab above the gesture bar', function () {
+    $rows = AccessibilityTree::summarize((string) json_encode([
+        [
+            'class' => 'android.widget.FrameLayout',
+            'bounds' => '[0,0][1080,2400]',
+        ],
+        [
+            'class' => 'android.view.View',
+            'bounds' => '[441,2127][640,2337]',
+        ],
+        [
+            'class' => 'android.widget.TextView',
+            'text' => 'Collection',
+            'bounds' => '[461,2253][619,2295]',
+        ],
+    ]));
+
+    expect($rows[0]['label'])->toBe('Collection')
+        ->and($rows[0]['center'])->toBe([540.5, 2232.0]);
 });
 
 it('reads an iOS switch value and the tab lens', function () {

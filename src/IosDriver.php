@@ -18,6 +18,8 @@ final class IosDriver implements Driver
 
     private static ?string $workerSimulator = null;
 
+    private static bool $hardwareKeyboard = false;
+
     private ?string $udid = null;
 
     private ?int $recordingPid = null;
@@ -48,6 +50,7 @@ final class IosDriver implements Driver
 
     private function bootShared(): void
     {
+        $restartForKeyboard = $this->connectHardwareKeyboard();
         $json = $this->command->run('xcrun', ['simctl', 'list', 'devices', 'available', '-j']);
         $booted = SimulatorList::booted($json);
         $bootedNames = array_column($booted, 'name');
@@ -58,10 +61,21 @@ final class IosDriver implements Driver
 
         if (! $this->device->named && count($bootedNames) === 1) {
             $this->udid = $booted[0]['udid'];
+
+            if ($restartForKeyboard) {
+                $this->command->run('xcrun', ['simctl', 'shutdown', $this->udid]);
+                $this->command->run('xcrun', ['simctl', 'boot', $this->udid]);
+                $this->command->run('xcrun', ['simctl', 'bootstatus', $this->udid, '-b']);
+            }
         } else {
             $this->udid = SimulatorList::udidFor($json, $this->device->name);
+            $alreadyBooted = in_array($this->device->name, $bootedNames, true);
 
-            if (BootPlan::shouldBoot($this->device->named, $this->device->name, $bootedNames)) {
+            if (BootPlan::shouldBoot($this->device->named, $this->device->name, $bootedNames) || ($restartForKeyboard && $alreadyBooted)) {
+                if ($alreadyBooted) {
+                    $this->command->run('xcrun', ['simctl', 'shutdown', $this->udid]);
+                }
+
                 $this->command->run('xcrun', ['simctl', 'boot', $this->udid]);
                 $this->command->run('xcrun', ['simctl', 'bootstatus', $this->udid, '-b']);
                 $udid = $this->udid;
@@ -83,6 +97,7 @@ final class IosDriver implements Driver
         }
 
         $this->releaseWorkerSimulator();
+        $this->connectHardwareKeyboard();
         $json = $this->command->run('xcrun', ['simctl', 'list', 'devices', 'available', '-j']);
         $source = SimulatorList::udidFor($json, $this->device->name);
         $this->udid = trim($this->command->run('xcrun', ['simctl', 'clone', $source, $this->device->name.' '.Worker::nameSuffix()]));
@@ -228,9 +243,11 @@ final class IosDriver implements Driver
     }
 
     /**
-     * Shift-2 does not insert @ on the email keyboard, and the command-V
-     * chord does not paste into that field. The key is on screen, in a
-     * window reported below the display.
+     * The software keyboard does not turn Shift-2 into @, whichever field
+     * is focused, and a tap on a key reported below the display hits the
+     * home indicator and dismisses it. A key that is actually on the glass
+     * is tapped. Otherwise the hardware keyboard, connected before boot,
+     * types the character.
      */
     private function insertSymbol(string $character): void
     {
@@ -249,9 +266,38 @@ final class IosDriver implements Driver
             return;
         }
 
+        try {
+            $this->client()->stream('hid', Hid::text($character));
+
+            return;
+        } catch (SimulatorException) {
+        }
+
         $this->command->input('xcrun', ['simctl', 'pbcopy', $this->udid()], $character);
         usleep(100_000);
         $this->client()->stream('hid', Hid::paste());
+    }
+
+    /**
+     * The software keyboard ignores Shift-2. The preference is read when
+     * the simulator launches, so a simulator that is already up has to
+     * boot again.
+     */
+    private function connectHardwareKeyboard(): bool
+    {
+        if (self::$hardwareKeyboard) {
+            return false;
+        }
+
+        try {
+            $this->command->run('defaults', ['write', 'com.apple.iphonesimulator', 'ConnectHardwareKeyboard', '-bool', 'YES']);
+        } catch (SimulatorException) {
+            return false;
+        }
+
+        self::$hardwareKeyboard = true;
+
+        return true;
     }
 
     public function viewport(): array
