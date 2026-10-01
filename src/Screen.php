@@ -75,6 +75,7 @@ final class Screen
         [$width, $height] = $this->driver->viewport();
         [$x1, $y1, $x2, $y2] = Gesture::scroll($direction, $width, $height);
         $this->driver->swipe($x1, $y1, $x2, $y2);
+        $this->settle();
 
         return $this;
     }
@@ -99,8 +100,52 @@ final class Screen
         [$width, $height] = $this->driver->viewport();
         [$x1, $y1, $x2, $y2] = Gesture::swipe($direction, $width, $height, $originX, $originY);
         $this->driver->swipe($x1, $y1, $x2, $y2);
+        $this->settle();
 
         return $this;
+    }
+
+    /**
+     * Wait for the accessibility tree to stop moving after a scroll or swipe.
+     *
+     * A swipe's own duration (Hid::swipe()'s $seconds, the length of the synthetic drag
+     * itself) is not how long the CONTENT takes to stop moving: real scroll views keep
+     * decelerating under their own momentum well after the drag ends, and the gRPC call
+     * only blocks for the drag. A read() taken right after it returns can land mid-
+     * deceleration, reporting an element's TRANSIENT position — and a tap() built from
+     * that coordinate can miss by the time it reaches the device, because the content has
+     * moved again in the meantime. This polls describe() until two consecutive reads
+     * report the identical tree (settled) or a short cap elapses, so whichever call reads
+     * next sees final, stable positions.
+     *
+     * Best-effort and bounded: a screen that is legitimately still changing (its own
+     * animation, an unrelated poll tick) must not hang the caller waiting for two reads
+     * that may never match — it simply stops waiting at the cap and lets the caller's own
+     * retry loop (until()) sort out whether what's left is actually settled.
+     */
+    private function settle(): void
+    {
+        if ($this->timeoutSeconds <= 0) {
+            return;
+        }
+
+        $deadline = microtime(true) + min(2.0, $this->timeoutSeconds);
+        $previous = null;
+
+        while (microtime(true) < $deadline) {
+            try {
+                $current = $this->driver->describe();
+            } catch (SimulatorException) {
+                return;
+            }
+
+            if ($previous !== null && $current === $previous) {
+                return;
+            }
+
+            $previous = $current;
+            usleep(100_000);
+        }
     }
 
     public function goBack(): self

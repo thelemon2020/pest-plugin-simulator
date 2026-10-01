@@ -31,6 +31,39 @@ it('scrolls, swipes, and goes back', function () {
         ->and($driver->backs)->toBe(1);
 });
 
+it('waits for a scroll to settle before the next tap reads a position', function () {
+    $driver = new FakeDriver([
+        [control('Header')], // scroll()'s own pre-swipe read()
+        [control('Save', ['center' => [500.0, 700.0]])], // settle(): still decelerating
+        [control('Save', ['center' => [500.0, 500.0]])], // settle(): still decelerating
+        [control('Save', ['center' => [500.0, 500.0]])], // settle(): matches the previous read — settled
+    ]);
+
+    // A real timeout, so settle() actually polls instead of skipping (it treats <= 0 as
+    // the "unit test, no waiting" convention `until()` already uses).
+    (new Screen($driver, timeoutSeconds: 1))->scroll('down')->tap('Save');
+
+    expect($driver->taps)->toBe([[500.0, 500.0]]);
+});
+
+it('gives up waiting for a scroll to settle rather than hang on a screen that never stops moving', function () {
+    $reads = 0;
+    $trees = array_map(function () use (&$reads): array {
+        $reads++;
+
+        // A fresh coordinate every read — this screen never settles. settle() must still
+        // return once its cap elapses, not loop forever.
+        return [control('Save', ['center' => [100.0 + $reads, 200.0]])];
+    }, range(1, 40));
+
+    $driver = new FakeDriver([[control('Header')], ...$trees]);
+    $start = microtime(true);
+
+    (new Screen($driver, timeoutSeconds: 1))->scroll('down');
+
+    expect(microtime(true) - $start)->toBeLessThan(3.0);
+});
+
 it('taps the navigation back button', function () {
     $driver = new FakeDriver([[
         control('Back', ['chrome' => 'navigation', 'center' => [24.0, 60.0]]),
