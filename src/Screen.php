@@ -71,7 +71,7 @@ final class Screen
 
     public function scroll(string $direction = 'down'): self
     {
-        $this->read();
+        $this->readRetrying();
         [$width, $height] = $this->driver->viewport();
         [$x1, $y1, $x2, $y2] = Gesture::scroll($direction, $width, $height);
         $this->driver->swipe($x1, $y1, $x2, $y2);
@@ -94,7 +94,7 @@ final class Screen
             $originX = (float) $match['center'][0];
             $originY = (float) $match['center'][1];
         } else {
-            $this->read();
+            $this->readRetrying();
         }
 
         [$width, $height] = $this->driver->viewport();
@@ -150,7 +150,7 @@ final class Screen
 
     public function goBack(): self
     {
-        $elements = $this->read();
+        $elements = $this->readRetrying();
         $button = $this->finder->navigationBack($elements);
 
         if ($button !== null) {
@@ -381,6 +381,38 @@ final class Screen
         Recording::stop($this->driver);
 
         return $this;
+    }
+
+    /**
+     * read(), tolerant of a companion that has not stabilized yet.
+     *
+     * Every OTHER method that reads before it has something to look for goes through
+     * until(), whose retry loop already absorbs a transient SimulatorException from
+     * accessibility_info — e.g. `window-server frontmost returned no application object`,
+     * seen when a read lands in the brief window right after screen() has just opened a
+     * brand new screen and the companion has not yet resolved which app is frontmost.
+     * scroll(), swipe(), and goBack() have no predicate to retry against, so their own
+     * pre-gesture read() used to throw straight out of exactly that window — reproduced by
+     * calling scroll() as the very first action after screen() opens, with no assertion in
+     * between to let until()'s retry ride it out first.
+     *
+     * @return list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}}>
+     */
+    private function readRetrying(): array
+    {
+        $deadline = microtime(true) + $this->timeoutSeconds;
+
+        while (true) {
+            try {
+                return $this->read();
+            } catch (SimulatorException $exception) {
+                if ($this->timeoutSeconds <= 0 || microtime(true) >= $deadline) {
+                    throw $exception;
+                }
+
+                usleep(400_000);
+            }
+        }
     }
 
     /**

@@ -5,9 +5,16 @@ declare(strict_types=1);
 namespace Tests\Support;
 
 use NativePhp\Simulator\Driver;
+use NativePhp\Simulator\Exceptions\SimulatorException;
 
 final class FakeDriver implements Driver
 {
+    /**
+     * How many of the NEXT describe() calls should throw before answering normally —
+     * simulates a companion that has not stabilized yet right after a screen just opened
+     * (e.g. "window-server frontmost returned no application object").
+     */
+    public int $describeFailures = 0;
     /** @var list<array{0: float, 1: float}> */
     public array $taps = [];
 
@@ -65,6 +72,12 @@ final class FakeDriver implements Driver
 
     public function describe(?string $treePath = null): array
     {
+        if ($this->describeFailures > 0) {
+            $this->describeFailures--;
+
+            throw new SimulatorException('window-server frontmost returned no application object');
+        }
+
         $tree = $this->trees[min($this->reads, count($this->trees) - 1)];
         $this->reads++;
 

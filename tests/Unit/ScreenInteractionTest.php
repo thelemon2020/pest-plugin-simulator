@@ -46,6 +46,19 @@ it('waits for a scroll to settle before the next tap reads a position', function
     expect($driver->taps)->toBe([[500.0, 500.0]]);
 });
 
+it('rides out a companion that has not stabilized yet when scroll() is the first action', function () {
+    $driver = new FakeDriver([[
+        control('Note', ['center' => [40.0, 300.0]]),
+    ]]);
+    // The companion fails to resolve the frontmost app on its first two reads — the
+    // window right after screen() has just opened a brand new screen — then recovers.
+    $driver->describeFailures = 2;
+
+    (new Screen($driver, timeoutSeconds: 2))->scroll('down');
+
+    expect($driver->swipes)->toBe([Gesture::scroll('down', 390, 844)]);
+});
+
 it('gives up waiting for a scroll to settle rather than hang on a screen that never stops moving', function () {
     $reads = 0;
     $trees = array_map(function () use (&$reads): array {
