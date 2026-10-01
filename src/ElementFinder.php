@@ -184,6 +184,25 @@ final class ElementFinder
     }
 
     /**
+     * Whether a control carries the `.isSelected` accessibility trait — how a
+     * `<native:chip>` reports its own on/off state (`AccessibilityTree::checked()` only
+     * recognizes role `Switch`, which a chip is not; it's a `Button`). Distinct from
+     * `isChecked()`, which answers a different question for a different kind of control.
+     *
+     * @param  list<array{label: string, role: ?string, id: ?string, selected?: bool}>  $elements
+     */
+    public function isSelected(array $elements, string $target, bool $selected): bool
+    {
+        try {
+            $match = $this->match($elements, $target);
+        } catch (NoMatch) {
+            return false;
+        }
+
+        return ($match['selected'] ?? false) === $selected;
+    }
+
+    /**
      * @param  list<array{label: string, role: ?string, id: ?string, chrome?: ?string}>  $elements
      */
     public function navTitle(array $elements, string $title): bool

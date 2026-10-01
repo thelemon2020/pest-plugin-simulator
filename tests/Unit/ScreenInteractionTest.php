@@ -176,6 +176,8 @@ it('reads chrome, tabs, and control state', function () {
         control('Home', ['selected' => true, 'chrome' => 'tab', 'id' => '/notes']),
         control('Flashlight', ['role' => 'Switch', 'checked' => true]),
         control('Save', ['enabled' => false]),
+        control('😌 Chill', ['selected' => true]),
+        control('🔥 Hyped', ['selected' => false]),
     ]]);
 
     (new Screen($driver, timeoutSeconds: 0))
@@ -185,7 +187,9 @@ it('reads chrome, tabs, and control state', function () {
         ->assertNavigatedTo('/media/notes')
         ->assertChecked('Flashlight')
         ->assertDisabled('Save')
-        ->assertEnabled('Home');
+        ->assertEnabled('Home')
+        ->assertSelected('😌 Chill')
+        ->assertNotSelected('🔥 Hyped');
 });
 
 it('names an unlabeled control when a tap misses', function () {

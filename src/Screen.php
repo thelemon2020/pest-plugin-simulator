@@ -287,6 +287,38 @@ final class Screen
         return $this;
     }
 
+    /**
+     * A `<native:chip>`'s own on/off state, which assertChecked() cannot answer — chips
+     * report `.isSelected`, not the Switch-only `checked` value assertChecked() reads.
+     */
+    public function assertSelected(string $label): self
+    {
+        $elements = $this->until(
+            fn (array $elements): bool => $this->finder->isSelected($elements, $label, true),
+            "[{$label}] was not selected.",
+        );
+
+        Assert::assertTrue($this->finder->isSelected($elements, $label, true));
+
+        return $this;
+    }
+
+    /**
+     * The negative of assertSelected() — asserts a chip has NOT been toggled on, the same
+     * way assertDisabled() is the negative of assertEnabled().
+     */
+    public function assertNotSelected(string $label): self
+    {
+        $elements = $this->until(
+            fn (array $elements): bool => $this->finder->isSelected($elements, $label, false),
+            "[{$label}] was selected.",
+        );
+
+        Assert::assertTrue($this->finder->isSelected($elements, $label, false));
+
+        return $this;
+    }
+
     public function assertNavTitle(string $title): self
     {
         $elements = $this->until(
