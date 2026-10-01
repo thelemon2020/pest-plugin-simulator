@@ -433,6 +433,14 @@ final class ElementFinder
     }
 
     /**
+     * A control whose own label legitimately collides with a plain caption beside it — a
+     * floating label on a multiline field, or a row's visible headline duplicated onto its
+     * own toggle for VoiceOver. Checked only once nothing has already won on being the lone
+     * `Button` in the match set.
+     */
+    private const INTERACTIVE_ROLES = ['TextField', 'TextView', 'Switch'];
+
+    /**
      * @param  list<array{label: string, role: ?string, id: ?string, center: array{0: float, 1: float}}>  $matches
      * @return array{label: string, role: ?string, id: ?string, center: array{0: float, 1: float}}
      */
@@ -446,13 +454,13 @@ final class ElementFinder
         $pool = $buttons === [] ? $matches : $buttons;
 
         if (count($pool) > 1) {
-            $fields = array_values(array_filter(
+            $interactive = array_values(array_filter(
                 $pool,
-                fn (array $element): bool => $element['role'] === 'TextField',
+                fn (array $element): bool => in_array($element['role'], self::INTERACTIVE_ROLES, true),
             ));
 
-            if (count($fields) === 1) {
-                return $fields[0];
+            if (count($interactive) === 1) {
+                return $interactive[0];
             }
         }
 

@@ -79,6 +79,26 @@ it('types into the field when its label is also static text', function () use ($
         ->and($match['center'])->toBe([201, 380]);
 });
 
+it('taps the switch when its label is also static text', function () use ($button) {
+    $match = (new ElementFinder)->match([
+        $button('Run this schedule', null, [1, 1], 'StaticText'),
+        $button('Run this schedule', null, [9, 9], 'Switch'),
+    ], 'Run this schedule');
+
+    expect($match['role'])->toBe('Switch')
+        ->and($match['center'])->toBe([9, 9]);
+});
+
+it('types into a multiline field when its floating label is also static text', function () use ($button) {
+    $match = (new ElementFinder)->match([
+        $button('Note', null, [1, 1], 'StaticText'),
+        $button('Note', null, [9, 9], 'TextView'),
+    ], 'Note');
+
+    expect($match['role'])->toBe('TextView')
+        ->and($match['center'])->toBe([9, 9]);
+});
+
 it('refuses to guess between two buttons with the same label', function () use ($button) {
     (new ElementFinder)->match([
         $button('Shelf'),
