@@ -20,18 +20,41 @@ final class ElementFinder
             fn (array $element): bool => is_array($element['center'] ?? null),
         ));
 
-        foreach ([
-            fn (array $element): bool => ($element['id'] ?? null) === $target,
-            fn (array $element): bool => $element['label'] === $target,
-            fn (array $element): bool => str_contains($element['label'], $target),
-        ] as $predicate) {
-            $matches = array_values(array_filter($tappable, $predicate));
+        // A screen's title is routinely mirrored onto the nav bar verbatim, so a nav/tab
+        // bar's own passive label (a plain StaticText, never a Button or other interactive
+        // role) can EXACT-match a target before a real on-screen control ever gets a chance
+        // to — the three tiers below return as soon as ANY tier has a match, so an exact
+        // chrome hit short-circuits past a lower-tier CONTAINS match from the actual control
+        // entirely, before `choose()`'s own chrome-vs-content preference (below) is ever
+        // consulted, since that only resolves ties WITHIN one tier's pool, not across tiers.
+        // Concretely: SegmentEditor's rename control carries a11y-label "Rename or recolour
+        // Top shelf"; `tap('Top shelf')` EXACT-matched the nav bar's title "Top shelf" at
+        // tier 2 and returned immediately, never reaching tier 3 where the real control would
+        // have matched by CONTAINS — a tap that found a real coordinate, dispatched with no
+        // error, and did nothing, because chrome consumed it before content was ever tried.
+        // Real interactive chrome (a Back button, a toolbar action, a tab item) keeps its
+        // Button role and so is NOT excluded here — only inert nav/tab bar decoration is.
+        $content = array_values(array_filter(
+            $tappable,
+            fn (array $element): bool => ! in_array($element['chrome'] ?? null, ['navigation', 'tab'], true)
+                || $element['role'] === 'Button'
+                || in_array($element['role'], self::INTERACTIVE_ROLES, true),
+        ));
 
-            if ($matches === []) {
-                continue;
+        foreach ([$content, $tappable] as $pool) {
+            foreach ([
+                fn (array $element): bool => ($element['id'] ?? null) === $target,
+                fn (array $element): bool => $element['label'] === $target,
+                fn (array $element): bool => str_contains($element['label'], $target),
+            ] as $predicate) {
+                $matches = array_values(array_filter($pool, $predicate));
+
+                if ($matches === []) {
+                    continue;
+                }
+
+                return $this->choose($matches, $target);
             }
-
-            return $this->choose($matches, $target);
         }
 
         throw new NoMatch($target, $elements);

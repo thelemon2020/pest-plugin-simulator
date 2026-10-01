@@ -108,6 +108,35 @@ it('prefers plain content over a nav title mirroring the same label', function (
     expect($match['center'])->toBe([156, 156]);
 });
 
+it('does not let a nav title EXACT match beat real content that only CONTAINS the target', function () use ($button) {
+    // The three-tier search in match() (id, exact, contains) used to return as soon as
+    // ANY tier had a match — so a nav bar title that exactly equals the target short-
+    // circuited past a real control one tier down whose longer a11y-label only contains
+    // it, before choose()'s own chrome-vs-content preference ever got a chance to run
+    // (that only resolves ties WITHIN one tier, not across tiers). Reproduces
+    // SegmentEditor's rename button: nav title "Top shelf" (exact) vs. the button's own
+    // label "Rename or recolour Top shelf" (contains) — real hardware confirmed the nav
+    // title was winning and the button never actually received the tap.
+    $match = (new ElementFinder)->match([
+        ['label' => 'Top shelf', 'role' => 'StaticText', 'id' => null, 'center' => [201, 84], 'chrome' => 'navigation'],
+        $button('Rename or recolour Top shelf', null, [61, 154]),
+    ], 'Top shelf');
+
+    expect($match['center'])->toBe([61, 154])
+        ->and($match['role'])->toBe('Button');
+});
+
+it('still matches a real Button or interactive control living in nav/tab chrome', function () use ($button) {
+    // The chrome exclusion in match() must not blind it to a REAL interactive control
+    // just because that control happens to live inside a nav bar or tab bar — a Back
+    // button, a toolbar action, or a tab item are all legitimate tap() targets.
+    $match = (new ElementFinder)->match([
+        ['label' => 'Back', 'role' => 'Button', 'id' => null, 'center' => [40, 84], 'chrome' => 'navigation'],
+    ], 'Back');
+
+    expect($match['center'])->toBe([40, 84]);
+});
+
 it('refuses to guess between two buttons with the same label', function () use ($button) {
     (new ElementFinder)->match([
         $button('Shelf'),
