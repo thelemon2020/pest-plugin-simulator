@@ -209,26 +209,52 @@ final class IosDriver implements Driver
     }
 
     /**
-     * A real finger holds a touch down for a beat before lifting it; a bare down+up with
-     * no gap between them is how long a purely synthetic tap takes instead. For some
-     * controls that gap is load-bearing — found on a plain `<native:toggle>` (not inside
-     * any scroll-view or sheet), which never flipped under an instantaneous tap and
-     * reliably did under a held one. 150ms was the shortest tested value that fixed it (a
-     * shorter untested value might also work; 80ms did not). Each down/up event is still
-     * sent in its own `stream()` call — a persistent mid-stream delay isn't reachable
-     * through `curl`'s one-shot batched POST — so this does NOT help every unresponsive
-     * tap: a `<native:chip>` inside a horizontal `<native:scroll-view>` and controls
-     * inside a `<native:bottom-sheet>` (a multiline field, a plain "Cancel" button) stayed
-     * broken even at a 500ms hold, tried and reverted. Those need a different fix.
+     * A real finger holds a touch down for a beat before lifting it; a bare down+up with no
+     * gap between them is how long a purely synthetic tap takes instead, and for some
+     * controls that gap is load-bearing.
+     *
+     * First tried as two separate `stream()` calls (each its own HTTP/2 connection) with a
+     * `usleep()` between them. That fixed a plain `<native:toggle>` — not inside any
+     * scroll-view or sheet — at 150ms (80ms did not), which never flipped under an
+     * instantaneous tap. It did NOT fix a `<native:chip>` inside a horizontal
+     * `<native:scroll-view>`, tried up to 300ms: plausibly because two separate connections
+     * never read as one continuous touch session to begin with, so no amount of delay
+     * between them could matter.
+     *
+     * `streamPaced()` (see Client.php) fixes that: one connection, written to incrementally
+     * with a real gap mid-body, so whatever continuity a scroll view's gesture arbitration
+     * needs survives. At 400ms this fixed the chip AND, as a bonus nobody was chasing,
+     * fixed two previously-unrelated mysteries in the same investigation: a plain "Cancel"
+     * button and a multiline field, both inside a `<native:bottom-sheet>`, which a 500ms
+     * hold under the OLD two-connection method never touched. A plain `<native:toggle>`
+     * (LightingSchedule's "Run this schedule" switch), also previously fixed by the OLD
+     * method at 150ms, keeps working under this one too.
+     *
+     * Important caveat, found AFTER first declaring the above "fixed": all three — chip,
+     * sheet, switch — are reliable on an otherwise-idle machine but measurably flaky under
+     * heavy host contention (tested at a sustained load average of 60-100 on a 10-core Mac,
+     * driven by an unrelated video call + remote-desktop session). 200ms was tried as a
+     * possible fix (on the theory a shorter hold avoids iOS's long-press/haptic-touch
+     * gesture arbitration window) and made things WORSE, not better, so this isn't a
+     * duration problem — it's host scheduling jitter affecting the real wall-clock gap
+     * `streamPaced()` depends on. No in-plugin fix for that is known; treat it as the same
+     * class of risk as the existing TimezonePicker keyboard flake, not a regression.
+     *
+     * One case is NOT explained by load: a generic pressable (`SegmentEditor`'s rename
+     * disclosure) on a screen with its own complex custom-drawn gesture surface (the dynamic
+     * shelf board — lights, dividers, drag-to-place) failed 150ms through 1.5s under both
+     * methods, and failed 3/3 again under streamPaced at 400ms in the SAME heavily-loaded
+     * conditions where chip/sheet/switch were each passing some fraction of their runs —
+     * i.e. this one is deterministic, not just another casualty of the host contention
+     * above. Current best guess is that surface's own gesture recognizer is claiming the
+     * touch before the disclosure's tap gesture ever sees it. Genuinely unresolved; no
+     * write test exists for it in SegmentEditorTest.
      */
-    private const TAP_HOLD_MICROSECONDS = 150_000;
+    private const TAP_HOLD_MICROSECONDS = 400_000;
 
     public function tap(float $x, float $y): void
     {
-        [$down, $up] = Hid::tap($x, $y);
-        $this->client()->stream('hid', [$down]);
-        usleep(self::TAP_HOLD_MICROSECONDS);
-        $this->client()->stream('hid', [$up]);
+        $this->client()->streamPaced('hid', Hid::tap($x, $y), self::TAP_HOLD_MICROSECONDS);
     }
 
     public function swipe(float $x1, float $y1, float $x2, float $y2): void

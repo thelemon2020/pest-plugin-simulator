@@ -483,6 +483,26 @@ final class ElementFinder
             }
         }
 
+        // A screen's title is routinely mirrored onto the nav bar verbatim (this app, like
+        // most, names a screen after whatever it's showing — "Top shelf" the heading IS
+        // "Top shelf" the nav title), which makes it collide with on-screen content sharing
+        // the same exact string. Neither is a Button and neither is an INTERACTIVE_ROLES
+        // control if the real target is a bare pressable Text, so without this the pool
+        // reaches the ambiguity check below and either throws or — worse — silently returns
+        // whichever happened to iterate first, which can be the inert nav title: a tap that
+        // finds a real coordinate, dispatches with no error, and does nothing, because chrome
+        // consumed it instead of the content it was decorating.
+        if (count($pool) > 1) {
+            $content = array_values(array_filter(
+                $pool,
+                fn (array $element): bool => ($element['chrome'] ?? null) === null,
+            ));
+
+            if (count($content) === 1) {
+                return $content[0];
+            }
+        }
+
         if (count($pool) > 1) {
             throw new AmbiguousMatch($target, $pool);
         }

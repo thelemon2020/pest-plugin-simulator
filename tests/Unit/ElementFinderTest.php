@@ -99,6 +99,15 @@ it('types into a multiline field when its floating label is also static text', f
         ->and($match['center'])->toBe([9, 9]);
 });
 
+it('prefers plain content over a nav title mirroring the same label', function () {
+    $match = (new ElementFinder)->match([
+        ['label' => 'Top shelf', 'role' => 'StaticText', 'id' => null, 'center' => [201, 84], 'chrome' => 'navigation'],
+        ['label' => 'Top shelf', 'role' => 'StaticText', 'id' => null, 'center' => [156, 156], 'chrome' => null],
+    ], 'Top shelf');
+
+    expect($match['center'])->toBe([156, 156]);
+});
+
 it('refuses to guess between two buttons with the same label', function () use ($button) {
     (new ElementFinder)->match([
         $button('Shelf'),
