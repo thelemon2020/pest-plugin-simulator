@@ -208,9 +208,27 @@ final class IosDriver implements Driver
         return $json;
     }
 
+    /**
+     * A real finger holds a touch down for a beat before lifting it; a bare down+up with
+     * no gap between them is how long a purely synthetic tap takes instead. For some
+     * controls that gap is load-bearing — found on a plain `<native:toggle>` (not inside
+     * any scroll-view or sheet), which never flipped under an instantaneous tap and
+     * reliably did under a held one. 150ms was the shortest tested value that fixed it (a
+     * shorter untested value might also work; 80ms did not). Each down/up event is still
+     * sent in its own `stream()` call — a persistent mid-stream delay isn't reachable
+     * through `curl`'s one-shot batched POST — so this does NOT help every unresponsive
+     * tap: a `<native:chip>` inside a horizontal `<native:scroll-view>` and controls
+     * inside a `<native:bottom-sheet>` (a multiline field, a plain "Cancel" button) stayed
+     * broken even at a 500ms hold, tried and reverted. Those need a different fix.
+     */
+    private const TAP_HOLD_MICROSECONDS = 150_000;
+
     public function tap(float $x, float $y): void
     {
-        $this->client()->stream('hid', Hid::tap($x, $y));
+        [$down, $up] = Hid::tap($x, $y);
+        $this->client()->stream('hid', [$down]);
+        usleep(self::TAP_HOLD_MICROSECONDS);
+        $this->client()->stream('hid', [$up]);
     }
 
     public function swipe(float $x1, float $y1, float $x2, float $y2): void
