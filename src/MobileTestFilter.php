@@ -14,12 +14,16 @@ final class MobileTestFilter implements TestCaseMethodFilter
     public function accept(TestCaseMethodFactory $method): bool
     {
         if (! SuiteRegistration::active()) {
-            return true;
+            return ! ParallelLanes::followUp();
         }
 
         $devices = DevicePlan::filter(SuiteRegistration::devices(), $this->platforms($method));
 
         if ($devices === []) {
+            if (Arguments::excludedByPin()) {
+                return false;
+            }
+
             $this->skip($method, 'This test is limited to a platform the mobile suite does not run.');
 
             return true;

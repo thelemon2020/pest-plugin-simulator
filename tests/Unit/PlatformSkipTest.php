@@ -8,6 +8,7 @@ use NativePhp\Simulator\Device;
 use NativePhp\Simulator\DeviceCatalog;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 use NativePhp\Simulator\MobileTestFilter;
+use NativePhp\Simulator\ParallelLanes;
 use NativePhp\Simulator\Platforms;
 use NativePhp\Simulator\SuitePlan;
 use NativePhp\Simulator\SuiteRegistration;
@@ -186,6 +187,65 @@ it('gives a dataset value to the test after the device key', function () {
     expect($method->datasets[0])->toBe([['ios:1:iPhone 17']])
         ->and($method->datasets[1])->toBe([['Ada']])
         ->and($seen)->toBe(['Ada', 'iPhone 17']);
+});
+
+it('drops a test outside mobile() on a later device lane', function () {
+    $_ENV[ParallelLanes::FOLLOW] = '1';
+    $_SERVER[ParallelLanes::FOLLOW] = '1';
+    putenv(ParallelLanes::FOLLOW.'=1');
+
+    expect((new MobileTestFilter)->accept(mobileMethod()))->toBeFalse();
+});
+
+it('keeps a mobile test on a later device lane', function () {
+    $_ENV[ParallelLanes::FOLLOW] = '1';
+    $_SERVER[ParallelLanes::FOLLOW] = '1';
+    putenv(ParallelLanes::FOLLOW.'=1');
+    $method = mobileMethod();
+    $accepted = false;
+
+    SuiteRegistration::run([
+        new Device('ios', 'iPhone 17', true),
+    ], function () use ($method, &$accepted): void {
+        $accepted = (new MobileTestFilter)->accept($method);
+    });
+
+    expect($accepted)->toBeTrue();
+});
+
+it('skips an ios suite on an android lane the run asked for', function () {
+    Arguments::intercept(['--android']);
+    $_ENV[ParallelLanes::DEVICE] = 'android:Pixel 8';
+    $_SERVER[ParallelLanes::DEVICE] = 'android:Pixel 8';
+    putenv(ParallelLanes::DEVICE.'=android:Pixel 8');
+    $method = mobileMethod();
+
+    SuiteRegistration::run(Arguments::select([
+        new Device('ios', 'iPhone 17', true),
+    ]), function () use ($method): void {
+        (new MobileTestFilter)->accept($method);
+    });
+
+    expect(fn () => ($method->closure)())->toThrow(
+        SkippedWithMessageException::class,
+        'This test is limited to a platform the mobile suite does not run.',
+    );
+});
+
+it('omits a mobile test whose suite does not include the lane device', function () {
+    $_ENV[ParallelLanes::DEVICE] = 'android:Pixel 8';
+    $_SERVER[ParallelLanes::DEVICE] = 'android:Pixel 8';
+    putenv(ParallelLanes::DEVICE.'=android:Pixel 8');
+    $method = mobileMethod();
+    $accepted = true;
+
+    SuiteRegistration::run(Arguments::select([
+        new Device('ios', 'iPhone 17', true),
+    ]), function () use ($method, &$accepted): void {
+        $accepted = (new MobileTestFilter)->accept($method);
+    });
+
+    expect($accepted)->toBeFalse();
 });
 
 it('still rejects an ambiguous device name', function () {

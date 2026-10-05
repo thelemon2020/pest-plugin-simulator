@@ -108,6 +108,32 @@ it('keeps the selection for a worker process', function () {
     ]);
 });
 
+it('keeps one device when a parallel lane pins it', function () {
+    $_ENV['NATIVEPHP_SIMULATOR_LANE_DEVICE'] = 'ios:iPhone SE';
+    $_SERVER['NATIVEPHP_SIMULATOR_LANE_DEVICE'] = 'ios:iPhone SE';
+    putenv('NATIVEPHP_SIMULATOR_LANE_DEVICE=ios:iPhone SE');
+
+    $devices = Arguments::select([
+        new Device('ios', 'iPhone 17', true),
+        new Device('ios', 'iPhone SE', true),
+        new Device('android', 'Pixel 8', true),
+    ]);
+
+    expect(array_map(fn (Device $device): string => $device->platform.':'.$device->name, $devices))->toBe([
+        'ios:iPhone SE',
+    ])->and($_ENV['NATIVEPHP_SIMULATOR_LANE_DEVICE'])->toBe('ios:iPhone SE');
+});
+
+it('returns no devices when the lane pin is absent from the suite', function () {
+    $_ENV['NATIVEPHP_SIMULATOR_LANE_DEVICE'] = 'android:Pixel 8';
+    $_SERVER['NATIVEPHP_SIMULATOR_LANE_DEVICE'] = 'android:Pixel 8';
+    putenv('NATIVEPHP_SIMULATOR_LANE_DEVICE=android:Pixel 8');
+
+    expect(Arguments::select([
+        new Device('ios', 'iPhone 17', true),
+    ]))->toBe([]);
+});
+
 it('rejects a device flag with no name', function () {
     Arguments::intercept(['vendor/bin/pest', '--device']);
 })->throws(SimulatorException::class, 'Pass a device name to --device.');

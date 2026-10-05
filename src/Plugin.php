@@ -7,7 +7,9 @@ namespace NativePhp\Simulator;
 use Pest\Contracts\Plugins\Bootable;
 use Pest\Contracts\Plugins\HandlesArguments;
 use Pest\Contracts\Plugins\Terminable;
+use Pest\Plugins\Parallel;
 use Pest\TestSuite;
+use PHPUnit\Event\Facade as EventFacade;
 
 final class Plugin implements Bootable, HandlesArguments, Terminable
 {
@@ -21,6 +23,17 @@ final class Plugin implements Bootable, HandlesArguments, Terminable
 
         self::$booted = true;
         TestSuite::getInstance()->tests->addTestCaseMethodFilter(new MobileTestFilter);
+        ParallelLanes::publish();
+
+        if (! Parallel::isEnabled() || Parallel::isWorker()) {
+            return;
+        }
+
+        Arguments::intercept($_SERVER['argv'] ?? []);
+
+        if (! ParallelLanes::active()) {
+            EventFacade::instance()->registerSubscriber(new ParallelLanes);
+        }
     }
 
     /**

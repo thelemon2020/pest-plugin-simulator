@@ -11,11 +11,18 @@ final class SuiteRegistration
     /** @var list<Device>|null */
     private static ?array $devices = null;
 
+    /** @var array<string, Device> */
+    private static array $seen = [];
+
     /**
      * @param  list<Device>  $devices
      */
     public static function run(array $devices, Closure $tests): void
     {
+        foreach ($devices as $device) {
+            self::$seen[$device->platform.':'.$device->name] = $device;
+        }
+
         $previous = self::$devices;
         self::$devices = $devices;
 
@@ -37,5 +44,18 @@ final class SuiteRegistration
     public static function devices(): array
     {
         return self::$devices ?? [];
+    }
+
+    /**
+     * @return list<Device>
+     */
+    public static function seen(): array
+    {
+        return array_values(self::$seen);
+    }
+
+    public static function forgetSeen(): void
+    {
+        self::$seen = [];
     }
 }

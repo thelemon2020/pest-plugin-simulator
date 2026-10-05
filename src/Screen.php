@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace NativePhp\Simulator;
 
+use Closure;
 use NativePhp\Simulator\Exceptions\AmbiguousMatch;
 use NativePhp\Simulator\Exceptions\NoMatch;
 use NativePhp\Simulator\Exceptions\SimulatorException;
@@ -375,17 +376,13 @@ final class Screen
     public function assertSee(string $text, string ...$others): self
     {
         $texts = [$text, ...$others];
-        $listed = implode(', ', array_map(
-            fn (string $label): string => "[{$label}]",
-            $texts,
-        ));
 
         $elements = $this->until(
-            fn (array $elements): bool => $this->seesAll($elements, $texts),
-            "Did not see {$listed}.",
+            fn (array $elements): bool => $this->finder->seesAll($elements, $texts),
+            fn (array $elements): string => $this->didNotSee($this->finder->missing($elements, $texts) ?: $texts),
         );
 
-        Assert::assertTrue($this->seesAll($elements, $texts));
+        Assert::assertTrue($this->finder->seesAll($elements, $texts));
 
         return $this;
     }
@@ -472,9 +469,10 @@ final class Screen
 
     /**
      * @param  callable(list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}}): bool>  $predicate
+     * @param  string|Closure(list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}}): string>  $failure
      * @return list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}}>
      */
-    private function until(callable $predicate, string $failure): array
+    private function until(callable $predicate, string|Closure $failure): array
     {
         $deadline = microtime(true) + $this->timeoutSeconds;
         $last = [];
@@ -509,7 +507,20 @@ final class Screen
             usleep(400_000);
         } while (microtime(true) < $deadline);
 
-        $this->fail($failure, $last);
+        $this->fail($failure instanceof Closure ? $failure($last) : $failure, $last);
+    }
+
+    /**
+     * @param  list<string>  $labels
+     */
+    private function didNotSee(array $labels): string
+    {
+        $listed = implode(', ', array_map(
+            fn (string $label): string => "[{$label}]",
+            $labels,
+        ));
+
+        return "Did not see {$listed}.";
     }
 
     /**
@@ -558,21 +569,6 @@ final class Screen
         }
 
         return $elements;
-    }
-
-    /**
-     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}}>  $elements
-     * @param  list<string>  $texts
-     */
-    private function seesAll(array $elements, array $texts): bool
-    {
-        foreach ($texts as $text) {
-            if (! $this->finder->sees($elements, $text)) {
-                return false;
-            }
-        }
-
-        return true;
     }
 
     /**

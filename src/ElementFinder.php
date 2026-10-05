@@ -152,6 +152,28 @@ final class ElementFinder
     }
 
     /**
+     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}}>  $elements
+     * @param  list<string>  $texts
+     */
+    public function seesAll(array $elements, array $texts): bool
+    {
+        return $this->missing($elements, $texts) === [];
+    }
+
+    /**
+     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}}>  $elements
+     * @param  list<string>  $texts
+     * @return list<string>
+     */
+    public function missing(array $elements, array $texts): array
+    {
+        return array_values(array_filter(
+            $texts,
+            fn (string $text): bool => ! $this->sees($elements, $text),
+        ));
+    }
+
+    /**
      * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}, value?: ?string}>  $elements
      */
     public function hasValue(array $elements, string $target, string $value): bool

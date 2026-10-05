@@ -28,12 +28,17 @@ final class Arguments
 
     private static bool $wipe = false;
 
+    private static bool $parsed = false;
+
+    private static bool $excludedByPin = false;
+
     /**
      * @param  array<int, string>  $arguments
      * @return array<int, string>
      */
     public static function intercept(array $arguments): array
     {
+        self::$parsed = true;
         $parsed = self::parse($arguments);
 
         if ($parsed['platforms'] === [] && $parsed['devices'] === [] && ! $parsed['doctor'] && ! $parsed['rebuild'] && ! $parsed['wipe']) {
@@ -73,8 +78,12 @@ final class Arguments
      */
     public static function select(array $devices): array
     {
+        if (! self::$parsed) {
+            self::intercept($_SERVER['argv'] ?? []);
+        }
+
         if (self::$platforms === null && self::$devices === []) {
-            return $devices;
+            return self::pin($devices);
         }
 
         $pool = $devices;
@@ -87,7 +96,7 @@ final class Arguments
         }
 
         if (self::$devices === []) {
-            return $pool;
+            return self::pin($pool);
         }
 
         $selected = [];
@@ -132,7 +141,7 @@ final class Arguments
             $selected[$platform.':'.$requested['name']] = new Device($platform, $requested['name'], true);
         }
 
-        return self::present(array_values($selected));
+        return self::pin(self::present(array_values($selected)));
     }
 
     public static function reset(): void
@@ -142,10 +151,45 @@ final class Arguments
         self::$doctor = false;
         self::$rebuild = false;
         self::$wipe = false;
+        self::$parsed = false;
+        self::$excludedByPin = false;
         self::expose(self::PLATFORMS, null);
         self::expose(self::DEVICES, null);
         self::expose(self::REBUILD, null);
         self::expose(self::WIPE, null);
+        self::expose(ParallelLanes::ENV, null);
+        self::expose(ParallelLanes::DEVICE, null);
+        self::expose(ParallelLanes::FOLLOW, null);
+    }
+
+    public static function excludedByPin(): bool
+    {
+        return self::$excludedByPin;
+    }
+
+    /**
+     * @param  list<Device>  $devices
+     * @return list<Device>
+     */
+    private static function pin(array $devices): array
+    {
+        $pinned = ParallelLanes::pinned();
+
+        if ($pinned === null) {
+            self::$excludedByPin = false;
+
+            return $devices;
+        }
+
+        self::expose(ParallelLanes::DEVICE, $pinned);
+
+        $matched = array_values(array_filter(
+            $devices,
+            fn (Device $device): bool => $device->platform.':'.$device->name === $pinned,
+        ));
+        self::$excludedByPin = $devices !== [] && $matched === [];
+
+        return $matched;
     }
 
     /**

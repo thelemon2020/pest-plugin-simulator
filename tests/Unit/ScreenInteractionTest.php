@@ -268,12 +268,22 @@ it('waits until one read contains every label', function () {
     expect($driver->descriptions)->toBe(2);
 });
 
-it('names every label when one read cannot see them all', function () {
+it('names the labels missing from the last read', function () {
     $driver = new FakeDriver([[
         control('Save'),
     ]]);
 
     expect(fn () => (new Screen($driver, timeoutSeconds: 0, failureDirectory: sys_get_temp_dir().'/simulator-see-several-test'))
+        ->assertSee('Save', 'Name'))
+        ->toThrow(AssertionFailedError::class, 'Did not see [Name].');
+});
+
+it('names every requested label when the last read has none of them', function () {
+    $driver = new FakeDriver([[
+        control('Home'),
+    ]]);
+
+    expect(fn () => (new Screen($driver, timeoutSeconds: 0, failureDirectory: sys_get_temp_dir().'/simulator-see-none-test'))
         ->assertSee('Save', 'Name'))
         ->toThrow(AssertionFailedError::class, 'Did not see [Save], [Name].');
 });

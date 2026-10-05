@@ -199,7 +199,7 @@ screen('/settings/edit')
 
 `scroll('down')` moves the page so you can see what is further down. `scroll('down', 0.3)` moves a shorter way: `0.3` is 30% of the screen. `scroll('down', seconds: 0.15)` is a quicker flick. The finger stays on the glass: a scrolled page reports rows below the fold, and those coordinates are not the screen. `swipe('down')` moves a finger down, which closes a sheet. `swipe('left', 'Item')` starts that swipe on a row. `swipe('down', distance: 0.3)` and `swipe('left', 'Item', seconds: 0.15)` change how far and how fast. `press('Item')` holds a finger on that control, which opens a context menu. `press('Item', 1.5)` holds longer. `goBack()` taps the navigation Back button, including Android's `arrow_back` icon, when that control is on screen. Otherwise it presses Back on Android and swipes in from the left edge on iOS. A tab label drawn in the gesture-navigation strip is pressed on the tab cell above the label.
 
-`assertSee('Saved')` reads the screen. `assertSee('Save', 'Name')` checks both labels on that one read, and waits until a single read contains every label. Another `assertSee()` reads again. A `tap()` after it reads again too, and uses that coordinate.
+`assertSee('Saved')` reads the screen. `assertSee('Save', 'Name')` checks both labels on that one read, and waits until a single read contains every label. When the wait ends, the failure names the labels still missing from that read. Another `assertSee()` reads again. A `tap()` after it reads again too, and uses that coordinate.
 
 `assertNavTitle()` reads the navigation bar. `assertTabActive()` reads the selected tab. `assertNavigatedTo('/settings')` passes when that path is an accessibility id, or when the navigation title is the last part of the path (`Settings`). `assertEnabled()`, `assertDisabled()`, and `assertChecked()` read those states from the same screen.
 
@@ -339,7 +339,7 @@ vendor/bin/pest --wipe
 
 `--ios` and `--android` keep that platform. A test that asks for the other platform is skipped. `--device` runs that named device. Prefix the name with `ios:` or `android:` to choose both platforms in one command. A name with no prefix, on a one-platform run, replaces the suite's device. `--rebuild` runs `native:run` even when a debug build is already installed. `--wipe` erases the Simulator, deletes a worker's cloned Simulator, and cold-boots the Emulator from an empty userdata image. The run after that quick-boots again.
 
-These options are removed before PHPUnit starts. A parallel worker gets the same choice, on its own `idb_companion` port and its own booted device.
+These options are removed before PHPUnit starts. A parallel worker gets the same choice, on its own `idb_companion` port and its own booted device. When the run lists more than one device, each device is its own parallel lane, so that worker stays on one device.
 
 ## Check the machine
 
@@ -362,21 +362,31 @@ vendor/bin/pest --ios --parallel
 vendor/bin/pest --android --parallel
 ```
 
-Each test is one row per device. One `vendor/bin/pest --parallel` can hand a worker an iOS row and then an Android row, and that worker boots one device and then the other. The two commands keep each worker on one platform. Each worker gets its own `idb_companion` port and its own booted device. An iOS worker reuses the Simulator it cloned last time (`iPhone 17 pest-1`) instead of copying a new one. `--processes` caps how many devices boot at once.
-
-The Android Emulator starts with no window and draws in software. When the AVD has a Quick Boot snapshot, the emulator loads it, so a debug build installed last time is still there and `native:run` does not compile again. The first boot is still a cold boot. That boot is saved when the emulator exits, and shutdown waits for the save to finish. One parallel worker boots writable so it can save the snapshot. The others load it read-only, each on its own emulator port. Cache `~/.android/avd` between CI jobs so that snapshot is still there on the next run:
+Each test is one row per device. ParaTest hands a worker a whole file. A parallel run that lists more than one device starts one lane per device, and every worker in that lane stays on it. The first lane also runs the rest of the suite. Each worker gets its own `idb_companion` port and its own booted device. An iOS worker reuses the Simulator it cloned last time (`iPhone 17 pest-1`) instead of copying a new one.
 
 ```yaml
-- uses: actions/cache@v4
-  with:
-    path: ~/.android/avd
-    key: android-avd-${{ runner.os }}-${{ github.sha }}
-    restore-keys: android-avd-${{ runner.os }}-
+jobs:
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run iOS tests
+        run: vendor/bin/pest --ios --parallel
+
+  android:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: ~/.android/avd
+          key: android-avd-${{ runner.os }}-${{ github.sha }}
+          restore-keys: android-avd-${{ runner.os }}-
+      - name: Run Android tests
+        run: vendor/bin/pest --android --parallel
 ```
 
-The key includes the commit, so this run saves the snapshot it just wrote. The next run restores the newest saved snapshot.
-
-A system-image update invalidates the snapshot, and the next boot is cold once. Leave `--wipe` off this job. `--wipe` drops that snapshot for one run. If a boot does not finish, the error names the emulator log.
+The Android Emulator starts with no window and draws in software. When the AVD has a Quick Boot snapshot, the emulator loads it, so a debug build installed last time is still there and `native:run` does not compile again. The first boot is still a cold boot. That boot is saved when the emulator exits, and shutdown waits for the save to finish. One parallel worker boots writable so it can save the snapshot. The others load it read-only, each on its own emulator port. The android job caches `~/.android/avd` so that snapshot is still there on the next run. The key includes the commit, so this run saves the snapshot it just wrote. The next run restores the newest saved snapshot. `--wipe` drops the snapshot for one run. If a boot does not finish, the error names the emulator log.
 
 A test limited to a platform the suite does not run is skipped. A machine without Xcode and `idb_companion`, or without the Android SDK, skips the tests that needed that platform.
 
