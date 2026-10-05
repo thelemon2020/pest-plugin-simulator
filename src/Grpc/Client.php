@@ -6,7 +6,7 @@ namespace NativePhp\Simulator\Grpc;
 
 use NativePhp\Simulator\Exceptions\SimulatorException;
 
-final class Client
+class Client
 {
     public function __construct(private readonly string $baseUrl) {}
 

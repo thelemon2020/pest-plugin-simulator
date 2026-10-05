@@ -155,7 +155,12 @@ final class AndroidDriver implements Driver
         $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'input', 'tap', (string) $x, (string) $y]);
     }
 
-    public function swipe(float $x1, float $y1, float $x2, float $y2): void
+    public function press(float $x, float $y, float $seconds = 0.8): void
+    {
+        $this->swipe($x, $y, $x, $y, $seconds);
+    }
+
+    public function swipe(float $x1, float $y1, float $x2, float $y2, float $seconds = 0.3): void
     {
         $this->command->run($this->adb(), [
             '-s', $this->serial(), 'shell', 'input', 'swipe',
@@ -163,7 +168,7 @@ final class AndroidDriver implements Driver
             (string) (int) round($y1),
             (string) (int) round($x2),
             (string) (int) round($y2),
-            '300',
+            (string) (int) round($seconds * 1000),
         ]);
     }
 

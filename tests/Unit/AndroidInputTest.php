@@ -81,6 +81,20 @@ it('taps the at key when the keyboard shows it', function () {
     expect($taps[0][1])->toBe(['-s', 'emulator-5554', 'shell', 'input', 'tap', '150', '1650']);
 });
 
+it('swipes for a given duration and holds a press', function () {
+    $command = new RecordingCommand;
+    $driver = androidDriver($command);
+
+    $driver->swipe(10, 20, 30, 40, 0.15);
+    $driver->press(50, 60, 0.8);
+
+    expect($command->calls[0][1])->toBe([
+        '-s', 'emulator-5554', 'shell', 'input', 'swipe', '10', '20', '30', '40', '150',
+    ])->and($command->calls[1][1])->toBe([
+        '-s', 'emulator-5554', 'shell', 'input', 'swipe', '50', '60', '50', '60', '800',
+    ]);
+});
+
 it('clears by deleting from the end of the field', function () {
     $command = new RecordingCommand;
     $driver = androidDriver($command);

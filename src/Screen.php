@@ -32,9 +32,17 @@ final class Screen
         return $this;
     }
 
-    public function press(string $label): self
+    public function press(string $label, float $seconds = 0.8): self
     {
-        return $this->tap($label);
+        $elements = $this->until(
+            fn (array $visible): bool => $this->canMatch($visible, $label),
+            "Could not find [{$label}] to press.",
+        );
+
+        $match = $this->finder->match($elements, $label);
+        $this->driver->press((float) $match['center'][0], (float) $match['center'][1], $this->seconds($seconds));
+
+        return $this;
     }
 
     public function type(string $label, string $text): self
@@ -69,18 +77,18 @@ final class Screen
         return $this;
     }
 
-    public function scroll(string $direction = 'down'): self
+    public function scroll(string $direction = 'down', ?float $distance = null, ?float $seconds = null): self
     {
         $this->readRetrying();
         [$width, $height] = $this->driver->viewport();
-        [$x1, $y1, $x2, $y2] = Gesture::scroll($direction, $width, $height);
-        $this->driver->swipe($x1, $y1, $x2, $y2);
+        [$x1, $y1, $x2, $y2] = Gesture::scroll($direction, $width, $height, $distance);
+        $this->driver->swipe($x1, $y1, $x2, $y2, $this->seconds($seconds ?? 0.3));
         $this->settle();
 
         return $this;
     }
 
-    public function swipe(string $direction, ?string $from = null): self
+    public function swipe(string $direction, ?string $from = null, ?float $distance = null, ?float $seconds = null): self
     {
         $originX = null;
         $originY = null;
@@ -98,11 +106,20 @@ final class Screen
         }
 
         [$width, $height] = $this->driver->viewport();
-        [$x1, $y1, $x2, $y2] = Gesture::swipe($direction, $width, $height, $originX, $originY);
-        $this->driver->swipe($x1, $y1, $x2, $y2);
+        [$x1, $y1, $x2, $y2] = Gesture::swipe($direction, $width, $height, $originX, $originY, $distance);
+        $this->driver->swipe($x1, $y1, $x2, $y2, $this->seconds($seconds ?? 0.3));
         $this->settle();
 
         return $this;
+    }
+
+    private function seconds(float $seconds): float
+    {
+        if ($seconds <= 0) {
+            throw new SimulatorException("Duration [{$seconds}] is not greater than 0.");
+        }
+
+        return $seconds;
     }
 
     /**

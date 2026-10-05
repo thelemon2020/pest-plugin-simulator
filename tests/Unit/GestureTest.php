@@ -22,6 +22,23 @@ it('swipes in the direction of the finger', function () {
         ->and(Gesture::swipe('left', 200, 400, 100, 80))->toBe([100.0, 80.0, 10.0, 80.0]);
 });
 
+it('scrolls a shorter distance when asked', function () {
+    expect(Gesture::scroll('down', 390, 844, 0.25))->toBe([195.0, 633.0, 195.0, 422.0]);
+});
+
+it('swipes a given fraction of the screen', function () {
+    $down = Gesture::swipe('down', 390, 844, distance: 0.3);
+    $fromRow = Gesture::swipe('left', 390, 844, 200, 400, 0.2);
+
+    expect($down[1])->toBe(211.0)
+        ->and($down[3])->toEqualWithDelta(464.2, 0.001)
+        ->and($fromRow)->toBe([200.0, 400.0, 122.0, 400.0]);
+});
+
+it('refuses a distance that is not a fraction of the screen', function () {
+    Gesture::swipe('down', 390, 844, distance: 1.5);
+})->throws(SimulatorException::class, 'Distance [1.5] is not between 0 and 1.');
+
 it('swipes in from the left edge to go back', function () {
     expect(Gesture::back(390, 844))->toBe([1.0, 422.0, 273.0, 422.0]);
 });

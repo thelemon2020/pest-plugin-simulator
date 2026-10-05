@@ -17,7 +17,9 @@ interface Driver
 
     public function tap(float $x, float $y): void;
 
-    public function swipe(float $x1, float $y1, float $x2, float $y2): void;
+    public function press(float $x, float $y, float $seconds = 0.8): void;
+
+    public function swipe(float $x1, float $y1, float $x2, float $y2, float $seconds = 0.3): void;
 
     public function back(): void;
 

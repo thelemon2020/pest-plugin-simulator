@@ -11,13 +11,16 @@ final class Gesture
     /**
      * @return array{0: float, 1: float, 2: float, 3: float}
      */
-    public static function scroll(string $direction, float $width, float $height): array
+    public static function scroll(string $direction, float $width, float $height, ?float $distance = null): array
     {
+        self::assertDistance($distance);
+
         $x = $width / 2;
+        $span = $height * ($distance ?? 0.5);
 
         return match ($direction) {
-            'down' => [$x, $height * 0.75, $x, $height * 0.25],
-            'up' => [$x, $height * 0.25, $x, $height * 0.75],
+            'down' => [$x, $height * 0.75, $x, self::clamp($height * 0.75 - $span, 1, $height - 1)],
+            'up' => [$x, $height * 0.25, $x, self::clamp($height * 0.25 + $span, 1, $height - 1)],
             default => throw new SimulatorException("Scroll [{$direction}] is not up or down."),
         };
     }
@@ -25,11 +28,15 @@ final class Gesture
     /**
      * @return array{0: float, 1: float, 2: float, 3: float}
      */
-    public static function swipe(string $direction, float $width, float $height, ?float $originX = null, ?float $originY = null): array
+    public static function swipe(string $direction, float $width, float $height, ?float $originX = null, ?float $originY = null, ?float $distance = null): array
     {
+        self::assertDistance($distance);
+
         if ($originX !== null && $originY !== null) {
-            $distance = min($width, $height) * 0.45;
-            [$dx, $dy] = self::delta($direction, $distance);
+            $span = $distance === null
+                ? min($width, $height) * 0.45
+                : self::axis($direction, $width, $height) * $distance;
+            [$dx, $dy] = self::delta($direction, $span);
 
             return [
                 $originX,
@@ -39,13 +46,30 @@ final class Gesture
             ];
         }
 
-        return match ($direction) {
-            'down' => [$width / 2, $height * 0.25, $width / 2, $height * 0.8],
-            'up' => [$width / 2, $height * 0.8, $width / 2, $height * 0.25],
-            'left' => [$width * 0.8, $height / 2, $width * 0.2, $height / 2],
-            'right' => [$width * 0.2, $height / 2, $width * 0.8, $height / 2],
+        $span = self::axis($direction, $width, $height) * ($distance ?? match ($direction) {
+            'down', 'up' => 0.55,
+            'left', 'right' => 0.6,
             default => throw new SimulatorException("Swipe [{$direction}] is not up, down, left, or right."),
+        });
+        [$dx, $dy] = self::delta($direction, $span);
+
+        $startX = match ($direction) {
+            'down', 'up' => $width / 2,
+            'left' => $width * 0.8,
+            'right' => $width * 0.2,
         };
+        $startY = match ($direction) {
+            'left', 'right' => $height / 2,
+            'down' => $height * 0.25,
+            'up' => $height * 0.8,
+        };
+
+        return [
+            $startX,
+            $startY,
+            self::clamp($startX + $dx, 1, $width - 1),
+            self::clamp($startY + $dy, 1, $height - 1),
+        ];
     }
 
     /**
@@ -69,6 +93,22 @@ final class Gesture
             'right' => [$distance, 0.0],
             default => throw new SimulatorException("Swipe [{$direction}] is not up, down, left, or right."),
         };
+    }
+
+    private static function axis(string $direction, float $width, float $height): float
+    {
+        return match ($direction) {
+            'left', 'right' => $width,
+            'up', 'down' => $height,
+            default => throw new SimulatorException("Swipe [{$direction}] is not up, down, left, or right."),
+        };
+    }
+
+    private static function assertDistance(?float $distance): void
+    {
+        if ($distance !== null && ($distance <= 0 || $distance > 1)) {
+            throw new SimulatorException("Distance [{$distance}] is not between 0 and 1.");
+        }
     }
 
     private static function clamp(float $value, float $min, float $max): float

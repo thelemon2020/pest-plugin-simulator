@@ -257,9 +257,14 @@ final class IosDriver implements Driver
         $this->client()->streamPaced('hid', Hid::tap($x, $y), self::TAP_HOLD_MICROSECONDS);
     }
 
-    public function swipe(float $x1, float $y1, float $x2, float $y2): void
+    public function press(float $x, float $y, float $seconds = 0.8): void
     {
-        $this->client()->stream('hid', Hid::swipe($x1, $y1, $x2, $y2));
+        $this->client()->streamPaced('hid', Hid::tap($x, $y), (int) round($seconds * 1_000_000));
+    }
+
+    public function swipe(float $x1, float $y1, float $x2, float $y2, float $seconds = 0.3): void
+    {
+        $this->client()->stream('hid', Hid::swipe($x1, $y1, $x2, $y2, $seconds));
     }
 
     public function back(): void

@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use NativePhp\Simulator\Exceptions\SimulatorException;
 use NativePhp\Simulator\Gesture;
 use NativePhp\Simulator\Screen;
 use PHPUnit\Framework\AssertionFailedError;
@@ -25,9 +26,9 @@ it('scrolls, swipes, and goes back', function () {
 
     $screen->scroll('down')->swipe('down')->swipe('left', 'Note')->goBack();
 
-    expect($driver->swipes[0])->toBe(Gesture::scroll('down', 390, 844))
-        ->and($driver->swipes[1])->toBe(Gesture::swipe('down', 390, 844))
-        ->and($driver->swipes[2])->toBe(Gesture::swipe('left', 390, 844, 40, 300))
+    expect($driver->swipes[0])->toBe([...Gesture::scroll('down', 390, 844), 0.3])
+        ->and($driver->swipes[1])->toBe([...Gesture::swipe('down', 390, 844), 0.3])
+        ->and($driver->swipes[2])->toBe([...Gesture::swipe('left', 390, 844, 40, 300), 0.3])
         ->and($driver->backs)->toBe(1);
 });
 
@@ -56,7 +57,7 @@ it('rides out a companion that has not stabilized yet when scroll() is the first
 
     (new Screen($driver, timeoutSeconds: 2))->scroll('down');
 
-    expect($driver->swipes)->toBe([Gesture::scroll('down', 390, 844)]);
+    expect($driver->swipes)->toBe([[...Gesture::scroll('down', 390, 844), 0.3]]);
 });
 
 it('gives up waiting for a scroll to settle rather than hang on a screen that never stops moving', function () {
@@ -76,6 +77,36 @@ it('gives up waiting for a scroll to settle rather than hang on a screen that ne
 
     expect(microtime(true) - $start)->toBeLessThan(3.0);
 });
+
+it('scrolls and swipes a given distance and duration', function () {
+    $driver = new FakeDriver([[
+        control('Note', ['center' => [200.0, 400.0]]),
+    ]]);
+
+    (new Screen($driver, timeoutSeconds: 0))
+        ->scroll('down', 0.25, 0.15)
+        ->swipe('left', 'Note', distance: 0.2, seconds: 0.5);
+
+    expect($driver->swipes[0])->toBe([...Gesture::scroll('down', 390, 844, 0.25), 0.15])
+        ->and($driver->swipes[1])->toBe([...Gesture::swipe('left', 390, 844, 200, 400, 0.2), 0.5]);
+});
+
+it('holds a finger on a control', function () {
+    $driver = new FakeDriver([[
+        control('Note', ['center' => [40.0, 300.0]]),
+    ]]);
+
+    (new Screen($driver, timeoutSeconds: 0))->press('Note')->press('Note', 1.5);
+
+    expect($driver->presses)->toBe([[40.0, 300.0, 0.8], [40.0, 300.0, 1.5]])
+        ->and($driver->taps)->toBe([]);
+});
+
+it('refuses a duration that is not greater than 0', function () {
+    $driver = new FakeDriver([[control('Note')]]);
+
+    (new Screen($driver, timeoutSeconds: 0))->swipe('down', seconds: 0);
+})->throws(SimulatorException::class, 'Duration [0] is not greater than 0.');
 
 it('taps the navigation back button', function () {
     $driver = new FakeDriver([[
