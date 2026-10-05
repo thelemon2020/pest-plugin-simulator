@@ -25,7 +25,9 @@ it('picks the iphone on the newest runtime', function () {
     ]);
 
     expect(SimulatorList::latestIphone($json))->toBe('iPhone 17 Pro')
-        ->and(SimulatorList::booted($json))->toBe([['name' => 'iPhone 17 Pro', 'udid' => 'PRO']]);
+        ->and(SimulatorList::booted($json))->toBe([['name' => 'iPhone 17 Pro', 'udid' => 'PRO']])
+        ->and(SimulatorList::named($json, 'iPhone 17 Pro')['state'] ?? null)->toBe('Booted')
+        ->and(SimulatorList::named($json, 'Missing'))->toBeNull();
 });
 
 it('fails when two unnamed devices are booted', function () {

@@ -330,9 +330,10 @@ vendor/bin/pest --android
 vendor/bin/pest --ios --device="iPhone 17 Pro"
 vendor/bin/pest --device=ios:"iPhone 17 Pro" --device=android:"Pixel 8"
 vendor/bin/pest --rebuild
+vendor/bin/pest --wipe
 ```
 
-`--ios` and `--android` keep that platform. A test that asks for the other platform is skipped. `--device` runs that named device. Prefix the name with `ios:` or `android:` to choose both platforms in one command. A name with no prefix, on a one-platform run, replaces the suite's device. `--rebuild` runs `native:run` even when a debug build is already installed.
+`--ios` and `--android` keep that platform. A test that asks for the other platform is skipped. `--device` runs that named device. Prefix the name with `ios:` or `android:` to choose both platforms in one command. A name with no prefix, on a one-platform run, replaces the suite's device. `--rebuild` runs `native:run` even when a debug build is already installed. `--wipe` erases the Simulator, deletes a worker's cloned Simulator, and cold-boots the Emulator from an empty userdata image. The run after that quick-boots again.
 
 These options are removed before PHPUnit starts. A parallel worker gets the same choice, on its own `idb_companion` port and its own booted device.
 
@@ -350,7 +351,9 @@ The doctor checks `simctl`, `idb_companion`, the Android SDK, `adb`, `emulator`,
 
 [`.github/workflows/mobile.yml`](.github/workflows/mobile.yml) runs this package's own tests on PHP 8.3 with Pest 4, and on PHP 8.4 with Pest 5. Those tests fake the machine. They do not boot a Simulator or an Emulator.
 
-In a project, install that platform's tools and run `vendor/bin/pest --ios` or `vendor/bin/pest --android`. A Mac can run the Android Emulator too. Each Pest worker gets its own `idb_companion` port and its own booted device. The Android Emulator starts with no window, draws in software, and cold-boots from an empty snapshot. If it does not finish, the error names the emulator log.
+In a project, install that platform's tools and run `vendor/bin/pest --ios` or `vendor/bin/pest --android`. A Mac can run the Android Emulator too. `vendor/bin/pest --parallel` runs workers at the same time. Each worker gets its own `idb_companion` port and its own booted device. An iOS worker reuses the Simulator it cloned last time (`iPhone 17 pest-1`) instead of copying a new one.
+
+The Android Emulator starts with no window and draws in software. When the AVD has a Quick Boot snapshot, the emulator loads it, so a debug build installed last time is still there and `native:run` does not compile again. The first boot is still a cold boot. That boot is saved when the emulator exits, and shutdown waits for the save to finish. One parallel worker boots writable so it can save the snapshot. The others load it read-only, each on its own emulator port. `--wipe` drops that snapshot for one run. If a boot does not finish, the error names the emulator log.
 
 A test limited to a platform the suite does not run is skipped. A machine without Xcode and `idb_companion`, or without the Android SDK, skips the tests that needed that platform.
 

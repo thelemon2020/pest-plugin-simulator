@@ -20,7 +20,12 @@ final class IosDriver implements Driver
 
     private static bool $hardwareKeyboard = false;
 
+    /** @var array<string, true> */
+    private static array $wiped = [];
+
     private ?string $udid = null;
+
+    private ?string $dataContainer = null;
 
     private ?int $recordingPid = null;
 
@@ -61,17 +66,26 @@ final class IosDriver implements Driver
 
         if (! $this->device->named && count($bootedNames) === 1) {
             $this->udid = $booted[0]['udid'];
+            $wiped = $this->wipeSimulator($this->udid);
 
-            if ($restartForKeyboard) {
-                $this->command->run('xcrun', ['simctl', 'shutdown', $this->udid]);
+            if ($wiped || $restartForKeyboard) {
+                if (! $wiped) {
+                    $this->command->run('xcrun', ['simctl', 'shutdown', $this->udid]);
+                }
+
                 $this->command->run('xcrun', ['simctl', 'boot', $this->udid]);
                 $this->command->run('xcrun', ['simctl', 'bootstatus', $this->udid, '-b']);
             }
         } else {
             $this->udid = SimulatorList::udidFor($json, $this->device->name);
             $alreadyBooted = in_array($this->device->name, $bootedNames, true);
+            $wiped = $this->wipeSimulator($this->udid);
 
-            if (BootPlan::shouldBoot($this->device->named, $this->device->name, $bootedNames) || ($restartForKeyboard && $alreadyBooted)) {
+            if ($wiped) {
+                $alreadyBooted = false;
+            }
+
+            if ($wiped || BootPlan::shouldBoot($this->device->named, $this->device->name, $bootedNames) || ($restartForKeyboard && $alreadyBooted)) {
                 if ($alreadyBooted) {
                     $this->command->run('xcrun', ['simctl', 'shutdown', $this->udid]);
                 }
@@ -97,17 +111,61 @@ final class IosDriver implements Driver
         }
 
         $this->releaseWorkerSimulator();
-        $this->connectHardwareKeyboard();
+        $restartForKeyboard = $this->connectHardwareKeyboard();
         $json = $this->command->run('xcrun', ['simctl', 'list', 'devices', 'available', '-j']);
-        $source = SimulatorList::udidFor($json, $this->device->name);
-        $this->udid = trim($this->command->run('xcrun', ['simctl', 'clone', $source, $this->device->name.' '.Worker::nameSuffix()]));
+        $name = $this->device->name.' '.Worker::nameSuffix();
+        $source = SimulatorList::named($json, $this->device->name);
+
+        if ($source === null) {
+            throw new SimulatorException("No Simulator named [{$this->device->name}] is installed.");
+        }
+
+        $existing = SimulatorList::named($json, $name, $source['runtime']);
+
+        if (Arguments::wantsWipe() && ! isset(self::$wiped[$name])) {
+            if ($existing !== null) {
+                DeviceWipe::deleteSimulator($this->command, $existing['udid']);
+                $existing = null;
+            }
+
+            self::$wiped[$name] = true;
+        }
+
+        foreach (SimulatorList::devices($json) as $device) {
+            if ($device['name'] !== $name || $device['runtime'] === $source['runtime']) {
+                continue;
+            }
+
+            DeviceWipe::deleteSimulator($this->command, $device['udid']);
+        }
+
+        if ($existing === null) {
+            $this->udid = trim($this->command->run('xcrun', ['simctl', 'clone', $source['udid'], $name]));
+            $state = 'Shutdown';
+        } else {
+            $this->udid = $existing['udid'];
+            $state = $existing['state'];
+        }
+
         self::$workerSimulator = $this->udid;
-        $this->command->run('xcrun', ['simctl', 'boot', $this->udid]);
+        $booted = $state === 'Booted';
+
+        if ($booted && $restartForKeyboard) {
+            $this->command->run('xcrun', ['simctl', 'shutdown', $this->udid]);
+            $booted = false;
+        }
+
+        if (! $booted) {
+            $this->command->run('xcrun', ['simctl', 'boot', $this->udid]);
+        }
+
+        // A leftover whose state is already Booted can still be mid-boot.
         $this->command->run('xcrun', ['simctl', 'bootstatus', $this->udid, '-b']);
+
         $simulator = $this->udid;
         $command = $this->command;
         Shutdown::defer(function () use ($command, $simulator): void {
-            self::forgetSimulator($command, $simulator);
+            self::shutdownSimulator($command, $simulator);
         });
     }
 
@@ -119,18 +177,25 @@ final class IosDriver implements Driver
 
         $simulator = self::$workerSimulator;
         self::$workerSimulator = null;
-        self::forgetSimulator($this->command, $simulator);
+        self::shutdownSimulator($this->command, $simulator);
     }
 
-    private static function forgetSimulator(Command $command, string $simulator): void
+    private function wipeSimulator(string $udid): bool
+    {
+        if (! Arguments::wantsWipe() || isset(self::$wiped[$udid])) {
+            return false;
+        }
+
+        DeviceWipe::eraseSimulator($this->command, $udid);
+        self::$wiped[$udid] = true;
+
+        return true;
+    }
+
+    private static function shutdownSimulator(Command $command, string $simulator): void
     {
         try {
             $command->run('xcrun', ['simctl', 'shutdown', $simulator]);
-        } catch (SimulatorException) {
-        }
-
-        try {
-            $command->run('xcrun', ['simctl', 'delete', $simulator]);
         } catch (SimulatorException) {
         }
     }
@@ -159,13 +224,7 @@ final class IosDriver implements Driver
             }
         }
 
-        $container = rtrim(trim($this->command->run('xcrun', ['simctl', 'get_app_container', $this->udid(), $bundle, 'data'])), '/');
-
-        if ($container === '') {
-            throw new SimulatorException("No data container for [{$bundle}].");
-        }
-
-        $destination = $container.'/Library/Application Support/database/database.sqlite';
+        $destination = $this->dataContainer().'/Library/Application Support/database/database.sqlite';
         $directory = dirname($destination);
 
         if (! is_dir($directory) && ! mkdir($directory, 0777, true) && ! is_dir($directory)) {
@@ -337,11 +396,24 @@ final class IosDriver implements Driver
     /**
      * The software keyboard ignores Shift-2. The preference is read when
      * the simulator launches, so a simulator that is already up has to
-     * boot again.
+     * boot again. A simulator booted after the preference was turned on
+     * does not.
      */
     private function connectHardwareKeyboard(): bool
     {
         if (self::$hardwareKeyboard) {
+            return false;
+        }
+
+        try {
+            $current = trim($this->command->run('defaults', ['read', 'com.apple.iphonesimulator', 'ConnectHardwareKeyboard']));
+        } catch (SimulatorException) {
+            $current = '';
+        }
+
+        if (in_array($current, ['1', 'YES', 'true'], true)) {
+            self::$hardwareKeyboard = true;
+
             return false;
         }
 
@@ -354,6 +426,24 @@ final class IosDriver implements Driver
         self::$hardwareKeyboard = true;
 
         return true;
+    }
+
+    private function dataContainer(): string
+    {
+        if ($this->dataContainer !== null) {
+            return $this->dataContainer;
+        }
+
+        $bundle = $this->configuration->bundleId();
+        $container = rtrim(trim($this->command->run('xcrun', [
+            'simctl', 'get_app_container', $this->udid(), $bundle, 'data',
+        ])), '/');
+
+        if ($container === '') {
+            throw new SimulatorException("No data container for [{$bundle}].");
+        }
+
+        return $this->dataContainer = $container;
     }
 
     public function viewport(): array
@@ -412,14 +502,8 @@ final class IosDriver implements Driver
     public function captureLogs(string $directory): array
     {
         try {
-            $container = rtrim(trim($this->command->run('xcrun', [
-                'simctl', 'get_app_container', $this->udid(), $this->configuration->bundleId(), 'data',
-            ])), '/');
+            $container = $this->dataContainer();
         } catch (SimulatorException) {
-            return [];
-        }
-
-        if ($container === '') {
             return [];
         }
 

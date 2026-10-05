@@ -19,6 +19,8 @@ final class SqliteSnapshot
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
         ]);
         $copy->exec('PRAGMA foreign_keys = OFF');
+        $copy->exec('PRAGMA synchronous = OFF');
+        $copy->exec('PRAGMA journal_mode = MEMORY');
 
         $objects = self::objects($source);
         $copy->beginTransaction();

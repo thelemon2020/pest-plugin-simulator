@@ -89,12 +89,30 @@ final class SimulatorList
         return $booted;
     }
 
-    public static function udidFor(string $json, string $name): string
+    /**
+     * @return array{name: string, udid: string, state: string, runtime: string}|null
+     */
+    public static function named(string $json, string $name, ?string $runtime = null): ?array
     {
         foreach (self::devices($json) as $device) {
-            if ($device['name'] === $name) {
-                return $device['udid'];
+            if ($device['name'] !== $name) {
+                continue;
             }
+
+            if ($runtime === null || $device['runtime'] === $runtime) {
+                return $device;
+            }
+        }
+
+        return null;
+    }
+
+    public static function udidFor(string $json, string $name): string
+    {
+        $device = self::named($json, $name);
+
+        if ($device !== null) {
+            return $device['udid'];
         }
 
         throw new SimulatorException("No Simulator named [{$name}] is installed.");

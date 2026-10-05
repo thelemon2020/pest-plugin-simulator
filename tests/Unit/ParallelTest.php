@@ -3,18 +3,23 @@
 declare(strict_types=1);
 
 use NativePhp\Simulator\AndroidDriver;
+use NativePhp\Simulator\AndroidSdk;
+use NativePhp\Simulator\Arguments;
 use NativePhp\Simulator\Configuration;
 use NativePhp\Simulator\Device;
+use NativePhp\Simulator\DeviceWipe;
 use NativePhp\Simulator\EmulatorBoot;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 use NativePhp\Simulator\IosDriver;
 use NativePhp\Simulator\Shutdown;
+use NativePhp\Simulator\SnapshotWriter;
 use NativePhp\Simulator\Worker;
 use Tests\Support\RecordingCommand;
 use Tests\Support\ScriptedSocket;
 
 afterEach(function () {
     Configuration::reset();
+    Arguments::reset();
     resetDriverState();
 });
 
@@ -56,7 +61,7 @@ it('boots a private simulator and companion for a parallel worker', function () 
 
         expect($socket->ports)->not->toBeEmpty()->each->toBe(10884)
             ->and(cloneCalls($command))->toBe([
-                ['xcrun', ['simctl', 'clone', 'SOURCE', 'iPhone 17 1_worker']],
+                ['xcrun', ['simctl', 'clone', 'SOURCE', 'iPhone 17 pest-1']],
             ])
             ->and($command->calls)->toContain(['xcrun', ['simctl', 'boot', 'CLONE']])
             ->and($command->calls)->toContain(['/bin/echo', ['--udid', 'CLONE', '--grpc-port', '10884', '--log-level', 'info']])
@@ -65,8 +70,67 @@ it('boots a private simulator and companion for a parallel worker', function () 
         Shutdown::run();
 
         expect($command->calls)->toContain(['xcrun', ['simctl', 'shutdown', 'CLONE']])
-            ->and($command->calls)->toContain(['xcrun', ['simctl', 'delete', 'CLONE']]);
+            ->and($command->calls)->not->toContain(['xcrun', ['simctl', 'delete', 'CLONE']]);
     }, '1_worker');
+});
+
+it('boots an existing worker simulator instead of cloning another', function () {
+    withWorker(1, function (): void {
+        [$command, $driver] = iosWorker(simulatorJson([
+            ['name' => 'iPhone 17 pest-1', 'udid' => 'CLONE', 'state' => 'Shutdown', 'isAvailable' => true],
+        ]));
+
+        $driver->ensureReady();
+
+        expect(cloneCalls($command))->toBe([])
+            ->and($command->calls)->toContain(['xcrun', ['simctl', 'boot', 'CLONE']])
+            ->and($command->calls)->toContain(['xcrun', ['simctl', 'bootstatus', 'CLONE', '-b']]);
+    });
+});
+
+it('leaves a booted worker simulator up when the hardware keyboard is already connected', function () {
+    withWorker(1, function (): void {
+        [$command, $driver] = iosWorker(simulatorJson([
+            ['name' => 'iPhone 17 pest-1', 'udid' => 'CLONE', 'state' => 'Booted', 'isAvailable' => true],
+        ]));
+        $command->outputs['ConnectHardwareKeyboard'] = "1\n";
+
+        $driver->ensureReady();
+
+        $booted = array_values(array_filter(
+            $command->calls,
+            fn (array $call): bool => in_array('boot', $call[1], true) || in_array('clone', $call[1], true) || in_array('shutdown', $call[1], true),
+        ));
+
+        expect($booted)->toBe([])
+            ->and($command->calls)->toContain(['xcrun', ['simctl', 'bootstatus', 'CLONE', '-b']])
+            ->and($command->calls)->toContain(['defaults', ['read', 'com.apple.iphonesimulator', 'ConnectHardwareKeyboard']]);
+    });
+});
+
+it('replaces a worker simulator cloned from an older runtime', function () {
+    withWorker(1, function (): void {
+        [$command, $driver] = iosWorker((string) json_encode([
+            'devices' => [
+                'com.apple.CoreSimulator.SimRuntime.iOS-18-0' => [
+                    ['name' => 'iPhone 17 pest-1', 'udid' => 'OLD', 'state' => 'Shutdown', 'isAvailable' => true],
+                ],
+                'com.apple.CoreSimulator.SimRuntime.iOS-26-0' => [
+                    ['name' => 'iPhone 17', 'udid' => 'SOURCE', 'state' => 'Shutdown', 'isAvailable' => true],
+                ],
+            ],
+        ]));
+        $command->outputs['clone'] = "FRESH\n";
+
+        $driver->ensureReady();
+
+        expect($command->calls)->toContain(['xcrun', ['simctl', 'delete', 'OLD']])
+            ->and(cloneCalls($command))->toBe([
+                ['xcrun', ['simctl', 'clone', 'SOURCE', 'iPhone 17 pest-1']],
+            ])
+            ->and($command->calls)->toContain(['xcrun', ['simctl', 'boot', 'FRESH']])
+            ->and($command->calls)->toContain(['xcrun', ['simctl', 'bootstatus', 'FRESH', '-b']]);
+    });
 });
 
 it('restarts the companion when the worker changes device', function () {
@@ -105,7 +169,7 @@ it('restarts the companion when the worker changes device', function () {
     });
 });
 
-it('cold boots the emulator in software without a window', function () {
+it('boots the emulator in software without a window or a data wipe', function () {
     withWorker(null, function (): void {
         $command = bootRecorder();
         $driver = new AndroidDriver(new Device('android', 'Pixel 8', true), Configuration::resolve(), $command);
@@ -113,7 +177,95 @@ it('cold boots the emulator in software without a window', function () {
         $driver->ensureReady();
 
         expect(emulatorArguments($command))->toBe(EmulatorBoot::arguments('Pixel 8'))
+            ->and(EmulatorBoot::arguments('Pixel 8'))->not->toContain('-wipe-data')
+            ->and(EmulatorBoot::arguments('Pixel 8'))->not->toContain('-no-snapshot-load')
+            ->and(EmulatorBoot::arguments('Pixel 8'))->toContain('-no-boot-anim')
+            ->and(EmulatorBoot::arguments('Pixel 8', 5558))->toContain('-no-snapshot-save')
+            ->and(EmulatorBoot::arguments('Pixel 8', 5558))->toContain('-read-only')
+            ->and(EmulatorBoot::arguments('Pixel 8', 5558, true))->not->toContain('-read-only')
+            ->and(EmulatorBoot::arguments('Pixel 8', 5558, true))->not->toContain('-no-snapshot-save')
+            ->and(EmulatorBoot::arguments('Pixel 8', 5558, true))->toContain('5558')
+            ->and(EmulatorBoot::arguments('Pixel 8', 5558))->not->toContain('-wipe-data')
             ->and(EmulatorBoot::TIMEOUT_SECONDS)->toBeGreaterThanOrEqual(120);
+    });
+});
+
+it('wipes a booted emulator when asked', function () {
+    Arguments::intercept(['--wipe']);
+
+    withWorker(null, function (): void {
+        $command = bootRecorder(alreadyRunning: true);
+        $driver = new AndroidDriver(new Device('android', 'Pixel 8', true), Configuration::resolve(), $command);
+        $adb = AndroidSdk::binary('platform-tools/adb', 'adb');
+
+        $driver->ensureReady();
+
+        expect(emulatorArguments($command))->toBe(DeviceWipe::emulator(EmulatorBoot::arguments('Pixel 8')))
+            ->and($command->calls)->toContain([$adb, ['-s', 'emulator-5558', 'emu', 'kill']]);
+    });
+});
+
+it('erases a booted simulator when asked to wipe', function () {
+    Arguments::intercept(['--wipe']);
+
+    withWorker(null, function (): void {
+        $socket = new ScriptedSocket;
+        $command = new RecordingCommand;
+        $command->afterStart = function () use ($socket): void {
+            $socket->listening = true;
+        };
+        $command->outputs = [
+            '-j' => simulatorJson(),
+            'get_app_container' => "/tmp/NativePHP.app\n",
+            '--entitlements' => '<key>get-task-allow</key><true/>',
+        ];
+        $driver = new IosDriver(new Device('ios', 'iPhone 17', true), Configuration::resolve(), $command, $socket);
+
+        $driver->ensureReady();
+        $driver->ensureReady();
+
+        expect($command->calls)->toContain(['xcrun', ['simctl', 'shutdown', 'SOURCE']])
+            ->and($command->calls)->toContain(['xcrun', ['simctl', 'erase', 'SOURCE']])
+            ->and($command->calls)->toContain(['xcrun', ['simctl', 'boot', 'SOURCE']])
+            ->and(array_values(array_filter(
+                $command->calls,
+                fn (array $call): bool => in_array('erase', $call[1], true),
+            )))->toHaveCount(1);
+    });
+});
+
+it('deletes a worker simulator when asked to wipe', function () {
+    Arguments::intercept(['--wipe']);
+
+    withWorker(1, function (): void {
+        $socket = new ScriptedSocket;
+        $command = new RecordingCommand;
+        $command->afterStart = function () use ($socket): void {
+            $socket->listening = true;
+        };
+        $command->outputs = [
+            '-j' => (string) json_encode([
+                'devices' => [
+                    'com.apple.CoreSimulator.SimRuntime.iOS-26-0' => [
+                        ['name' => 'iPhone 17', 'udid' => 'SOURCE', 'state' => 'Shutdown', 'isAvailable' => true],
+                        ['name' => 'iPhone 17 pest-1', 'udid' => 'CLONE', 'state' => 'Shutdown', 'isAvailable' => true],
+                    ],
+                ],
+            ]),
+            'clone' => "FRESH\n",
+            'get_app_container' => "/tmp/NativePHP.app\n",
+            '--entitlements' => '<key>get-task-allow</key><true/>',
+        ];
+        $driver = new IosDriver(new Device('ios', 'iPhone 17', true), Configuration::resolve(), $command, $socket);
+
+        $driver->ensureReady();
+        $driver->ensureReady();
+
+        expect($command->calls)->toContain(['xcrun', ['simctl', 'delete', 'CLONE']])
+            ->and(cloneCalls($command))->toBe([
+                ['xcrun', ['simctl', 'clone', 'SOURCE', 'iPhone 17 pest-1']],
+            ])
+            ->and($command->calls)->toContain(['xcrun', ['simctl', 'boot', 'FRESH']]);
     });
 });
 
@@ -124,9 +276,67 @@ it('gives a parallel worker its own emulator port', function () {
 
         $driver->ensureReady();
 
-        expect(emulatorArguments($command))->toBe(EmulatorBoot::arguments('Pixel 8', 5558))
+        expect(emulatorArguments($command))->toBe(EmulatorBoot::arguments('Pixel 8', 5558, true))
             ->and((new ReflectionProperty(AndroidDriver::class, 'serial'))->getValue($driver))->toBe('emulator-5558')
             ->and(array_merge(...array_column($command->calls, 1)))->not->toContain('kill');
+    });
+});
+
+it('loads the quick boot snapshot read-only when another worker is saving it', function () {
+    $handle = fopen(SnapshotWriter::path('Pixel 8'), 'c');
+    expect($handle)->not->toBeFalse();
+    flock($handle, LOCK_EX);
+
+    try {
+        withWorker(1, function (): void {
+            $command = bootRecorder(alreadyRunning: true);
+            $driver = new AndroidDriver(new Device('android', 'Pixel 8', true), Configuration::resolve(), $command);
+
+            $driver->ensureReady();
+
+            expect(emulatorArguments($command))->toBe(EmulatorBoot::arguments('Pixel 8', 5558));
+        });
+    } finally {
+        flock($handle, LOCK_UN);
+        fclose($handle);
+    }
+});
+
+it('waits for the emulator to finish saving its snapshot', function () {
+    withWorker(null, function (): void {
+        $command = bootRecorder();
+        $driver = new AndroidDriver(new Device('android', 'Pixel 8', true), Configuration::resolve(), $command);
+        $adb = AndroidSdk::binary('platform-tools/adb', 'adb');
+
+        $driver->ensureReady();
+        Shutdown::run();
+
+        expect($command->calls)->toContain([$adb, ['-s', 'emulator-5554', 'emu', 'kill']])
+            ->and($command->calls)->not->toContain(['kill', ['4242']]);
+    });
+});
+
+it('stops the emulator when the snapshot save does not exit', function () {
+    withWorker(null, function (): void {
+        $command = bootRecorder();
+        $command->exited = false;
+        $driver = new AndroidDriver(new Device('android', 'Pixel 8', true), Configuration::resolve(), $command);
+
+        $driver->ensureReady();
+        Shutdown::run();
+
+        $savedAt = array_key_first(array_filter(
+            $command->calls,
+            fn (array $call): bool => ($call[1][2] ?? null) === 'emu' && ($call[1][3] ?? null) === 'kill',
+        ));
+        $stoppedAt = array_key_first(array_filter(
+            $command->calls,
+            fn (array $call): bool => $call === ['kill', ['4242']],
+        ));
+
+        expect($savedAt)->toBeInt()
+            ->and($stoppedAt)->toBeInt()
+            ->and($savedAt)->toBeLessThan($stoppedAt);
     });
 });
 
@@ -274,19 +484,46 @@ function resetDriverState(): void
     (new ReflectionProperty(AndroidDriver::class, 'built'))->setValue(null, []);
     (new ReflectionProperty(AndroidDriver::class, 'privateSerial'))->setValue(null, null);
     (new ReflectionProperty(AndroidDriver::class, 'privateDevice'))->setValue(null, null);
+    (new ReflectionProperty(IosDriver::class, 'hardwareKeyboard'))->setValue(null, false);
+    (new ReflectionProperty(IosDriver::class, 'wiped'))->setValue(null, []);
+    (new ReflectionProperty(AndroidDriver::class, 'wiped'))->setValue(null, []);
+    SnapshotWriter::reset();
     Shutdown::reset();
 }
 
-function simulatorJson(): string
+/**
+ * @param  list<array{name: string, udid: string, state: string, isAvailable: bool}>  $also
+ */
+function simulatorJson(array $also = []): string
 {
     return (string) json_encode([
         'devices' => [
             'com.apple.CoreSimulator.SimRuntime.iOS-26-0' => [
                 ['name' => 'iPhone 17', 'udid' => 'SOURCE', 'state' => 'Booted', 'isAvailable' => true],
                 ['name' => 'iPad Air', 'udid' => 'PAD', 'state' => 'Booted', 'isAvailable' => true],
+                ...$also,
             ],
         ],
     ]);
+}
+
+/**
+ * @return array{0: RecordingCommand, 1: IosDriver}
+ */
+function iosWorker(string $json): array
+{
+    $socket = new ScriptedSocket;
+    $command = new RecordingCommand;
+    $command->afterStart = function () use ($socket): void {
+        $socket->listening = true;
+    };
+    $command->outputs = [
+        '-j' => $json,
+        'get_app_container' => "/tmp/NativePHP.app\n",
+        '--entitlements' => '<key>get-task-allow</key><true/>',
+    ];
+
+    return [$command, new IosDriver(new Device('ios', 'iPhone 17', true), Configuration::resolve(), $command, $socket)];
 }
 
 /**

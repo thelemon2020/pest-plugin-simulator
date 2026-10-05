@@ -28,6 +28,8 @@ final class RecordingCommand extends Command
 
     public bool $alive = true;
 
+    public bool $exited = true;
+
     public function __construct(private readonly string $container = '') {}
 
     public function run(string $binary, array $arguments, ?string $cwd = null): string
@@ -93,6 +95,6 @@ final class RecordingCommand extends Command
 
     public function wait(int $pid, float $seconds = 10): bool
     {
-        return true;
+        return $this->exited;
     }
 }

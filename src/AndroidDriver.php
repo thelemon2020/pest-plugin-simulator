@@ -16,6 +16,9 @@ final class AndroidDriver implements Driver
 
     private static ?string $privateDevice = null;
 
+    /** @var array<string, true> */
+    private static array $wiped = [];
+
     private ?string $serial = null;
 
     private ?int $recordingPid = null;
@@ -24,10 +27,6 @@ final class AndroidDriver implements Driver
 
     /** @var array{0: float, 1: float} */
     private array $viewport = [390.0, 844.0];
-
-    private bool $launchedEmulator = false;
-
-    private bool $emulatorTracked = false;
 
     private ?int $emulatorPid = null;
 
@@ -52,6 +51,13 @@ final class AndroidDriver implements Driver
             $this->command->run($this->adb(), ['-s', $booted[$name], 'emu', 'kill']);
         }
 
+        if ($this->shouldWipe()) {
+            $this->wipe($booted);
+            $this->buildOnce();
+
+            return;
+        }
+
         if (! $this->device->named && count($booted) === 1) {
             $this->serial = array_values($booted)[0];
         } else {
@@ -74,17 +80,33 @@ final class AndroidDriver implements Driver
 
         try {
             $this->command->run($adb, ['-s', $serial, 'push', $sqlitePath, $remote]);
-            // The pushed file is owned by the shell user. The app can read it only after this.
-            $this->command->run($adb, ['-s', $serial, 'shell', 'chmod', '644', $remote]);
-            $this->command->run($adb, ['-s', $serial, 'shell', 'run-as', $bundle, 'mkdir', '-p', $directory]);
-            $this->command->run($adb, ['-s', $serial, 'shell', 'run-as', $bundle, 'cp', $remote, $database]);
-            $this->command->run($adb, ['-s', $serial, 'shell', 'run-as', $bundle, 'rm', '-f', $database.'-wal', $database.'-shm']);
-        } finally {
+            // One shell: chmod, copy into the app, drop the wal sidecars, and
+            // delete the temp file even when the copy fails.
+            $this->command->run($adb, ['-s', $serial, 'shell', $this->installScript($bundle, $remote, $directory, $database)]);
+        } catch (SimulatorException $exception) {
             try {
                 $this->command->run($adb, ['-s', $serial, 'shell', 'rm', '-f', $remote]);
             } catch (SimulatorException) {
             }
+
+            throw $exception;
         }
+    }
+
+    private function installScript(string $bundle, string $remote, string $directory, string $database): string
+    {
+        $quotedBundle = escapeshellarg($bundle);
+        $quotedRemote = escapeshellarg($remote);
+        $quotedDirectory = escapeshellarg($directory);
+        $quotedDatabase = escapeshellarg($database);
+        $install = implode(' && ', [
+            'chmod 644 '.$quotedRemote,
+            'run-as '.$quotedBundle.' mkdir -p '.$quotedDirectory,
+            'run-as '.$quotedBundle.' cp '.$quotedRemote.' '.$quotedDatabase,
+            'run-as '.$quotedBundle.' rm -f '.escapeshellarg($database.'-wal').' '.escapeshellarg($database.'-shm'),
+        ]);
+
+        return '('.$install.'); status=$?; rm -f '.$quotedRemote.'; exit $status';
     }
 
     public function open(string $url): void
@@ -201,35 +223,59 @@ final class AndroidDriver implements Driver
         $last = count($lines) - 1;
 
         foreach ($lines as $index => $line) {
-            // One character per call. A single "input text" of the whole
+            // One character per `input text`. A single call with the whole
             // string overflows the emulator queue, and Compose drops letters.
-            // input text sends @ as Shift-2, and the software keyboard drops
-            // the letters around that event, whichever field is focused.
+            // Those calls share one adb shell, with a pause between them, so
+            // a word is not one process per letter. `;` keeps going when one
+            // character fails. input text sends @ as Shift-2, and the software
+            // keyboard drops the letters around that event.
+            $batch = [];
+
             foreach ($this->characters($line) as $character) {
-                if ($character === '@') {
-                    // keyevent 77 is At, and the software keyboard throws
-                    // away the letters around it. Tap the @ key, or paste
-                    // that one character.
-                    if (! $this->tapLabeled('@')) {
-                        $this->paste($character);
+                if ($character === '@' || ! $this->onKeyboard($character)) {
+                    $this->flushText($batch);
+                    $batch = [];
+
+                    if ($character === '@' && $this->tapLabeled('@')) {
+                        continue;
                     }
 
-                    continue;
-                }
-
-                if ($this->onKeyboard($character)) {
-                    $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'input', 'text', AndroidText::argument($character)]);
+                    $this->paste($character);
 
                     continue;
                 }
 
-                $this->paste($character);
+                $batch[] = $character;
             }
+
+            $this->flushText($batch);
 
             if ($index < $last) {
                 $this->paste("\n");
             }
         }
+    }
+
+    /**
+     * @param  list<string>  $characters
+     */
+    private function flushText(array $characters): void
+    {
+        if ($characters === []) {
+            return;
+        }
+
+        $commands = [];
+
+        foreach ($characters as $character) {
+            if ($commands !== []) {
+                $commands[] = 'sleep 0.1';
+            }
+
+            $commands[] = 'input text '.AndroidText::argument($character);
+        }
+
+        $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', implode('; ', $commands)]);
     }
 
     private function onKeyboard(string $character): bool
@@ -382,9 +428,37 @@ final class AndroidDriver implements Driver
         $this->launch($log, EmulatorBoot::arguments($this->device->name), null);
     }
 
+    private function shouldWipe(): bool
+    {
+        return Arguments::wantsWipe() && ! isset(self::$wiped[$this->device->key()]);
+    }
+
+    /**
+     * @param  array<string, string>  $booted
+     */
+    private function wipe(array $booted): void
+    {
+        $serial = $booted[$this->device->name] ?? null;
+
+        if ($serial === null && ! $this->device->named && count($booted) === 1) {
+            $serial = array_values($booted)[0];
+        }
+
+        if ($serial !== null) {
+            try {
+                $this->command->run($this->adb(), ['-s', $serial, 'emu', 'kill']);
+            } catch (SimulatorException) {
+            }
+        }
+
+        $log = $this->configuration->appDirectory().'/emulator.log';
+        $this->launch($log, DeviceWipe::emulator(EmulatorBoot::arguments($this->device->name)), null);
+        self::$wiped[$this->device->key()] = true;
+    }
+
     private function bootForWorker(): void
     {
-        if ($this->serial !== null && self::$privateDevice === $this->device->key()) {
+        if ($this->serial !== null && self::$privateDevice === $this->device->key() && ! $this->shouldWipe()) {
             return;
         }
 
@@ -400,7 +474,22 @@ final class AndroidDriver implements Driver
 
         $port = Worker::emulatorPort();
         $log = $this->configuration->appDirectory().'/emulator-'.Worker::index().'.log';
-        $this->launch($log, EmulatorBoot::arguments($this->device->name, $port), 'emulator-'.$port);
+        $arguments = EmulatorBoot::arguments($this->device->name, $port, SnapshotWriter::claim($this->device->name));
+
+        if ($this->shouldWipe()) {
+            try {
+                $this->command->run($this->adb(), ['-s', 'emulator-'.$port, 'emu', 'kill']);
+            } catch (SimulatorException) {
+            }
+
+            $arguments = DeviceWipe::emulator($arguments);
+        }
+
+        $this->launch($log, $arguments, 'emulator-'.$port);
+
+        if (Arguments::wantsWipe()) {
+            self::$wiped[$this->device->key()] = true;
+        }
         self::$privateSerial = $this->serial;
         self::$privateDevice = $this->device->key();
     }
@@ -410,12 +499,11 @@ final class AndroidDriver implements Driver
      */
     private function launch(string $log, array $arguments, ?string $serial): void
     {
-        $this->launchedEmulator = true;
         $pid = $this->command->start($this->emulator(), $arguments, $log);
         $this->emulatorPid = $pid;
         $command = $this->command;
         Shutdown::defer(function () use ($command, $pid): void {
-            $command->stop($pid);
+            $this->quitEmulator($command, $pid);
         });
         fwrite(STDERR, "Waiting for the Android Emulator [{$this->device->name}] to boot.\n");
         $this->waitUntilBooted($log, $serial);
@@ -709,20 +797,29 @@ final class AndroidDriver implements Driver
     private function adopt(string $serial): void
     {
         $this->serial = $serial;
+    }
 
-        if (! $this->launchedEmulator || $this->emulatorTracked) {
-            return;
-        }
-
-        $this->emulatorTracked = true;
-        $adb = $this->adb();
-        $command = $this->command;
-        Shutdown::defer(function () use ($command, $adb, $serial): void {
+    /**
+     * `adb emu kill` asks the emulator to write its Quick Boot snapshot and
+     * exit. SIGTERM before that write finishes leaves the next boot with no
+     * installed debug build.
+     */
+    private function quitEmulator(Command $command, int $pid): void
+    {
+        if ($this->serial !== null) {
             try {
-                $command->run($adb, ['-s', $serial, 'emu', 'kill']);
+                $command->run($this->adb(), ['-s', $this->serial, 'emu', 'kill']);
             } catch (SimulatorException) {
             }
-        });
+
+            if ($command->wait($pid, 60)) {
+                return;
+            }
+        }
+
+        if ($command->running($pid)) {
+            $command->stop($pid);
+        }
     }
 
     private function logcat(string $bundle): ?string

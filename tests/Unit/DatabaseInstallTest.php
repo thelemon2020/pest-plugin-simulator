@@ -29,6 +29,7 @@ it('copies a sqlite file into the ios app container', function () {
 
     try {
         $driver->installDatabase($source);
+        $driver->installDatabase($source);
 
         expect(file_get_contents($database))->toBe($bytes)
             ->and(is_file($database.'-wal'))->toBeFalse()
@@ -36,6 +37,7 @@ it('copies a sqlite file into the ios app container', function () {
             ->and($command->calls)->toBe([
                 ['xcrun', ['simctl', 'terminate', 'UDID', 'com.example.app']],
                 ['xcrun', ['simctl', 'get_app_container', 'UDID', 'com.example.app', 'data']],
+                ['xcrun', ['simctl', 'terminate', 'UDID', 'com.example.app']],
             ]);
     } finally {
         unlink($source);
@@ -134,17 +136,19 @@ it('pushes a sqlite file onto the android emulator', function () {
         $driver->installDatabase($source);
         $second = remoteDatabase($command->calls);
 
+        $shell = $command->calls[2][1][3] ?? '';
+
         expect($first)->not->toBe($second)
             ->and($first)->toStartWith('/data/local/tmp/pest-simulator-')
-            ->and($command->calls)->toBe([
-                [$adb, ['-s', 'emulator-5554', 'shell', 'am', 'force-stop', 'com.example.app']],
-                [$adb, ['-s', 'emulator-5554', 'push', $source, $second]],
-                [$adb, ['-s', 'emulator-5554', 'shell', 'chmod', '644', $second]],
-                [$adb, ['-s', 'emulator-5554', 'shell', 'run-as', 'com.example.app', 'mkdir', '-p', 'app_storage/persisted_data/database']],
-                [$adb, ['-s', 'emulator-5554', 'shell', 'run-as', 'com.example.app', 'cp', $second, $database]],
-                [$adb, ['-s', 'emulator-5554', 'shell', 'run-as', 'com.example.app', 'rm', '-f', $database.'-wal', $database.'-shm']],
-                [$adb, ['-s', 'emulator-5554', 'shell', 'rm', '-f', $second]],
-            ]);
+            ->and($command->calls)->toHaveCount(3)
+            ->and($command->calls[0])->toBe([$adb, ['-s', 'emulator-5554', 'shell', 'am', 'force-stop', 'com.example.app']])
+            ->and($command->calls[1])->toBe([$adb, ['-s', 'emulator-5554', 'push', $source, $second]])
+            ->and($shell)->toContain('chmod 644')
+            ->and($shell)->toContain($second)
+            ->and($shell)->toContain('mkdir -p')
+            ->and($shell)->toContain('cp ')
+            ->and($shell)->toContain($database)
+            ->and($shell)->toContain('exit $status');
     } finally {
         unlink($source);
     }

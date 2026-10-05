@@ -55,6 +55,8 @@ final class FakeDriver implements Driver
 
     public ?string $recording = null;
 
+    public int $descriptions = 0;
+
     private int $reads = 0;
 
     /**
@@ -83,6 +85,7 @@ final class FakeDriver implements Driver
 
         $tree = $this->trees[min($this->reads, count($this->trees) - 1)];
         $this->reads++;
+        $this->descriptions++;
 
         if ($treePath !== null) {
             file_put_contents($treePath, json_encode($tree) ?: '[]');

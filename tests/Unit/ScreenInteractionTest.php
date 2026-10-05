@@ -244,6 +244,35 @@ it('taps a control by its accessibility id', function () {
     expect($driver->taps)->toBe([[8.0, 9.0]]);
 });
 
+it('reads the device again for the next assertion', function () {
+    $driver = new FakeDriver([[
+        control('Save'),
+        control('Name'),
+    ]]);
+
+    (new Screen($driver, timeoutSeconds: 1))
+        ->assertSee('Save')
+        ->assertSee('Name');
+
+    expect($driver->descriptions)->toBe(2);
+});
+
+it('reads the device again before a tap so the coordinate is current', function () {
+    $driver = new FakeDriver([
+        [control('Save', ['center' => [4.0, 5.0]])],
+        [control('Save', ['center' => [10.0, 20.0]])],
+        [control('Saved')],
+    ]);
+
+    (new Screen($driver, timeoutSeconds: 1))
+        ->assertSee('Save')
+        ->tap('Save')
+        ->assertSee('Saved');
+
+    expect($driver->descriptions)->toBe(3)
+        ->and($driver->taps)->toBe([[10.0, 20.0]]);
+});
+
 it('says when the screen is a web view', function () {
     $driver = new FakeDriver([[
         control('Page', ['role' => 'WebView', 'webview' => true]),

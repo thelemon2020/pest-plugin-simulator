@@ -40,12 +40,8 @@ final class Worker
 
     public static function nameSuffix(): string
     {
-        $unique = getenv('UNIQUE_TEST_TOKEN');
-
-        if (is_string($unique) && $unique !== '') {
-            return $unique;
-        }
-
+        // Stable across runs so a parallel worker boots the Simulator it
+        // cloned last time instead of copying a new one.
         return 'pest-'.self::index();
     }
 }

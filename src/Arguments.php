@@ -14,6 +14,8 @@ final class Arguments
 
     private const REBUILD = 'NATIVEPHP_SIMULATOR_REBUILD';
 
+    private const WIPE = 'NATIVEPHP_SIMULATOR_WIPE';
+
     /** @var list<'ios'|'android'>|null */
     private static ?array $platforms = null;
 
@@ -24,6 +26,8 @@ final class Arguments
 
     private static bool $rebuild = false;
 
+    private static bool $wipe = false;
+
     /**
      * @param  array<int, string>  $arguments
      * @return array<int, string>
@@ -32,7 +36,7 @@ final class Arguments
     {
         $parsed = self::parse($arguments);
 
-        if ($parsed['platforms'] === [] && $parsed['devices'] === [] && ! $parsed['doctor'] && ! $parsed['rebuild']) {
+        if ($parsed['platforms'] === [] && $parsed['devices'] === [] && ! $parsed['doctor'] && ! $parsed['rebuild'] && ! $parsed['wipe']) {
             self::hydrate();
 
             return $parsed['kept'];
@@ -42,6 +46,7 @@ final class Arguments
         self::$devices = $parsed['devices'];
         self::$doctor = $parsed['doctor'];
         self::$rebuild = $parsed['rebuild'];
+        self::$wipe = $parsed['wipe'];
         self::publish();
 
         return $parsed['kept'];
@@ -55,6 +60,11 @@ final class Arguments
     public static function wantsRebuild(): bool
     {
         return self::$rebuild;
+    }
+
+    public static function wantsWipe(): bool
+    {
+        return self::$wipe;
     }
 
     /**
@@ -131,14 +141,16 @@ final class Arguments
         self::$devices = [];
         self::$doctor = false;
         self::$rebuild = false;
+        self::$wipe = false;
         self::expose(self::PLATFORMS, null);
         self::expose(self::DEVICES, null);
         self::expose(self::REBUILD, null);
+        self::expose(self::WIPE, null);
     }
 
     /**
      * @param  array<int, string>  $arguments
-     * @return array{platforms: list<'ios'|'android'>, devices: list<array{platform: 'ios'|'android'|null, name: string}>, doctor: bool, rebuild: bool, kept: list<string>}
+     * @return array{platforms: list<'ios'|'android'>, devices: list<array{platform: 'ios'|'android'|null, name: string}>, doctor: bool, rebuild: bool, wipe: bool, kept: list<string>}
      */
     private static function parse(array $arguments): array
     {
@@ -151,6 +163,7 @@ final class Arguments
         $devices = [];
         $doctor = false;
         $rebuild = false;
+        $wipe = false;
         $kept = [];
         $count = count($arguments);
 
@@ -165,6 +178,12 @@ final class Arguments
 
             if ($argument === '--rebuild') {
                 $rebuild = true;
+
+                continue;
+            }
+
+            if ($argument === '--wipe') {
+                $wipe = true;
 
                 continue;
             }
@@ -208,6 +227,7 @@ final class Arguments
             'devices' => $devices,
             'doctor' => $doctor,
             'rebuild' => $rebuild,
+            'wipe' => $wipe,
             'kept' => $kept,
         ];
     }
@@ -289,6 +309,7 @@ final class Arguments
         self::expose(self::PLATFORMS, self::$platforms === null ? null : implode(',', self::$platforms));
         self::expose(self::DEVICES, self::$devices === [] ? null : json_encode(self::$devices, JSON_THROW_ON_ERROR));
         self::expose(self::REBUILD, self::$rebuild ? '1' : null);
+        self::expose(self::WIPE, self::$wipe ? '1' : null);
     }
 
     /**
@@ -312,6 +333,7 @@ final class Arguments
     private static function hydrate(): void
     {
         self::$rebuild = getenv(self::REBUILD) === '1';
+        self::$wipe = getenv(self::WIPE) === '1';
 
         $platforms = getenv(self::PLATFORMS);
 

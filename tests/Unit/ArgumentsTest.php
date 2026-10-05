@@ -147,6 +147,22 @@ it('records a doctor request', function () {
     expect(Arguments::wantsDoctor())->toBeTrue();
 });
 
+it('strips a wipe request and keeps it for a worker', function () {
+    $remaining = Arguments::intercept(['vendor/bin/pest', '--wipe', 'tests/Feature/LightsTest.php']);
+
+    expect($remaining)->toBe([
+        'vendor/bin/pest',
+        'tests/Feature/LightsTest.php',
+    ])->and(Arguments::wantsWipe())->toBeTrue();
+
+    $wipe = getenv('NATIVEPHP_SIMULATOR_WIPE');
+    Arguments::reset();
+    putenv('NATIVEPHP_SIMULATOR_WIPE='.$wipe);
+    Arguments::intercept(['vendor/bin/pest']);
+
+    expect(Arguments::wantsWipe())->toBeTrue();
+});
+
 it('strips a rebuild request and keeps it for a worker', function () {
     $remaining = Arguments::intercept(['vendor/bin/pest', '--rebuild', 'tests/Feature/LightsTest.php']);
 

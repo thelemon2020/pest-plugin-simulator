@@ -172,7 +172,6 @@ final class Screen
 
         if ($button !== null) {
             $this->driver->tap((float) $button['center'][0], (float) $button['center'][1]);
-
             return $this;
         }
 
@@ -204,12 +203,10 @@ final class Screen
 
             if ($button === null) {
                 $this->driver->back();
-
                 return $this;
             }
 
             $this->driver->tap((float) $button['center'][0], (float) $button['center'][1]);
-
             return $this;
         }
 

@@ -22,12 +22,19 @@ it('types punctuation and a newline through adb', function () {
     $driver->text('A@b');
 
     $typed = [];
+    $textCalls = 0;
 
     foreach ($command->calls as $call) {
         $arguments = $call[1];
+        $script = $arguments[3] ?? null;
 
-        if (($arguments[3] ?? null) === 'input' && ($arguments[4] ?? null) === 'text') {
-            $typed[] = $arguments[5];
+        if (($arguments[2] ?? null) === 'shell' && is_string($script) && str_contains($script, 'input text')) {
+            $textCalls++;
+            preg_match_all('/input text (.*?)(?: && |; |$)/', $script, $matches);
+
+            foreach ($matches[1] as $token) {
+                $typed[] = $token;
+            }
         }
 
         if (($arguments[5] ?? null) === 'set-text') {
@@ -63,7 +70,20 @@ it('types punctuation and a newline through adb', function () {
         "'@'",
         'paste',
         "'b'",
-    ]);
+    ])->and($textCalls)->toBe(5);
+
+    $scripts = [];
+
+    foreach ($command->calls as $call) {
+        $script = $call[1][3] ?? null;
+
+        if (($call[1][2] ?? null) === 'shell' && is_string($script) && str_contains($script, 'input text')) {
+            $scripts[] = $script;
+        }
+    }
+
+    expect(implode("\n", $scripts))->toContain('sleep 0.1')
+        ->and(implode("\n", $scripts))->not->toContain('&&');
 });
 
 it('taps the at key when the keyboard shows it', function () {
