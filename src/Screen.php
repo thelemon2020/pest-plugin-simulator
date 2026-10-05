@@ -369,14 +369,23 @@ final class Screen
         return $this;
     }
 
-    public function assertSee(string $text): self
+    /**
+     * One read checks every label. A later call reads the device again.
+     */
+    public function assertSee(string $text, string ...$others): self
     {
+        $texts = [$text, ...$others];
+        $listed = implode(', ', array_map(
+            fn (string $label): string => "[{$label}]",
+            $texts,
+        ));
+
         $elements = $this->until(
-            fn (array $elements): bool => $this->finder->sees($elements, $text),
-            "Did not see [{$text}].",
+            fn (array $elements): bool => $this->seesAll($elements, $texts),
+            "Did not see {$listed}.",
         );
 
-        Assert::assertTrue($this->finder->sees($elements, $text));
+        Assert::assertTrue($this->seesAll($elements, $texts));
 
         return $this;
     }
@@ -549,6 +558,21 @@ final class Screen
         }
 
         return $elements;
+    }
+
+    /**
+     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}}>  $elements
+     * @param  list<string>  $texts
+     */
+    private function seesAll(array $elements, array $texts): bool
+    {
+        foreach ($texts as $text) {
+            if (! $this->finder->sees($elements, $text)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

@@ -199,6 +199,8 @@ screen('/settings/edit')
 
 `scroll('down')` moves the page so you can see what is further down. `scroll('down', 0.3)` moves a shorter way: `0.3` is 30% of the screen. `scroll('down', seconds: 0.15)` is a quicker flick. The finger stays on the glass: a scrolled page reports rows below the fold, and those coordinates are not the screen. `swipe('down')` moves a finger down, which closes a sheet. `swipe('left', 'Item')` starts that swipe on a row. `swipe('down', distance: 0.3)` and `swipe('left', 'Item', seconds: 0.15)` change how far and how fast. `press('Item')` holds a finger on that control, which opens a context menu. `press('Item', 1.5)` holds longer. `goBack()` taps the navigation Back button, including Android's `arrow_back` icon, when that control is on screen. Otherwise it presses Back on Android and swipes in from the left edge on iOS. A tab label drawn in the gesture-navigation strip is pressed on the tab cell above the label.
 
+`assertSee('Saved')` reads the screen. `assertSee('Save', 'Name')` checks both labels on that one read, and waits until a single read contains every label. Another `assertSee()` reads again. A `tap()` after it reads again too, and uses that coordinate.
+
 `assertNavTitle()` reads the navigation bar. `assertTabActive()` reads the selected tab. `assertNavigatedTo('/settings')` passes when that path is an accessibility id, or when the navigation title is the last part of the path (`Settings`). `assertEnabled()`, `assertDisabled()`, and `assertChecked()` read those states from the same screen.
 
 `assertTabActive()` and `tap()` on a tab bar button both read iOS's native `TabView` through the `AXBRIDGE` backend, which is what crosses process boundaries to see the tab bar's children — the older `AX` backend reads it as a childless group, with no per-tab `selected` flag and no tab buttons to find at all. **AXBRIDGE needs idb_companion 1.6.3 or newer** (`brew upgrade idb-companion`); `php artisan nativephp:simulator doctor` reports the installed build's date and says so if it's too old. Before 1.6.3, AXBRIDGE's guest transport was one-shot with a hardcoded 30s silence deadline per read, and a full tree read routinely exceeded it — every read hung to its own 60s ceiling and came back with nothing, even though the screen was rendering correctly underneath. 1.6.3 reworked the transport to stream and lifted that deadline.
@@ -327,6 +329,8 @@ A failed assertion writes `tree.json` and `screen.png`. A recording that is stil
 ```bash
 vendor/bin/pest --ios
 vendor/bin/pest --android
+vendor/bin/pest --ios --parallel
+vendor/bin/pest --android --parallel
 vendor/bin/pest --ios --device="iPhone 17 Pro"
 vendor/bin/pest --device=ios:"iPhone 17 Pro" --device=android:"Pixel 8"
 vendor/bin/pest --rebuild
@@ -351,9 +355,28 @@ The doctor checks `simctl`, `idb_companion`, the Android SDK, `adb`, `emulator`,
 
 [`.github/workflows/mobile.yml`](.github/workflows/mobile.yml) runs this package's own tests on PHP 8.3 with Pest 4, and on PHP 8.4 with Pest 5. Those tests fake the machine. They do not boot a Simulator or an Emulator.
 
-In a project, install that platform's tools and run `vendor/bin/pest --ios` or `vendor/bin/pest --android`. A Mac can run the Android Emulator too. `vendor/bin/pest --parallel` runs workers at the same time. Each worker gets its own `idb_companion` port and its own booted device. An iOS worker reuses the Simulator it cloned last time (`iPhone 17 pest-1`) instead of copying a new one.
+In a project, install that platform's tools and run the two platforms as separate jobs. A Mac can run the Android Emulator too.
 
-The Android Emulator starts with no window and draws in software. When the AVD has a Quick Boot snapshot, the emulator loads it, so a debug build installed last time is still there and `native:run` does not compile again. The first boot is still a cold boot. That boot is saved when the emulator exits, and shutdown waits for the save to finish. One parallel worker boots writable so it can save the snapshot. The others load it read-only, each on its own emulator port. `--wipe` drops that snapshot for one run. If a boot does not finish, the error names the emulator log.
+```bash
+vendor/bin/pest --ios --parallel
+vendor/bin/pest --android --parallel
+```
+
+Each test is one row per device. One `vendor/bin/pest --parallel` can hand a worker an iOS row and then an Android row, and that worker boots one device and then the other. The two commands keep each worker on one platform. Each worker gets its own `idb_companion` port and its own booted device. An iOS worker reuses the Simulator it cloned last time (`iPhone 17 pest-1`) instead of copying a new one. `--processes` caps how many devices boot at once.
+
+The Android Emulator starts with no window and draws in software. When the AVD has a Quick Boot snapshot, the emulator loads it, so a debug build installed last time is still there and `native:run` does not compile again. The first boot is still a cold boot. That boot is saved when the emulator exits, and shutdown waits for the save to finish. One parallel worker boots writable so it can save the snapshot. The others load it read-only, each on its own emulator port. Cache `~/.android/avd` between CI jobs so that snapshot is still there on the next run:
+
+```yaml
+- uses: actions/cache@v4
+  with:
+    path: ~/.android/avd
+    key: android-avd-${{ runner.os }}-${{ github.sha }}
+    restore-keys: android-avd-${{ runner.os }}-
+```
+
+The key includes the commit, so this run saves the snapshot it just wrote. The next run restores the newest saved snapshot.
+
+A system-image update invalidates the snapshot, and the next boot is cold once. Leave `--wipe` off this job. `--wipe` drops that snapshot for one run. If a boot does not finish, the error names the emulator log.
 
 A test limited to a platform the suite does not run is skipped. A machine without Xcode and `idb_companion`, or without the Android SDK, skips the tests that needed that platform.
 

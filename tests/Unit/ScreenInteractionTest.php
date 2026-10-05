@@ -244,6 +244,40 @@ it('taps a control by its accessibility id', function () {
     expect($driver->taps)->toBe([[8.0, 9.0]]);
 });
 
+it('reads the device once when several labels are checked together', function () {
+    $driver = new FakeDriver([[
+        control('Save'),
+        control('Name'),
+    ]]);
+
+    (new Screen($driver, timeoutSeconds: 1))
+        ->assertSee('Save', 'Name');
+
+    expect($driver->descriptions)->toBe(1);
+});
+
+it('waits until one read contains every label', function () {
+    $driver = new FakeDriver([
+        [control('Save')],
+        [control('Save'), control('Name')],
+    ]);
+
+    (new Screen($driver, timeoutSeconds: 1))
+        ->assertSee('Save', 'Name');
+
+    expect($driver->descriptions)->toBe(2);
+});
+
+it('names every label when one read cannot see them all', function () {
+    $driver = new FakeDriver([[
+        control('Save'),
+    ]]);
+
+    expect(fn () => (new Screen($driver, timeoutSeconds: 0, failureDirectory: sys_get_temp_dir().'/simulator-see-several-test'))
+        ->assertSee('Save', 'Name'))
+        ->toThrow(AssertionFailedError::class, 'Did not see [Save], [Name].');
+});
+
 it('reads the device again for the next assertion', function () {
     $driver = new FakeDriver([[
         control('Save'),
