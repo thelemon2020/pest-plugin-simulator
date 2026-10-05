@@ -19,6 +19,11 @@ final class Device
         return $this->platform.':'.($this->named ? '1' : '0').':'.$this->name;
     }
 
+    public function identity(): string
+    {
+        return $this->platform.':'.$this->name;
+    }
+
     public static function fromKey(string $key): self
     {
         $parts = explode(':', $key, 3);

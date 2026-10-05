@@ -17,6 +17,6 @@ uses()->afterEach(function () {
     Permissions::reset();
     Recording::reset();
     Platforms::use(new FakeMachine);
-    SuiteRegistration::forgetSeen();
+    SuiteRegistration::forgetRegisteredDevices();
     ParallelLanes::reset();
 })->in(__DIR__);

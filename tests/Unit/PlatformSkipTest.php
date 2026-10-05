@@ -190,17 +190,17 @@ it('gives a dataset value to the test after the device key', function () {
 });
 
 it('drops a test outside mobile() on a later device lane', function () {
-    $_ENV[ParallelLanes::FOLLOW] = '1';
-    $_SERVER[ParallelLanes::FOLLOW] = '1';
-    putenv(ParallelLanes::FOLLOW.'=1');
+    $_ENV[ParallelLanes::ONLY_MOBILE] = '1';
+    $_SERVER[ParallelLanes::ONLY_MOBILE] = '1';
+    putenv(ParallelLanes::ONLY_MOBILE.'=1');
 
     expect((new MobileTestFilter)->accept(mobileMethod()))->toBeFalse();
 });
 
 it('keeps a mobile test on a later device lane', function () {
-    $_ENV[ParallelLanes::FOLLOW] = '1';
-    $_SERVER[ParallelLanes::FOLLOW] = '1';
-    putenv(ParallelLanes::FOLLOW.'=1');
+    $_ENV[ParallelLanes::ONLY_MOBILE] = '1';
+    $_SERVER[ParallelLanes::ONLY_MOBILE] = '1';
+    putenv(ParallelLanes::ONLY_MOBILE.'=1');
     $method = mobileMethod();
     $accepted = false;
 

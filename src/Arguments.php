@@ -157,9 +157,7 @@ final class Arguments
         self::expose(self::DEVICES, null);
         self::expose(self::REBUILD, null);
         self::expose(self::WIPE, null);
-        self::expose(ParallelLanes::ENV, null);
-        self::expose(ParallelLanes::DEVICE, null);
-        self::expose(ParallelLanes::FOLLOW, null);
+        ParallelLanes::clearEnv();
     }
 
     public static function excludedByPin(): bool
@@ -181,12 +179,7 @@ final class Arguments
             return $devices;
         }
 
-        self::expose(ParallelLanes::DEVICE, $pinned);
-
-        $matched = array_values(array_filter(
-            $devices,
-            fn (Device $device): bool => $device->platform.':'.$device->name === $pinned,
-        ));
+        $matched = ParallelLanes::matching($devices);
         self::$excludedByPin = $devices !== [] && $matched === [];
 
         return $matched;
@@ -356,22 +349,9 @@ final class Arguments
         self::expose(self::WIPE, self::$wipe ? '1' : null);
     }
 
-    /**
-     * Symfony Process only forwards variables that live in $_ENV or $_SERVER.
-     * putenv() alone never reaches a ParaTest worker.
-     */
     private static function expose(string $key, ?string $value): void
     {
-        if ($value === null) {
-            putenv($key);
-            unset($_ENV[$key], $_SERVER[$key]);
-
-            return;
-        }
-
-        putenv($key.'='.$value);
-        $_ENV[$key] = $value;
-        $_SERVER[$key] = $value;
+        Env::set($key, $value);
     }
 
     private static function hydrate(): void

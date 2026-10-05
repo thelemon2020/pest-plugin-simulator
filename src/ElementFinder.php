@@ -152,7 +152,6 @@ final class ElementFinder
     }
 
     /**
-     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}}>  $elements
      * @param  list<string>  $texts
      */
     public function seesAll(array $elements, array $texts): bool

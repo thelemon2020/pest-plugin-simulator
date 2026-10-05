@@ -8,7 +8,7 @@ use NativePhp\Simulator\SuiteRegistration;
 use Pest\Plugins\Parallel;
 
 afterEach(function () {
-    SuiteRegistration::forgetSeen();
+    SuiteRegistration::forgetRegisteredDevices();
     ParallelLanes::reset();
 });
 
@@ -41,10 +41,10 @@ it('starts one lane per device and keeps the worst status', function () {
     $lanes = [];
     ParallelLanes::$process = function (Device $device, array $env) use (&$lanes): int {
         $lanes[] = [
-            $device->platform.':'.$device->name,
+            $device->identity(),
             $env[ParallelLanes::ENV],
             $env[ParallelLanes::DEVICE],
-            $env[ParallelLanes::FOLLOW],
+            $env[ParallelLanes::ONLY_MOBILE],
         ];
 
         return $device->platform === 'android' ? 2 : 0;

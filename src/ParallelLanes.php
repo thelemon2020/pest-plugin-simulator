@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace NativePhp\Simulator;
 
 use Closure;
+use NativePhp\Simulator\Exceptions\SimulatorException;
 use Pest\Plugins\Parallel;
 use PHPUnit\Event\TestSuite\Loaded;
 use PHPUnit\Event\TestSuite\LoadedSubscriber;
@@ -15,7 +16,7 @@ final class ParallelLanes implements LoadedSubscriber
 
     public const string DEVICE = 'NATIVEPHP_SIMULATOR_LANE_DEVICE';
 
-    public const string FOLLOW = 'NATIVEPHP_SIMULATOR_LANE_FOLLOW';
+    public const string ONLY_MOBILE = 'NATIVEPHP_SIMULATOR_LANE_MOBILE';
 
     /** @var (Closure(Device, array<string, string>): int)|null */
     public static ?Closure $process = null;
@@ -31,19 +32,48 @@ final class ParallelLanes implements LoadedSubscriber
 
     public static function active(): bool
     {
-        return self::value(self::ENV) === '1';
+        return Env::get(self::ENV) === '1';
     }
 
-    public static function followUp(): bool
+    /**
+     * A later lane runs the mobile() tests for its device. The first lane runs the rest of the suite.
+     */
+    public static function onlyMobileTests(): bool
     {
-        return self::value(self::FOLLOW) === '1';
+        return Env::get(self::ONLY_MOBILE) === '1';
     }
 
-    public static function pinned(): ?string
+    public static function pinned(): ?Device
     {
-        $value = self::value(self::DEVICE);
+        $value = Env::get(self::DEVICE);
 
-        return is_string($value) && $value !== '' ? $value : null;
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        try {
+            return Device::fromKey($value);
+        } catch (SimulatorException) {
+            return null;
+        }
+    }
+
+    /**
+     * @param  list<Device>  $devices
+     * @return list<Device>
+     */
+    public static function matching(array $devices): array
+    {
+        $pinned = self::pinned();
+
+        if ($pinned === null) {
+            return $devices;
+        }
+
+        return array_values(array_filter(
+            $devices,
+            fn (Device $device): bool => $device->identity() === $pinned->identity(),
+        ));
     }
 
     /**
@@ -51,17 +81,22 @@ final class ParallelLanes implements LoadedSubscriber
      */
     public static function publish(): void
     {
-        foreach ([self::ENV, self::DEVICE, self::FOLLOW] as $key) {
-            $value = self::value($key);
+        foreach ([self::ENV, self::DEVICE, self::ONLY_MOBILE] as $key) {
+            $value = Env::get($key);
 
-            if (! is_string($value) || $value === '') {
+            if ($value === null || $value === '') {
                 continue;
             }
 
-            putenv($key.'='.$value);
-            $_ENV[$key] = $value;
-            $_SERVER[$key] = $value;
+            Env::set($key, $value);
         }
+    }
+
+    public static function clearEnv(): void
+    {
+        Env::set(self::ENV, null);
+        Env::set(self::DEVICE, null);
+        Env::set(self::ONLY_MOBILE, null);
     }
 
     /**
@@ -73,7 +108,7 @@ final class ParallelLanes implements LoadedSubscriber
             return null;
         }
 
-        $devices = SuiteRegistration::seen();
+        $devices = SuiteRegistration::registeredDevices();
 
         if (count($devices) < 2) {
             return null;
@@ -120,21 +155,16 @@ final class ParallelLanes implements LoadedSubscriber
     public static function reset(): void
     {
         self::$process = null;
-        self::clear(self::ENV);
-        self::clear(self::DEVICE);
-        self::clear(self::FOLLOW);
+        self::clearEnv();
     }
 
-    private static function lane(Device $device, bool $followUp): int
+    private static function lane(Device $device, bool $onlyMobileTests): int
     {
-        $pin = $device->platform.':'.$device->name;
-        $env = self::environment($pin, $followUp);
+        $env = self::environment($device, $onlyMobileTests);
 
         if (self::$process !== null) {
             return (self::$process)($device, $env);
         }
-
-        fwrite(STDOUT, "Parallel lane {$pin}\n");
 
         $process = proc_open(self::command(), [0 => STDIN, 1 => STDOUT, 2 => STDERR], $pipes, null, $env);
 
@@ -150,7 +180,7 @@ final class ParallelLanes implements LoadedSubscriber
     /**
      * @return array<string, string>
      */
-    private static function environment(string $pin, bool $followUp): array
+    private static function environment(Device $device, bool $onlyMobileTests): array
     {
         $env = [];
         $current = getenv();
@@ -164,22 +194,9 @@ final class ParallelLanes implements LoadedSubscriber
         }
 
         $env[self::ENV] = '1';
-        $env[self::DEVICE] = $pin;
-        $env[self::FOLLOW] = $followUp ? '1' : '0';
+        $env[self::DEVICE] = $device->identity();
+        $env[self::ONLY_MOBILE] = $onlyMobileTests ? '1' : '0';
 
         return $env;
-    }
-
-    private static function value(string $key): ?string
-    {
-        $value = $_ENV[$key] ?? $_SERVER[$key] ?? getenv($key);
-
-        return is_string($value) ? $value : null;
-    }
-
-    private static function clear(string $key): void
-    {
-        putenv($key);
-        unset($_ENV[$key], $_SERVER[$key]);
     }
 }
