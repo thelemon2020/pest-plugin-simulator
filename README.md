@@ -1,5 +1,10 @@
 # Pest Simulator
 
+> **Early days.** This package is under active, early development, and the API and behavior
+> may still shift. If you hit a bug or need a feature it doesn't cover yet, please
+> [open an issue](https://github.com/thelemon2020/pest-plugin-simulator/issues) or a pull
+> request — both are very welcome.
+
 A Pest plugin for NativePHP. Every test that calls `screen()` has to sit inside `mobile()`. That is what boots the simulator or emulator. `screen()` opens a route, then you tap, type, and check the device.
 
 Pest 4 and Pest 5 load the plugin for you. In a Laravel app, `php artisan nativephp:simulator` checks that the machine is ready.
