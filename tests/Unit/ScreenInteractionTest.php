@@ -137,9 +137,13 @@ it('replaces a field and reads its value', function () {
         control('Title', ['role' => 'TextField', 'value' => 'old', 'center' => [20.0, 30.0]]),
     ], [
         control('Title', ['role' => 'TextField', 'value' => "Ada's note", 'center' => [20.0, 30.0]]),
+    ], [
+        control('Title', ['role' => 'TextField', 'value' => "Ada's note", 'center' => [20.0, 30.0]]),
     ]]);
 
-    (new Screen($driver, timeoutSeconds: 0))
+    // A nonzero timeout: type()'s settled() check needs real budget to confirm the value
+    // on two consecutive reads (see its own doc comment), which a zero timeout never allows.
+    (new Screen($driver, timeoutSeconds: 1))
         ->type('Title', "Ada's note")
         ->assertValue('Title', "Ada's note");
 

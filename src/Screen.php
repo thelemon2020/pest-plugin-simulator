@@ -46,6 +46,22 @@ final class Screen
         return $this;
     }
 
+    /**
+     * `IosDriver::text()` paces the key events it sends (see its own doc comment), which
+     * fixed a short single-word field outright but only reduced, not eliminated, dropped
+     * characters on a longer multi-word one — confirmed on real hardware with a gap small
+     * enough to keep typing fast AND a gap three times larger, both still occasionally
+     * losing part of a "Talk Talk"/"Spirit Of Eden"-length string, and at varying positions
+     * from one run to the next. That position varying rather than landing at a fixed
+     * character count or word boundary is the signature of a residual race rather than a
+     * fixed timing cliff — something a bigger gap can reduce the odds of but not someone
+     * reliably designing around from this side of the gRPC call. Rather than keep
+     * chasing a gap value that fully eliminates it, this verifies what actually landed and
+     * retries the whole tap-clear-type sequence (not just the missing tail — simplest to
+     * reason about, and `clear()` already makes a retry cheap) when it didn't.
+     */
+    private const TYPE_ATTEMPTS = 3;
+
     public function type(string $label, string $text): self
     {
         $elements = $this->until(
@@ -54,14 +70,71 @@ final class Screen
         );
 
         $match = $this->finder->match($elements, $label);
-        $this->driver->tap((float) $match['center'][0], (float) $match['center'][1]);
-        $this->driver->clear($this->replacementLength($match));
 
-        if ($text !== '') {
+        for ($attempt = 0; $attempt < self::TYPE_ATTEMPTS; $attempt++) {
+            $this->driver->tap((float) $match['center'][0], (float) $match['center'][1]);
+            $this->driver->clear($this->replacementLength($match));
+
+            if ($text === '') {
+                return $this;
+            }
+
             $this->driver->text($text);
+
+            if ($this->settled($label, $text)) {
+                return $this;
+            }
         }
 
         return $this;
+    }
+
+    /**
+     * A short, bounded recheck — NOT the full `until()` deadline, which would block every
+     * `type()` call for the whole suite timeout on the FIRST attempt alone. Two seconds is
+     * enough for the device to catch up and report back; if the value still doesn't match
+     * by then, `type()` retries the whole sequence rather than waiting longer on an attempt
+     * that's already behind.
+     *
+     * Requires the value to match on two CONSECUTIVE reads, not just the first one that
+     * happens to match. Confirmed on real hardware this matters: typing two `native:model`
+     * fields back to back (`type('Artist', ...)` immediately followed by `type('Title',
+     * ...)`), the FIRST field alone was reliable once this method existed at all, but the
+     * SECOND still occasionally ended up wrong even though an earlier version of this
+     * check (match once, declare victory) had already confirmed it correct. Read as: a
+     * `native:model` round trip triggered by one of the first field's own later keystrokes
+     * can still be in flight when its value already LOOKS right locally, and resolving
+     * late enough to land after typing has moved to the next field pushes a stale
+     * server-rendered screen over it — the same class of bug this project's own memory
+     * documents for a `#[Poll]` tick stomping a field mid-type, just triggered by the
+     * field's own trailing echo instead of a timer. Waiting for a repeat match is a cheap
+     * way to let that trailing round trip resolve before `type()` hands control back,
+     * without needing to know anything about when it actually completes server-side.
+     */
+    private function settled(string $label, string $text): bool
+    {
+        $deadline = microtime(true) + min(2.0, $this->timeoutSeconds);
+        $confirmed = false;
+
+        do {
+            try {
+                $elements = $this->read();
+            } catch (SimulatorException) {
+                $elements = [];
+            }
+
+            $matches = $elements !== [] && $this->finder->hasValue($elements, $label, $text);
+
+            if ($matches && $confirmed) {
+                return true;
+            }
+
+            $confirmed = $matches;
+
+            usleep(200_000);
+        } while (microtime(true) < $deadline);
+
+        return false;
     }
 
     public function clear(string $label): self
