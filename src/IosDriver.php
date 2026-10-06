@@ -340,6 +340,54 @@ final class IosDriver implements Driver
         $this->client()->stream('hid', Hid::backspace());
     }
 
+    /**
+     * `Hid::text()` turns a multi-character piece into many key down/up events (more per
+     * character once Shift is involved), and `stream()` writes all of them onto the wire
+     * back-to-back with no gap at all — curl hands the whole body to one write(). That is
+     * faster than the Simulator's own keyboard can keep up with: confirmed on real
+     * hardware that typing "Talk Talk" into a plain `<native:text-field>` silently landed
+     * as "Talk", "Spirit Of Eden" as "Spirit", and "Tokyo" (no space at all, so not a
+     * word-boundary thing) as "To" — always a clean prefix, never reordered or corrupted,
+     * which is the signature of an input queue dropping whatever arrives once it's full
+     * rather than any character-level corruption. Reproduced identically under heavy host
+     * load, under an idle host, and on a freshly `--wipe`d Simulator, so it isn't the
+     * contention class of flake documented on `tap()` above — the burst itself is too fast
+     * regardless of the host.
+     *
+     * `streamPaced()` already exists for exactly this shape of problem (see Client.php) and
+     * takes an arbitrary message list, not just a tap's down+up pair — so the same named-pipe
+     * mechanism that gives a tap's two events real wall-clock continuity also works here,
+     * putting a real gap between every key event `Hid::text()` produces. 20ms is far below
+     * `TAP_HOLD_MICROSECONDS` (that one is about iOS gesture arbitration, a different
+     * mechanism) — just enough for the keyboard's own event queue to keep up without making
+     * a sentence take seconds to type.
+     *
+     * This fully fixed a single-field case end to end (a plain `native:model` search field,
+     * one `type()` call, nothing typed before or after it) — confirmed going from reliably
+     * failing to reliably passing on real hardware. It only partially helped a harder case:
+     * two `native:model` fields typed back to back with no settle between them (a
+     * `type('Artist', 'Talk Talk')` immediately followed by `type('Title', 'Spirit Of
+     * Eden')`), where both fields still truncate, just less. Tried 60ms on that same case
+     * expecting it to help further and it did the opposite — WORSE truncation ("Ta", "Spiri"
+     * — short of even 20ms's result), which rules out "not enough gap yet" as the whole
+     * story: a longer per-key gap makes each `type()` call take proportionally longer in
+     * wall-clock time, and something tied to elapsed time (not event count) seems to start
+     * working against it past a point. Only one run was tried at each value, so treat the
+     * 60ms result as a signal to stop turning this dial blindly, not as a proven curve.
+     *
+     * Current best guess for the back-to-back case: it's a second, different bug layered on
+     * top of the one this fixes — `native:model` round-trips the field's value to the server
+     * on every change and re-applies whatever comes back, and the project's own memory
+     * already documents this exact mechanism losing fast typing when a round trip lands
+     * late (originally found with `#[Poll]`, but a plain per-keystroke `native:model`
+     * round-trip is the same race without needing a poll at all). Consistent with what's
+     * typed into the FIRST field (no poll, no prior round trip in flight) still truncating
+     * at a fixed point regardless of this gap. Not chased further here — would need either
+     * reproducing it against a field with no `native:model` round-trip at all, or adding a
+     * settle between `type()` calls, to tell apart from a residual pacing issue.
+     */
+    private const TEXT_KEY_GAP_MICROSECONDS = 20_000;
+
     public function text(string $text): void
     {
         if ($text === '') {
@@ -353,7 +401,7 @@ final class IosDriver implements Driver
                 continue;
             }
 
-            $this->client()->stream('hid', Hid::text($piece));
+            $this->client()->streamPaced('hid', Hid::text($piece), self::TEXT_KEY_GAP_MICROSECONDS);
         }
     }
 
