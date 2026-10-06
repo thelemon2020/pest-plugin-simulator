@@ -48,17 +48,19 @@ final class Screen
 
     /**
      * `IosDriver::text()` paces the key events it sends (see its own doc comment), which
-     * fixed a short single-word field outright but only reduced, not eliminated, dropped
-     * characters on a longer multi-word one — confirmed on real hardware with a gap small
-     * enough to keep typing fast AND a gap three times larger, both still occasionally
-     * losing part of a "Talk Talk"/"Spirit Of Eden"-length string, and at varying positions
-     * from one run to the next. That position varying rather than landing at a fixed
-     * character count or word boundary is the signature of a residual race rather than a
-     * fixed timing cliff — something a bigger gap can reduce the odds of but not someone
-     * reliably designing around from this side of the gRPC call. Rather than keep
-     * chasing a gap value that fully eliminates it, this verifies what actually landed and
-     * retries the whole tap-clear-type sequence (not just the missing tail — simplest to
-     * reason about, and `clear()` already makes a retry cheap) when it didn't.
+     * fixed a short single-word field outright but only reduced, not eliminated, apparent
+     * truncation on a longer multi-word one under contention. Traced further than the
+     * pacing fix alone: for a `native:model` field, every keystroke round-trips to PHP (an
+     * embedded interpreter talking over shared memory, not a network request — see
+     * NativeUITextInputCore.swift / NativeElementBridge.swift in the native project for the
+     * real transport), and that round trip simply takes longer under host contention. A
+     * controlled experiment (synthetic CPU load generated on purpose, moderate — not the
+     * extreme end that briefly made the whole host unresponsive while calibrating this)
+     * confirmed the value DOES eventually converge to the correct final string given long
+     * enough to wait; it isn't stuck on a wrong one. So this isn't primarily about retrying
+     * a corrupted attempt — `settled()`'s own window (see its doc comment) is what actually
+     * matters here. The retry loop stays as a second line of defense for whatever this
+     * window doesn't cover, but the main fix is giving the device realistic time to answer.
      */
     private const TYPE_ATTEMPTS = 3;
 
@@ -90,30 +92,32 @@ final class Screen
     }
 
     /**
-     * A short, bounded recheck — NOT the full `until()` deadline, which would block every
-     * `type()` call for the whole suite timeout on the FIRST attempt alone. Two seconds is
-     * enough for the device to catch up and report back; if the value still doesn't match
-     * by then, `type()` retries the whole sequence rather than waiting longer on an attempt
-     * that's already behind.
+     * A short, bounded recheck — NOT the full `until()` deadline, which would starve every
+     * OTHER step of its own share of the suite timeout if one `type()` call used all of it.
      *
-     * Requires the value to match on two CONSECUTIVE reads, not just the first one that
-     * happens to match. Confirmed on real hardware this matters: typing two `native:model`
-     * fields back to back (`type('Artist', ...)` immediately followed by `type('Title',
-     * ...)`), the FIRST field alone was reliable once this method existed at all, but the
-     * SECOND still occasionally ended up wrong even though an earlier version of this
-     * check (match once, declare victory) had already confirmed it correct. Read as: a
-     * `native:model` round trip triggered by one of the first field's own later keystrokes
-     * can still be in flight when its value already LOOKS right locally, and resolving
-     * late enough to land after typing has moved to the next field pushes a stale
-     * server-rendered screen over it — the same class of bug this project's own memory
-     * documents for a `#[Poll]` tick stomping a field mid-type, just triggered by the
-     * field's own trailing echo instead of a timer. Waiting for a repeat match is a cheap
-     * way to let that trailing round trip resolve before `type()` hands control back,
-     * without needing to know anything about when it actually completes server-side.
+     * This window used to be capped at 2 seconds, on the assumption that an unsettled value
+     * meant something had gone wrong and needed a fresh attempt, not a longer wait. That
+     * assumption was wrong: under real (not pathological) host contention — the kind an
+     * ordinary video call or screen share produces on the same machine, confirmed with a
+     * deliberately moderate synthetic CPU load, not the runaway extreme briefly hit while
+     * calibrating that load — a `native:model` round trip can genuinely take tens of
+     * seconds to come back, and the value DOES arrive correct once it does. Cutting the wait
+     * short at 2 seconds and retrying was mostly just restarting a race that was already
+     * going to finish correctly on its own, which is also why the retry version of this
+     * method still weren't fully reliable: three retries of a 2-second window is still only
+     * 6 seconds of real patience, not nearly enough for what we measured. 10 seconds is a
+     * deliberately generous middle ground — long enough to cover ordinary contention, still
+     * bounded so a field that's genuinely never going to settle doesn't hang the suite.
+     *
+     * Separately requires the value to match on two CONSECUTIVE reads, not just the first
+     * one that happens to match — confirmed on real hardware that a single match isn't
+     * always trustworthy: typing two `native:model` fields back to back, the SECOND
+     * field's read occasionally matched once and then changed again right after, consistent
+     * with a render still catching up even after the text first looked right.
      */
     private function settled(string $label, string $text): bool
     {
-        $deadline = microtime(true) + min(2.0, $this->timeoutSeconds);
+        $deadline = microtime(true) + min(10.0, $this->timeoutSeconds);
         $confirmed = false;
 
         do {
