@@ -5,6 +5,7 @@ declare(strict_types=1);
 use NativePhp\Simulator\AndroidDriver;
 use NativePhp\Simulator\AndroidSdk;
 use NativePhp\Simulator\Arguments;
+use NativePhp\Simulator\Command;
 use NativePhp\Simulator\Configuration;
 use NativePhp\Simulator\Device;
 use NativePhp\Simulator\DeviceWipe;
@@ -84,7 +85,9 @@ it('boots an existing worker simulator instead of cloning another', function () 
 
         expect(cloneCalls($command))->toBe([])
             ->and($command->calls)->toContain(['xcrun', ['simctl', 'boot', 'CLONE']])
-            ->and($command->calls)->toContain(['xcrun', ['simctl', 'bootstatus', 'CLONE', '-b']]);
+            ->and($command->calls)->toContain(['xcrun', ['simctl', 'bootstatus', 'CLONE', '-b']])
+            ->and($command->timeouts['xcrun simctl boot CLONE'])->toBe((float) Command::DEVICE_TIMEOUT)
+            ->and($command->timeouts['xcrun simctl bootstatus CLONE -b'])->toBe((float) Command::DEVICE_TIMEOUT);
     });
 });
 

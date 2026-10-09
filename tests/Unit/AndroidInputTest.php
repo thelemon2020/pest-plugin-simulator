@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use NativePhp\Simulator\AndroidDriver;
+use NativePhp\Simulator\Command;
 use NativePhp\Simulator\Configuration;
 use NativePhp\Simulator\Device;
 use NativePhp\Simulator\Exceptions\SimulatorException;
@@ -200,7 +201,43 @@ it('retries a native build that nativephp timed out', function () {
     $build->invoke($driver);
     $build->invoke($driver);
 
-    expect($attempts)->toBe(2);
+    expect($attempts)->toBe(2)
+        ->and($command->timeouts['php artisan native:run android emulator-5554 --build=debug --no-tty'])->toBe((float) Command::BUILD_TIMEOUT);
+});
+
+it('does not retry a native build that ran out of its own time limit', function () {
+    (new ReflectionProperty(AndroidDriver::class, 'built'))->setValue(null, []);
+
+    try {
+        (new Command)->run(PHP_BINARY, ['-r', 'sleep(5);'], timeout: 0.1);
+    } catch (SimulatorException $timedOut) {
+    }
+
+    $command = new RecordingCommand;
+    $attempts = 0;
+    $command->responder = function (string $binary, array $arguments) use (&$attempts, $timedOut): ?string {
+        if ($binary !== 'php' || ! in_array('native:run', $arguments, true)) {
+            return null;
+        }
+
+        $attempts++;
+
+        throw $timedOut;
+    };
+    $driver = androidDriver($command);
+
+    expect(fn () => (new ReflectionMethod(AndroidDriver::class, 'buildOnce'))->invoke($driver))
+        ->toThrow(SimulatorException::class, 'did not finish within')
+        ->and($attempts)->toBe(1);
+});
+
+it('gives a long line of typing more time than one tap', function () {
+    $command = new RecordingCommand;
+    $driver = androidDriver($command);
+
+    $driver->text(str_repeat('a', 120));
+
+    expect(array_values($command->timeouts))->toBe([(float) Command::TIMEOUT + 120]);
 });
 
 it('does not retry a native build that failed to compile', function () {

@@ -5,6 +5,7 @@ declare(strict_types=1);
 use NativePhp\Simulator\AndroidDriver;
 use NativePhp\Simulator\AndroidSdk;
 use NativePhp\Simulator\Arguments;
+use NativePhp\Simulator\Command;
 use NativePhp\Simulator\Configuration;
 use NativePhp\Simulator\Device;
 use NativePhp\Simulator\IosDriver;
@@ -83,7 +84,7 @@ it('builds ios when the debug app is not installed', function () {
     expect($command->calls)->toBe([
         ['xcrun', ['simctl', 'get_app_container', 'UDID', 'com.example.app', 'app']],
         ['php', ['artisan', 'native:run', 'ios', 'UDID', '--build=debug', '--no-tty']],
-    ]);
+    ])->and($command->timeouts['php artisan native:run ios UDID --build=debug --no-tty'])->toBe((float) Command::BUILD_TIMEOUT);
 });
 
 it('rebuilds ios when asked', function () {
