@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace NativePhp\Simulator\Grpc;
 
 use CurlHandle;
+use NativePhp\Simulator\Exceptions\CompanionUnresponsive;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 
 /**
@@ -229,7 +230,9 @@ class Client
                 return null;
             }
 
-            throw new SimulatorException($error);
+            throw in_array($errno, [CURLE_OPERATION_TIMEDOUT, CURLE_COULDNT_CONNECT], true)
+                ? new CompanionUnresponsive($error)
+                : new SimulatorException($error);
         }
 
         $this->guardStatus($method, $headers, (int) curl_getinfo($handle, CURLINFO_RESPONSE_CODE));

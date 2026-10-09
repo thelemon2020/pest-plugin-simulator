@@ -60,6 +60,13 @@ it('types one stroke per character, with Shift inside the stroke that needs it',
         ->and(array_merge(...$strokes))->toBe(Hid::text('aB'));
 });
 
+it('lets go of each key and Shift once', function () {
+    [$a, $shifted] = Hid::keystrokes('aA');
+
+    expect(Hid::releases([Hid::tap(1, 2)]))->toBe([Hid::tap(1, 2)[1]])
+        ->and(Hid::releases(Hid::keystrokes('aAa')))->toBe([$a[1], $shifted[3]]);
+});
+
 it('encodes a swipe as an hid event', function () {
     $event = Hid::swipe(1, 2, 3, 4)[0];
 

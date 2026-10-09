@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace NativePhp\Simulator;
 
+use Closure;
+use NativePhp\Simulator\Exceptions\CompanionUnresponsive;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 use NativePhp\Simulator\Grpc\Client;
 use NativePhp\Simulator\Grpc\Protobuf;
@@ -365,19 +367,33 @@ final class IosDriver implements Driver
     }
 
     /**
-     * The down and up go out apart now, so a call that fails between them (a timeout, a
-     * dropped connection) leaves the down without its up: a finger still on the glass for
-     * whatever runs next. Lift it before letting the failure through.
-     *
      * @param  list<string>  $touch  a touch's down and up
      */
     private function touch(array $touch, int $holdMicroseconds): void
     {
+        $this->releasing([$touch], fn () => $this->client()->streamPaced('hid', $touch, $holdMicroseconds));
+    }
+
+    /**
+     * A paced call sends its downs and ups apart, so one that fails part-way (a dropped
+     * connection, an error status) can leave a down without its up: a finger still on the
+     * glass, or a key auto-repeating or Shift held, for whatever runs next. Let go of
+     * everything the strokes press before letting the failure through. Not when the
+     * companion has stopped answering, though: the release would only wait out the same
+     * silence, doubling how long the failure takes to arrive.
+     *
+     * @param  list<list<string>>  $strokes
+     * @param  Closure(): mixed  $send
+     */
+    private function releasing(array $strokes, Closure $send): void
+    {
         try {
-            $this->client()->streamPaced('hid', $touch, $holdMicroseconds);
+            $send();
+        } catch (CompanionUnresponsive $exception) {
+            throw $exception;
         } catch (SimulatorException $exception) {
             try {
-                $this->client()->stream('hid', [$touch[count($touch) - 1]]);
+                $this->client()->stream('hid', Hid::releases($strokes));
             } catch (SimulatorException) {
             }
 
@@ -473,7 +489,8 @@ final class IosDriver implements Driver
                 continue;
             }
 
-            $this->client()->streamStrokes('hid', Hid::keystrokes($piece), self::TEXT_KEY_GAP_MICROSECONDS);
+            $keys = Hid::keystrokes($piece);
+            $this->releasing($keys, fn () => $this->client()->streamStrokes('hid', $keys, self::TEXT_KEY_GAP_MICROSECONDS));
         }
     }
 

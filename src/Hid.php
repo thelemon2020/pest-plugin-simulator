@@ -90,6 +90,25 @@ final class Hid
     }
 
     /**
+     * The events that let go of everything these strokes press, each once. Every stroke
+     * here (a tap, a key, a chord) presses first and lets go in reverse, so the second
+     * half of a stroke is its releases.
+     *
+     * @param  list<list<string>>  $strokes
+     * @return list<string>
+     */
+    public static function releases(array $strokes): array
+    {
+        $releases = [];
+
+        foreach ($strokes as $stroke) {
+            array_push($releases, ...array_slice($stroke, intdiv(count($stroke), 2)));
+        }
+
+        return array_values(array_unique($releases));
+    }
+
+    /**
      * @return list<string>
      */
     public static function swipe(float $x1, float $y1, float $x2, float $y2, float $seconds = 0.3): array
