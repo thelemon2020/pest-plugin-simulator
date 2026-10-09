@@ -27,6 +27,36 @@ it('swipes for a given duration and holds a press', function () {
         ->and($client->calls[1])->toBe(['streamPaced', 'hid', Hid::tap(50, 60), 800_000]);
 });
 
+it('waits for a tapped field to finish taking focus before the first key', function () {
+    $tree = fn (array $elements): string => (string) json_encode(['elements' => $elements]);
+    $field = ['type' => 'TextField', 'label' => 'Name', 'frame' => ['x' => 20, 'y' => 320, 'width' => 360, 'height' => 30]];
+    $title = ['type' => 'StaticText', 'label' => 'Add a shelf', 'frame' => ['x' => 20, 'y' => 100, 'width' => 200, 'height' => 20]];
+    $client = new RecordingClient;
+    $client->trees = [$tree([$field]), $tree([$title, $field])];
+    $driver = iosInputDriver($client);
+
+    $driver->text('Ta');
+
+    expect(array_map(fn (array $call): string => $call[0].' '.$call[1], $client->calls))->toBe([
+        'unary accessibility_info',
+        'unary accessibility_info',
+        'unary accessibility_info',
+        'streamStrokes hid',
+    ]);
+});
+
+it('types anyway when the tree cannot be read', function () {
+    $client = new RecordingClient;
+    $driver = iosInputDriver($client);
+
+    $driver->text('Ta');
+
+    expect(array_map(fn (array $call): string => $call[0].' '.$call[1], $client->calls))->toBe([
+        'unary accessibility_info',
+        'streamStrokes hid',
+    ]);
+});
+
 it('encodes a slower swipe than the default', function () {
     expect(Hid::swipe(1, 2, 3, 4, 0.6)[0])->toContain("\x31".pack('e', 0.6))
         ->and(Hid::swipe(1, 2, 3, 4)[0])->toContain("\x31".pack('e', 0.3))
@@ -68,7 +98,9 @@ it('types each key as a stroke of its own', function () {
 
     $driver->text('aB');
 
-    expect($client->calls)->toBe([['streamStrokes', 'hid', Hid::keystrokes('aB'), 20_000]]);
+    $sends = array_values(array_filter($client->calls, fn (array $call): bool => $call[0] !== 'unary'));
+
+    expect($sends)->toBe([['streamStrokes', 'hid', Hid::keystrokes('aB'), 20_000]]);
 });
 
 it('allows a back gesture its own duration on top of the call timeout', function () {
