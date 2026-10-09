@@ -14,6 +14,8 @@ declare(strict_types=1);
  *   {"messages": ["<base64>", ...], "status": 0, "message": "..."}  answered normally
  *   {"trailersOnly": true, "status": 2, "message": "..."}            grpc-status in the headers
  *   {"hang": true}                                                   never answered
+ *   {"close": true}                                                  connection dropped, no answer
+ *   {"httpStatus": 503}                                              that status, no grpc-status
  *
  * Request headers are not decoded. curl Huffman-codes them, and nothing here needs them.
  */
@@ -145,6 +147,14 @@ while (true) {
                     'data' => $connections[$id]['streams'][$stream] ?? [],
                 ])."\n", FILE_APPEND);
                 unset($connections[$id]['streams'][$stream]);
+
+                if ($response['close'] ?? false) {
+                    fclose($socket);
+                    unset($connections[$id]);
+
+                    continue 2;
+                }
+
                 respond($socket, $stream, $response);
             }
         }
@@ -191,11 +201,19 @@ function hpackLength(int $length): string
 
 /**
  * @param  resource  $socket
- * @param  array{messages?: list<string>, status?: int, message?: string, trailersOnly?: bool, hang?: bool}  $response
+ * @param  array{messages?: list<string>, status?: int, message?: string, trailersOnly?: bool, hang?: bool, httpStatus?: int}  $response
  */
 function respond($socket, int $stream, array $response): void
 {
     if ($response['hang'] ?? false) {
+        return;
+    }
+
+    if (isset($response['httpStatus'])) {
+        fwrite($socket, frame(FRAME_HEADERS, FLAG_END_HEADERS | FLAG_END_STREAM, $stream, headerBlock([
+            ':status' => (string) $response['httpStatus'],
+        ])));
+
         return;
     }
 

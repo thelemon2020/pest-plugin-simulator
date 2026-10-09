@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace NativePhp\Simulator;
 
+use Closure;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 
 final class AndroidDriver implements Driver
@@ -47,7 +48,9 @@ final class AndroidDriver implements Driver
 
     public function ensureReady(): void
     {
-        if (Worker::parallel()) {
+        $parallel = Worker::parallel();
+
+        if ($parallel) {
             $this->bootForWorker();
         } elseif (self::$ready !== $this) {
             $this->bootShared();
@@ -55,8 +58,31 @@ final class AndroidDriver implements Driver
 
         $this->buildOnce();
 
-        if (! Worker::parallel()) {
+        if (! $parallel) {
             self::$ready = $this;
+        }
+    }
+
+    /**
+     * Runs one of screen()'s per-test device commands. ensureReady() trusts an emulator
+     * it brought up earlier without asking adb again, so one that exited since would fail
+     * here; check again, relaunching it if it has to, and try once more, as the boot path
+     * did on every screen() before readiness was remembered.
+     *
+     * @param  Closure(): void  $command
+     */
+    private function recovering(Closure $command): void
+    {
+        try {
+            $command();
+        } catch (SimulatorException $exception) {
+            if (self::$ready !== $this) {
+                throw $exception;
+            }
+
+            self::$ready = null;
+            $this->ensureReady();
+            $command();
         }
     }
 
@@ -82,6 +108,11 @@ final class AndroidDriver implements Driver
     }
 
     public function installDatabase(string $sqlitePath): void
+    {
+        $this->recovering(fn () => $this->pushDatabase($sqlitePath));
+    }
+
+    private function pushDatabase(string $sqlitePath): void
     {
         $bundle = $this->configuration->bundleId();
         $serial = $this->serial();
@@ -124,6 +155,11 @@ final class AndroidDriver implements Driver
     }
 
     public function open(string $url): void
+    {
+        $this->recovering(fn () => $this->openUrl($url));
+    }
+
+    private function openUrl(string $url): void
     {
         $bundle = $this->configuration->bundleId();
         $result = $this->command->run($this->adb(), [

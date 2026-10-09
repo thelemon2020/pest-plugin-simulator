@@ -15,25 +15,35 @@ final class StubCompanion
     /** @var resource */
     private $process;
 
+    /** @var resource */
+    private $stdout;
+
     /**
      * @param  resource  $process
+     * @param  resource  $stdout
      */
     private function __construct(
         $process,
+        $stdout,
         private readonly int $port,
         private readonly string $script,
         private readonly string $log,
+        private readonly string $errors,
     ) {
         $this->process = $process;
+        $this->stdout = $stdout;
     }
 
     /**
-     * @param  list<array{messages?: list<string>, status?: int, message?: string, trailersOnly?: bool, hang?: bool}>  $responses
+     * @param  list<array{messages?: list<string>, status?: int, message?: string, trailersOnly?: bool, hang?: bool, close?: bool, httpStatus?: int}>  $responses
      */
     public static function start(array $responses): self
     {
         $script = (string) tempnam(sys_get_temp_dir(), 'stub-companion');
         $log = (string) tempnam(sys_get_temp_dir(), 'stub-companion');
+        // A file, not a pipe: nothing reads the stub's stderr while it serves, and a pipe
+        // that fills up would block it mid-test.
+        $errors = (string) tempnam(sys_get_temp_dir(), 'stub-companion');
         $encoded = array_map(function (array $response): array {
             if (isset($response['messages'])) {
                 $response['messages'] = array_map(base64_encode(...), $response['messages']);
@@ -45,7 +55,7 @@ final class StubCompanion
 
         $process = proc_open(
             [PHP_BINARY, __DIR__.'/stub-companion.php', $script, $log],
-            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            [1 => ['pipe', 'w'], 2 => ['file', $errors, 'w']],
             $pipes,
         );
 
@@ -56,12 +66,14 @@ final class StubCompanion
         $port = trim((string) fgets($pipes[1]));
 
         if (! ctype_digit($port)) {
+            fclose($pipes[1]);
             proc_terminate($process);
+            proc_close($process);
 
-            throw new RuntimeException('The stub companion did not start: '.stream_get_contents($pipes[2]));
+            throw new RuntimeException('The stub companion did not start: '.$port.file_get_contents($errors));
         }
 
-        return new self($process, (int) $port, $script, $log);
+        return new self($process, $pipes[1], (int) $port, $script, $log, $errors);
     }
 
     public static function unusedPort(): int
@@ -111,9 +123,11 @@ final class StubCompanion
 
     public function stop(): void
     {
+        fclose($this->stdout);
         proc_terminate($this->process);
         proc_close($this->process);
         @unlink($this->script);
         @unlink($this->log);
+        @unlink($this->errors);
     }
 }

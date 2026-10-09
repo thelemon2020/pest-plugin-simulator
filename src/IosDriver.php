@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace NativePhp\Simulator;
 
+use Closure;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 use NativePhp\Simulator\Grpc\Client;
 use NativePhp\Simulator\Grpc\Protobuf;
@@ -32,6 +33,8 @@ final class IosDriver implements Driver
      */
     private static ?self $ready = null;
 
+    private const CALL_TIMEOUT_FLOOR_SECONDS = 10.0;
+
     private ?string $udid = null;
 
     private ?string $dataContainer = null;
@@ -52,7 +55,9 @@ final class IosDriver implements Driver
 
     public function ensureReady(): void
     {
-        if (Worker::parallel()) {
+        $parallel = Worker::parallel();
+
+        if ($parallel) {
             $this->bootForWorker();
         } elseif (self::$ready !== $this) {
             $this->bootShared();
@@ -61,8 +66,31 @@ final class IosDriver implements Driver
         $this->startCompanion();
         $this->buildOnce();
 
-        if (! Worker::parallel()) {
+        if (! $parallel) {
             self::$ready = $this;
+        }
+    }
+
+    /**
+     * Runs one of screen()'s per-test device commands. ensureReady() trusts a device it
+     * brought up earlier without asking simctl again, so a Simulator that crashed or was
+     * shut down since would fail here; check it again, booting it if it has to, and try
+     * once more, as the boot path did on every screen() before readiness was remembered.
+     *
+     * @param  Closure(): void  $command
+     */
+    private function recovering(Closure $command): void
+    {
+        try {
+            $command();
+        } catch (SimulatorException $exception) {
+            if (self::$ready !== $this) {
+                throw $exception;
+            }
+
+            self::$ready = null;
+            $this->ensureReady();
+            $command();
         }
     }
 
@@ -215,10 +243,15 @@ final class IosDriver implements Driver
 
     public function open(string $url): void
     {
-        $this->command->run('xcrun', ['simctl', 'openurl', $this->udid(), $url]);
+        $this->recovering(fn () => $this->command->run('xcrun', ['simctl', 'openurl', $this->udid(), $url]));
     }
 
     public function installDatabase(string $sqlitePath): void
+    {
+        $this->recovering(fn () => $this->copyDatabase($sqlitePath));
+    }
+
+    private function copyDatabase(string $sqlitePath): void
     {
         $bundle = $this->configuration->bundleId();
 
@@ -336,17 +369,38 @@ final class IosDriver implements Driver
 
     public function tap(float $x, float $y): void
     {
-        $this->client()->streamPaced('hid', Hid::tap($x, $y), self::TAP_HOLD_MICROSECONDS);
+        $this->touch(Hid::tap($x, $y), self::TAP_HOLD_MICROSECONDS);
     }
 
     public function press(float $x, float $y, float $seconds = 0.8): void
     {
-        $this->client()->streamPaced('hid', Hid::tap($x, $y), (int) round($seconds * 1_000_000));
+        $this->touch(Hid::tap($x, $y), (int) round($seconds * 1_000_000));
+    }
+
+    /**
+     * The down and up go out apart now, so a call that fails between them (a timeout, a
+     * dropped connection) leaves the down without its up: a finger still on the glass for
+     * whatever runs next. Lift it before letting the failure through.
+     *
+     * @param  list<string>  $touch  a touch's down and up
+     */
+    private function touch(array $touch, int $holdMicroseconds): void
+    {
+        try {
+            $this->client()->streamPaced('hid', $touch, $holdMicroseconds);
+        } catch (SimulatorException $exception) {
+            try {
+                $this->client()->stream('hid', [$touch[count($touch) - 1]]);
+            } catch (SimulatorException) {
+            }
+
+            throw $exception;
+        }
     }
 
     public function swipe(float $x1, float $y1, float $x2, float $y2, float $seconds = 0.3): void
     {
-        $this->client()->stream('hid', Hid::swipe($x1, $y1, $x2, $y2, $seconds));
+        $this->client()->stream('hid', Hid::swipe($x1, $y1, $x2, $y2, $seconds), $seconds);
     }
 
     public function back(): void
@@ -354,7 +408,7 @@ final class IosDriver implements Driver
         [$width, $height] = $this->viewport();
         [$x1, $y1, $x2, $y2] = Gesture::back($width, $height);
         // A flick from the bezel is read as a scroll. Back needs a slow drag.
-        $this->client()->stream('hid', Hid::swipe($x1, $y1, $x2, $y2, 0.6));
+        $this->client()->stream('hid', Hid::swipe($x1, $y1, $x2, $y2, 0.6), 0.6);
     }
 
     public function clear(int $characters = 40): void
@@ -656,7 +710,7 @@ final class IosDriver implements Driver
         $port = $this->companionPort($simulator);
 
         if (self::$companionSimulator === $simulator && $this->socket->reachable($port)) {
-            $this->client = new Client('http://127.0.0.1:'.$port);
+            $this->client = $this->connect($port);
 
             return;
         }
@@ -668,7 +722,7 @@ final class IosDriver implements Driver
         }
 
         if (! Worker::parallel() && $this->socket->reachable($port) && $this->listenerMatches($port, $simulator)) {
-            $this->client = new Client('http://127.0.0.1:'.$port);
+            $this->client = $this->connect($port);
             self::$companionSimulator = $simulator;
 
             return;
@@ -691,7 +745,7 @@ final class IosDriver implements Driver
 
         while (microtime(true) < $deadline) {
             if ($this->socket->reachable($port)) {
-                $this->client = new Client('http://127.0.0.1:'.$port);
+                $this->client = $this->connect($port);
 
                 return;
             }
@@ -755,6 +809,18 @@ final class IosDriver implements Driver
         }
 
         return $matches[1];
+    }
+
+    /**
+     * One call may take as long as a Screen step (the configured timeout), so a wedged
+     * companion fails that step near its own deadline rather than 30 seconds on; but never
+     * less than a healthy read can take on a heavily loaded host.
+     */
+    private function connect(int $port): Client
+    {
+        $timeout = max(self::CALL_TIMEOUT_FLOOR_SECONDS, min(Client::TIMEOUT_SECONDS, $this->configuration->timeout()));
+
+        return new Client('http://127.0.0.1:'.$port, $timeout);
     }
 
     private function client(): Client
