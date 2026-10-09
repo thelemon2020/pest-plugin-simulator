@@ -7,7 +7,7 @@ namespace NativePhp\Simulator;
 final class AccessibilityTree
 {
     /**
-     * @return list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}, value: ?string, enabled: bool, selected: bool, checked: bool, chrome: ?string, webview: bool, carousel: ?array{0: float, 1: float, 2: float, 3: float}}>
+     * @return list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}, value: ?string, enabled: bool, selected: bool, checked: bool, chrome: ?string, webview: bool, carousel: ?array{0: float, 1: float, 2: float, 3: float}, secure: bool}>
      */
     public static function summarize(string $json): array
     {
@@ -35,16 +35,20 @@ final class AccessibilityTree
             self::selectionFrames($parsed, $selections);
         }
 
+        $nodes = self::namePlaceholders($nodes);
         $rows = [];
 
         foreach ($nodes as $node) {
-            $role = $node['type'] ?? $node['role'] ?? $node['AXRole'] ?? $node['class'] ?? null;
-            $role = is_string($role) ? self::role($role) : null;
+            $role = self::nodeRole($node);
             $value = self::value($node, $role);
             $label = self::label($node, $role);
 
             if ($label === '' && $value !== null && $value !== '') {
                 $label = $value;
+            }
+
+            if ($label === '' && is_string($node['__placeholder'] ?? null)) {
+                $label = $node['__placeholder'];
             }
 
             $chrome = is_string($node['__chrome'] ?? null) ? $node['__chrome'] : null;
@@ -79,10 +83,88 @@ final class AccessibilityTree
                 'chrome' => $chrome,
                 'webview' => $role === 'WebView',
                 'carousel' => is_array($node['__carousel'] ?? null) ? $node['__carousel'] : null,
+                'secure' => self::secure($node),
             ];
         }
 
         return $rows;
+    }
+
+    /**
+     * A field that draws its own placeholder, like a multiline editor, reports no label and
+     * no value while it is empty, and the placeholder is a caption laid over it. iOS names a
+     * plain text field by its placeholder, so this field is named by its caption the same
+     * way, and the caption is dropped.
+     *
+     * @param  list<array<mixed>>  $nodes
+     * @return list<array<mixed>>
+     */
+    private static function namePlaceholders(array $nodes): array
+    {
+        $drop = [];
+
+        foreach ($nodes as $index => $node) {
+            $role = self::nodeRole($node);
+            $outer = self::frame($node);
+
+            if (! in_array($role, ['TextField', 'TextView'], true) || $outer === null) {
+                continue;
+            }
+
+            $identifier = $node['AXUniqueId'] ?? $node['identifier'] ?? $node['resource-id'] ?? null;
+
+            if (self::label($node, $role) !== '' || (self::value($node, $role) ?? '') !== '' || (is_string($identifier) && $identifier !== '')) {
+                continue;
+            }
+
+            foreach ($nodes as $otherIndex => $other) {
+                if (isset($drop[$otherIndex]) || self::nodeRole($other) !== 'StaticText') {
+                    continue;
+                }
+
+                $caption = self::label($other, 'StaticText');
+                $inner = self::frame($other);
+
+                if ($caption === '' || $inner === null || ! self::frameInside($inner, $outer)) {
+                    continue;
+                }
+
+                $nodes[$index]['__placeholder'] = $caption;
+                $drop[$otherIndex] = true;
+
+                break;
+            }
+        }
+
+        return array_values(array_diff_key($nodes, $drop));
+    }
+
+    /**
+     * @param  array<mixed>  $node
+     */
+    private static function nodeRole(array $node): ?string
+    {
+        $role = $node['type'] ?? $node['role'] ?? $node['AXRole'] ?? $node['class'] ?? null;
+
+        return is_string($role) ? self::role($role) : null;
+    }
+
+    /**
+     * iOS reports the text of a secure field masked, one bullet per character.
+     *
+     * @param  array<mixed>  $node
+     */
+    private static function secure(array $node): bool
+    {
+        $type = $node['type'] ?? $node['role'] ?? $node['AXRole'] ?? null;
+        $traits = $node['AXTraits'] ?? $node['traits'] ?? '';
+
+        if (is_array($traits)) {
+            $traits = implode(' ', array_map(strval(...), $traits));
+        }
+
+        return (is_string($type) && str_contains($type, 'SecureTextField'))
+            || (is_string($traits) && str_contains($traits, 'SecureTextField'));
     }
 
     /**
