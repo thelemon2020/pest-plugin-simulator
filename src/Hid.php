@@ -63,20 +63,30 @@ final class Hid
      */
     public static function text(string $text): array
     {
+        return array_merge(...self::keystrokes($text));
+    }
+
+    /**
+     * One stroke per character: its key's down and up, inside Shift's when it needs it.
+     *
+     * @return list<list<string>>
+     */
+    public static function keystrokes(string $text): array
+    {
         $characters = preg_split('//u', $text, -1, PREG_SPLIT_NO_EMPTY);
 
         if ($characters === false) {
             throw new SimulatorException('Could not read the text.');
         }
 
-        $events = [];
+        $strokes = [];
 
         foreach ($characters as $character) {
             $key = self::KEYS[$character] ?? throw new SimulatorException("No key for [{$character}].");
-            $events = array_merge($events, self::key($key[0], $key[1]));
+            $strokes[] = self::key($key[0], $key[1]);
         }
 
-        return $events;
+        return $strokes;
     }
 
     /**

@@ -62,6 +62,15 @@ it('lifts the touch when a tap fails between its down and up', function () {
         ->and($client->streamed)->toBe([[Hid::tap(50, 60)[1]]]);
 });
 
+it('types each key as a stroke of its own', function () {
+    $client = new RecordingClient;
+    $driver = iosInputDriver($client);
+
+    $driver->text('aB');
+
+    expect($client->calls)->toBe([['streamStrokes', 'hid', Hid::keystrokes('aB'), 20_000]]);
+});
+
 it('allows a back gesture its own duration on top of the call timeout', function () {
     $client = new RecordingClient;
     $driver = iosInputDriver($client);

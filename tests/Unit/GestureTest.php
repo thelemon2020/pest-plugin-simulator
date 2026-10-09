@@ -61,6 +61,15 @@ it('types punctuation and a newline', function () {
     expect(Hid::text("a+b:c'd\n"))->toHaveCount(20);
 });
 
+it('types one stroke per character, with Shift inside the stroke that needs it', function () {
+    $strokes = Hid::keystrokes('aB');
+
+    expect($strokes)->toHaveCount(2)
+        ->and($strokes[0])->toHaveCount(2)
+        ->and($strokes[1])->toHaveCount(4)
+        ->and(array_merge(...$strokes))->toBe(Hid::text('aB'));
+});
+
 it('encodes a swipe as an hid event', function () {
     $event = Hid::swipe(1, 2, 3, 4)[0];
 
