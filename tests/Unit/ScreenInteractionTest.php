@@ -330,3 +330,99 @@ it('says when the screen is a web view', function () {
         ->assertSee('Welcome'))
         ->toThrow(AssertionFailedError::class, 'WebView');
 });
+
+it('scrolls a row below the fold on screen before tapping it', function () {
+    $driver = new FakeDriver([
+        [control('Row 40', ['center' => [100.0, 1500.0]])],
+        [control('Row 40', ['center' => [100.0, 500.0]])],
+    ]);
+
+    (new Screen($driver, timeoutSeconds: 0))->tap('Row 40');
+
+    expect($driver->swipes)->toBe([[...Gesture::scroll('down', 390, 844, 0.5), 0.6]])
+        ->and($driver->taps)->toBe([[100.0, 500.0]]);
+});
+
+it('scrolls up to a row above the screen before pressing it', function () {
+    $driver = new FakeDriver([
+        [control('Row 1', ['center' => [100.0, -400.0]])],
+        [control('Row 1', ['center' => [100.0, 300.0]])],
+    ]);
+
+    (new Screen($driver, timeoutSeconds: 0))->press('Row 1');
+
+    expect($driver->swipes)->toBe([[...Gesture::scroll('up', 390, 844, 0.5), 0.6]])
+        ->and($driver->presses)->toBe([[100.0, 300.0, 0.8]]);
+});
+
+it('scrolls a row out from under the tab bar, but taps the tab bar where it is', function () {
+    $tabs = [
+        control('Back', ['chrome' => 'navigation', 'center' => [24.0, 80.0]]),
+        control('Home', ['chrome' => 'tab', 'center' => [60.0, 800.0]]),
+    ];
+    $driver = new FakeDriver([
+        [...$tabs, control('Row 9', ['center' => [100.0, 790.0]])],
+        [...$tabs, control('Row 9', ['center' => [100.0, 420.0]])],
+    ]);
+
+    (new Screen($driver, timeoutSeconds: 0))->tap('Row 9')->tap('Home')->tap('Back');
+
+    expect($driver->swipes)->toHaveCount(1)
+        ->and($driver->swipes[0][3])->toBeLessThan($driver->swipes[0][1])
+        ->and($driver->taps)->toBe([[100.0, 420.0], [60.0, 800.0], [24.0, 80.0]]);
+});
+
+it('scrolls a row out from under the nav bar', function () {
+    $driver = new FakeDriver([
+        [control('Notes', ['chrome' => 'navigation', 'center' => [195.0, 80.0]]), control('Row 2', ['center' => [100.0, 90.0]])],
+        [control('Notes', ['chrome' => 'navigation', 'center' => [195.0, 80.0]]), control('Row 2', ['center' => [100.0, 400.0]])],
+    ]);
+
+    (new Screen($driver, timeoutSeconds: 0))->tap('Row 2');
+
+    expect($driver->swipes)->toHaveCount(1)
+        ->and($driver->swipes[0][3])->toBeGreaterThan($driver->swipes[0][1])
+        ->and($driver->taps)->toBe([[100.0, 400.0]]);
+});
+
+it('scrolls a row on screen before swiping from it', function () {
+    $driver = new FakeDriver([
+        [control('Row 40', ['center' => [100.0, 1000.0]])],
+        [control('Row 40', ['center' => [100.0, 500.0]])],
+    ]);
+
+    (new Screen($driver, timeoutSeconds: 0))->swipe('left', 'Row 40');
+
+    expect($driver->swipes)->toBe([
+        [...Gesture::scroll('down', 390, 844, 0.5), 0.6],
+        [...Gesture::swipe('left', 390, 844, 100, 500), 0.3],
+    ]);
+});
+
+it('says a row stayed off screen after eight scrolls', function () {
+    $driver = new FakeDriver([[
+        control('Row 40', ['center' => [100.0, 3000.0]]),
+    ]]);
+
+    expect(fn () => (new Screen($driver, timeoutSeconds: 0, failureDirectory: sys_get_temp_dir().'/simulator-off-screen-test'))
+        ->tap('Row 40'))
+        ->toThrow(AssertionFailedError::class, 'Found [Row 40] to tap, but it stayed below the screen after 8 scrolls.');
+
+    expect($driver->swipes)->toHaveCount(8)
+        ->and($driver->taps)->toBe([]);
+});
+
+it('stops scrolling toward a row when the timeout runs out', function () {
+    $driver = new FakeDriver([[
+        control('Row 40', ['center' => [100.0, 3000.0]]),
+    ]]);
+    $start = microtime(true);
+
+    expect(fn () => (new Screen($driver, timeoutSeconds: 0.5, failureDirectory: sys_get_temp_dir().'/simulator-off-screen-timeout-test'))
+        ->tap('Row 40'))
+        ->toThrow(AssertionFailedError::class, 'Found [Row 40] to tap, but it stayed below the screen');
+
+    expect(microtime(true) - $start)->toBeLessThan(3.0)
+        ->and(count($driver->swipes))->toBeGreaterThan(0)->toBeLessThan(8)
+        ->and($driver->taps)->toBe([]);
+});

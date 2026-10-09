@@ -20,14 +20,21 @@ final class Screen
         private readonly string $failureDirectory = '',
     ) {}
 
+    /**
+     * How many scrolls locate() tries before it says a control stayed off screen. Each one
+     * moves at most half a screen, so this reaches about four screens away.
+     */
+    private const SCROLL_ATTEMPTS = 8;
+
+    /**
+     * A slow drag, like IosDriver::back(). A quick flick keeps the content moving after the
+     * finger lifts (see settle()), which can carry a row straight past the screen.
+     */
+    private const SCROLL_SECONDS = 0.6;
+
     public function tap(string $label): self
     {
-        $elements = $this->until(
-            fn (array $visible): bool => $this->canMatch($visible, $label),
-            "Could not find [{$label}] to tap.",
-        );
-
-        $match = $this->finder->match($elements, $label);
+        $match = $this->locate($label, 'tap');
         $this->driver->tap((float) $match['center'][0], (float) $match['center'][1]);
 
         return $this;
@@ -35,12 +42,7 @@ final class Screen
 
     public function press(string $label, float $seconds = 0.8): self
     {
-        $elements = $this->until(
-            fn (array $visible): bool => $this->canMatch($visible, $label),
-            "Could not find [{$label}] to press.",
-        );
-
-        $match = $this->finder->match($elements, $label);
+        $match = $this->locate($label, 'press');
         $this->driver->press((float) $match['center'][0], (float) $match['center'][1], $this->seconds($seconds));
 
         return $this;
@@ -66,12 +68,7 @@ final class Screen
 
     public function type(string $label, string $text): self
     {
-        $elements = $this->until(
-            fn (array $visible): bool => $this->canMatch($visible, $label),
-            "Could not find [{$label}] to type into.",
-        );
-
-        $match = $this->finder->match($elements, $label);
+        $match = $this->locate($label, 'type into');
 
         for ($attempt = 0; $attempt < self::TYPE_ATTEMPTS; $attempt++) {
             $this->driver->tap((float) $match['center'][0], (float) $match['center'][1]);
@@ -143,12 +140,7 @@ final class Screen
 
     public function clear(string $label): self
     {
-        $elements = $this->until(
-            fn (array $visible): bool => $this->canMatch($visible, $label),
-            "Could not find [{$label}] to clear.",
-        );
-
-        $match = $this->finder->match($elements, $label);
+        $match = $this->locate($label, 'clear');
         $this->driver->tap((float) $match['center'][0], (float) $match['center'][1]);
         $this->driver->clear($this->replacementLength($match));
 
@@ -158,10 +150,7 @@ final class Screen
     public function scroll(string $direction = 'down', ?float $distance = null, ?float $seconds = null): self
     {
         $this->readRetrying();
-        [$width, $height] = $this->driver->viewport();
-        [$x1, $y1, $x2, $y2] = Gesture::scroll($direction, $width, $height, $distance);
-        $this->driver->swipe($x1, $y1, $x2, $y2, $this->seconds($seconds ?? 0.3));
-        $this->settle();
+        $this->drag($direction, $distance, $seconds ?? 0.3);
 
         return $this;
     }
@@ -172,11 +161,7 @@ final class Screen
         $originY = null;
 
         if ($from !== null) {
-            $elements = $this->until(
-                fn (array $visible): bool => $this->canMatch($visible, $from),
-                "Could not find [{$from}] to swipe.",
-            );
-            $match = $this->finder->match($elements, $from);
+            $match = $this->locate($from, 'swipe');
             $originX = (float) $match['center'][0];
             $originY = (float) $match['center'][1];
         } else {
@@ -189,6 +174,14 @@ final class Screen
         $this->settle();
 
         return $this;
+    }
+
+    private function drag(string $direction, ?float $distance, float $seconds): void
+    {
+        [$width, $height] = $this->driver->viewport();
+        [$x1, $y1, $x2, $y2] = Gesture::scroll($direction, $width, $height, $distance);
+        $this->driver->swipe($x1, $y1, $x2, $y2, $this->seconds($seconds));
+        $this->settle();
     }
 
     private function seconds(float $seconds): float
@@ -549,9 +542,9 @@ final class Screen
      * @param  string|Closure(list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}}): string>  $failure
      * @return list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}}>
      */
-    private function until(callable $predicate, string|Closure $failure): array
+    private function until(callable $predicate, string|Closure $failure, ?float $deadline = null): array
     {
-        $deadline = microtime(true) + $this->timeoutSeconds;
+        $deadline ??= microtime(true) + $this->timeoutSeconds;
         $last = [];
 
         do {
@@ -660,6 +653,110 @@ final class Screen
         } catch (NoMatch) {
             return false;
         }
+    }
+
+    /**
+     * Find a control, then scroll until its center is on screen.
+     *
+     * A scroll view reports rows below the fold, and rows scrolled under a nav bar or tab
+     * bar, at their real positions. A match alone can be a point past the glass or on a
+     * bar, and a tap there lands on nothing, or on the bar, with no error. The next
+     * assertion then fails about something else. Every read and scroll shares one timeout.
+     *
+     * @return array{label: string, role: ?string, id: ?string, center: array{0: float|int, 1: float|int}}
+     */
+    private function locate(string $label, string $action): array
+    {
+        $deadline = microtime(true) + $this->timeoutSeconds;
+        $scrolls = 0;
+
+        while (true) {
+            $elements = $this->until(
+                fn (array $visible): bool => $this->canMatch($visible, $label),
+                "Could not find [{$label}] to {$action}.",
+                $deadline,
+            );
+
+            $match = $this->finder->match($elements, $label);
+            $scroll = $this->toward($match, $elements);
+
+            if ($scroll === null) {
+                return $match;
+            }
+
+            [$direction, $distance] = $scroll;
+
+            if ($scrolls >= self::SCROLL_ATTEMPTS || ($scrolls > 0 && $this->timeoutSeconds > 0 && microtime(true) >= $deadline)) {
+                $where = $direction === 'down' ? 'below' : 'above';
+                $this->fail("Found [{$label}] to {$action}, but it stayed {$where} the screen after ".($scrolls === 1 ? '1 scroll' : "{$scrolls} scrolls").'.', $elements);
+            }
+
+            $this->drag($direction, $distance, self::SCROLL_SECONDS);
+            $scrolls++;
+        }
+    }
+
+    /**
+     * The scroll that brings a control to the middle of the screen, or null when it is
+     * already on screen. A nav bar or tab bar's own controls never move, so they are never
+     * scrolled toward.
+     *
+     * @param  array{label: string, role: ?string, id: ?string, center: array{0: float|int, 1: float|int}, chrome?: ?string}  $match
+     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}}>  $elements
+     * @return array{0: 'up'|'down', 1: float}|null
+     */
+    private function toward(array $match, array $elements): ?array
+    {
+        if (($match['chrome'] ?? null) !== null) {
+            return null;
+        }
+
+        [, $height] = $this->driver->viewport();
+        [$top, $bottom] = $this->visibleBand($elements, $height);
+        $y = (float) $match['center'][1];
+
+        if ($y >= $top && $y <= $bottom) {
+            return null;
+        }
+
+        // Half a screen at most, like scroll(). Never so little that the drag is read as a tap.
+        $distance = max(0.1, min(0.5, abs($y - ($top + $bottom) / 2) / $height));
+
+        return [$y > $bottom ? 'down' : 'up', $distance];
+    }
+
+    /**
+     * The part of the viewport no bar covers: from just under the nav bar to just over the
+     * tab bar. A row scrolled under a bar is inside the glass, but a tap there lands on the
+     * bar. With no bar in the tree, it is the whole viewport.
+     *
+     * The tree has a bar's controls, not the bar's frame. Their centers sit about half a bar
+     * from its edge, which is the inset.
+     *
+     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}}>  $elements
+     * @return array{0: float, 1: float}
+     */
+    private function visibleBand(array $elements, float $height): array
+    {
+        $inset = $height * 0.03;
+        $top = 0.0;
+        $bottom = $height;
+
+        foreach ($elements as $element) {
+            if (! in_array($element['chrome'] ?? null, ['navigation', 'tab'], true) || ! is_array($element['center'] ?? null)) {
+                continue;
+            }
+
+            $y = (float) $element['center'][1];
+
+            if ($y < $height / 2) {
+                $top = max($top, $y + $inset);
+            } else {
+                $bottom = min($bottom, $y - $inset);
+            }
+        }
+
+        return $top < $bottom ? [$top, $bottom] : [0.0, $height];
     }
 
     private function captureFailure(): string
