@@ -557,11 +557,75 @@ it('says scrollTo() did not find a row after eight scrolls', function () {
     expect($driver->swipes)->toHaveCount(8);
 });
 
-it('refuses to scrollTo() sideways', function () {
+it('scrolls a carousel sideways until a card it has not drawn yet is on screen', function () {
+    $driver = new FakeDriver([
+        [card('Mon', 46.0), card('Tue', 112.0)],
+        [card('Thu', 245.0), card('Fri', 305.0)],
+        [card('Sat', 200.0), card('Sun', 300.0)],
+    ]);
+
+    (new Screen($driver, timeoutSeconds: 0))->scrollTo('Sun', 'right')->tap('Sun');
+
+    expect($driver->swipes)->toBe([
+        [...Gesture::sideways('right', 16, 386, 306), 0.6],
+        [...Gesture::sideways('right', 16, 386, 306), 0.6],
+    ])->and($driver->taps)->toBe([[300.0, 306.0]]);
+});
+
+it('asks which row to drag when more than one scrolls sideways', function () {
+    $driver = new FakeDriver([[card('Mon', 46.0), card('Jan', 46.0, 506.0)]]);
+
+    expect(fn () => (new Screen($driver, timeoutSeconds: 0, failureDirectory: sys_get_temp_dir().'/simulator-two-carousels-test'))
+        ->scrollTo('Dec', 'right'))
+        ->toThrow(AssertionFailedError::class, "More than one row on screen scrolls sideways, so scrollTo() cannot tell which row to drag. Name a control on that row: scrollTo('Dec', 'right', 'Item').");
+
+    expect($driver->swipes)->toBe([]);
+});
+
+it('drags the row a named control sits in', function () {
+    $driver = new FakeDriver([
+        [card('Mon', 46.0), card('Jan', 46.0, 506.0)], // finds Jan's row
+        [card('Mon', 46.0), card('Jan', 46.0, 506.0)], // no Dec yet
+        [card('Mon', 46.0), card('Dec', 300.0, 506.0)],
+    ]);
+
+    (new Screen($driver, timeoutSeconds: 0))->scrollTo('Dec', 'right', 'Jan');
+
+    expect($driver->swipes)->toBe([[...Gesture::sideways('right', 16, 386, 506), 0.6]]);
+});
+
+it('drags across the whole screen on a named row that is in no carousel', function () {
+    // Android's dump says nothing about what scrolls sideways, so the test names the row.
+    $driver = new FakeDriver([
+        [control('Mon', ['center' => [60.0, 300.0]])], // finds Mon's row
+        [control('Mon', ['center' => [60.0, 300.0]])], // no Sun yet
+        [control('Sun', ['center' => [300.0, 300.0]])],
+    ]);
+
+    (new Screen($driver, timeoutSeconds: 0))->scrollTo('Sun', 'right', 'Mon');
+
+    expect($driver->swipes)->toBe([[...Gesture::sideways('right', 0, 390, 300), 0.6]]);
+});
+
+it('says nothing scrolls sideways when scrollTo() has no row to drag', function () {
+    $driver = new FakeDriver([[control('Mon')]]);
+
+    expect(fn () => (new Screen($driver, timeoutSeconds: 0, failureDirectory: sys_get_temp_dir().'/simulator-no-row-test'))
+        ->scrollTo('Sun', 'right'))
+        ->toThrow(AssertionFailedError::class, 'Nothing on screen scrolls sideways, so scrollTo() cannot tell which row to drag.');
+});
+
+it('refuses a scrollTo() direction that is not up, down, left, or right', function () {
     $driver = new FakeDriver([[control('Save')]]);
 
-    (new Screen($driver, timeoutSeconds: 0))->scrollTo('Save', 'left');
-})->throws(SimulatorException::class, 'Scroll [left] is not up or down.');
+    (new Screen($driver, timeoutSeconds: 0))->scrollTo('Save', 'sideways');
+})->throws(SimulatorException::class, 'Scroll [sideways] is not up, down, left, or right.');
+
+it('refuses a control to drag from when scrollTo() goes up or down', function () {
+    $driver = new FakeDriver([[control('Save')]]);
+
+    (new Screen($driver, timeoutSeconds: 0))->scrollTo('Save', 'down', 'Header');
+})->throws(SimulatorException::class, 'scrollTo() drags from a control only to the left or right, not [down].');
 
 it('asserts a switch is off', function () {
     $driver = new FakeDriver([[

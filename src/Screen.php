@@ -159,14 +159,28 @@ final class Screen
     /**
      * scroll() until a control is on screen. A long list does not draw a row until it is
      * near the screen, so tap() alone cannot find one further down.
+     *
+     * Left and right drag a row that scrolls sideways: the only one on screen, or the row
+     * that $from sits in.
      */
-    public function scrollTo(string $label, string $direction = 'down'): self
+    public function scrollTo(string $label, string $direction = 'down', ?string $from = null): self
     {
-        if (! in_array($direction, ['up', 'down'], true)) {
-            throw new SimulatorException("Scroll [{$direction}] is not up or down.");
+        if (! in_array($direction, ['up', 'down', 'left', 'right'], true)) {
+            throw new SimulatorException("Scroll [{$direction}] is not up, down, left, or right.");
         }
 
-        $this->locate($label, 'scroll to', $direction);
+        if ($from !== null && ($direction === 'up' || $direction === 'down')) {
+            throw new SimulatorException("scrollTo() drags from a control only to the left or right, not [{$direction}].");
+        }
+
+        $row = null;
+
+        if ($from !== null) {
+            $match = $this->locate($from, 'scroll from');
+            $row = [...$this->across($match), (float) $match['center'][1]];
+        }
+
+        $this->locate($label, 'scroll to', $direction, $row);
 
         return $this;
     }
@@ -696,11 +710,13 @@ final class Screen
      * bar, with no error. The next assertion then fails about something else.
      *
      * With $search set (scrollTo()), a label that is not in the tree yet scrolls that way
-     * instead of waiting for it. Every read and scroll shares one timeout.
+     * instead of waiting for it: down the screen, or left or right along $row (its left
+     * edge, right edge, and height on screen). Every read and scroll shares one timeout.
      *
+     * @param  array{0: float, 1: float, 2: float}|null  $row
      * @return array{label: string, role: ?string, id: ?string, center: array{0: float|int, 1: float|int}}
      */
-    private function locate(string $label, string $action, ?string $search = null): array
+    private function locate(string $label, string $action, ?string $search = null, ?array $row = null): array
     {
         $deadline = microtime(true) + $this->timeoutSeconds;
         $scrolls = 0;
@@ -721,8 +737,14 @@ final class Screen
             }
 
             if ($match === null) {
+                if (($search === 'left' || $search === 'right') && $row === null) {
+                    $row = $this->onlyCarousel($label, $search, $elements);
+                }
+
                 [$width, $height] = $this->driver->viewport();
-                $scroll = [null, Gesture::scroll($search, $width, $height)];
+                $scroll = [null, $row === null
+                    ? Gesture::scroll($search, $width, $height)
+                    : Gesture::sideways($search, ...$row)];
             } else {
                 $scroll = $this->toward($match, $elements);
             }
@@ -820,6 +842,41 @@ final class Screen
         $right = min($width, (float) $carousel[0] + (float) $carousel[2]);
 
         return $left < $right ? [$left, $right] : [0.0, $width];
+    }
+
+    /**
+     * The one row on screen that scrolls sideways, for scrollTo() left or right with no
+     * control named to drag from.
+     *
+     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}, carousel?: ?array{0: float, 1: float, 2: float, 3: float}}>  $elements
+     * @return array{0: float, 1: float, 2: float}
+     */
+    private function onlyCarousel(string $label, string $direction, array $elements): array
+    {
+        [, $height] = $this->driver->viewport();
+        [$top, $bottom] = $this->visibleBand($elements, $height);
+        $rows = [];
+
+        foreach ($elements as $element) {
+            $carousel = $element['carousel'] ?? null;
+
+            if (! is_array($carousel)) {
+                continue;
+            }
+
+            $y = (float) $carousel[1] + (float) $carousel[3] / 2;
+
+            if ($y >= $top && $y <= $bottom) {
+                $rows[implode(',', $carousel)] = [...$this->across($element), $y];
+            }
+        }
+
+        if (count($rows) !== 1) {
+            $this->fail(($rows === [] ? 'Nothing on screen scrolls sideways' : 'More than one row on screen scrolls sideways')
+                .", so scrollTo() cannot tell which row to drag. Name a control on that row: scrollTo('{$label}', '{$direction}', 'Item').", $elements);
+        }
+
+        return reset($rows);
     }
 
     /**
