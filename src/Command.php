@@ -8,55 +8,170 @@ use NativePhp\Simulator\Exceptions\SimulatorException;
 
 class Command
 {
-    public function run(string $binary, array $arguments, ?string $cwd = null): string
+    /** Ample for a query, a tap, or a file copy. It only stops a call that is never coming back. */
+    public const int TIMEOUT = 60;
+
+    /** Booting, shutting down, erasing, cloning, or deleting a Simulator. A cold boot on CI takes minutes. */
+    public const int DEVICE_TIMEOUT = 600;
+
+    /** `native:run`. NativePHP stops Gradle itself at 600 seconds. This also covers the install and launch. */
+    public const int BUILD_TIMEOUT = 1800;
+
+    /** Seconds between SIGTERM and SIGKILL for a command that ran out of time. */
+    protected const float GRACE = 2.0;
+
+    public function run(string $binary, array $arguments, ?string $cwd = null, float $timeout = self::TIMEOUT): string
     {
-        $command = array_merge([$binary], $arguments);
-        $descriptor = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
-        $process = proc_open($command, $descriptor, $pipes, $cwd);
-
-        if (! is_resource($process)) {
-            throw new SimulatorException('Could not run '.implode(' ', $command));
-        }
-
-        $stdout = stream_get_contents($pipes[1]);
-        $stderr = stream_get_contents($pipes[2]);
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-        $exit = proc_close($process);
-
-        if ($exit !== 0) {
-            throw new SimulatorException(trim($stderr !== false && $stderr !== '' ? $stderr : (string) $stdout) ?: 'Command failed: '.implode(' ', $command));
-        }
-
-        return $stdout === false ? '' : $stdout;
+        return $this->execute(array_merge([$binary], $arguments), null, $cwd, $timeout);
     }
 
     /**
      * @param  list<string>  $arguments
      */
-    public function input(string $binary, array $arguments, string $stdin, ?string $cwd = null): string
+    public function input(string $binary, array $arguments, string $stdin, ?string $cwd = null, float $timeout = self::TIMEOUT): string
     {
-        $command = array_merge([$binary], $arguments);
-        $descriptor = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
+        return $this->execute(array_merge([$binary], $arguments), $stdin, $cwd, $timeout);
+    }
+
+    /**
+     * @param  list<string>  $command
+     */
+    private function execute(array $command, ?string $stdin, ?string $cwd, float $timeout): string
+    {
+        $descriptor = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
+
+        if ($stdin !== null) {
+            $descriptor[0] = ['pipe', 'r'];
+        }
+
         $process = proc_open($command, $descriptor, $pipes, $cwd);
 
         if (! is_resource($process)) {
             throw new SimulatorException('Could not run '.implode(' ', $command));
         }
 
-        fwrite($pipes[0], $stdin);
-        fclose($pipes[0]);
-        $stdout = stream_get_contents($pipes[1]);
-        $stderr = stream_get_contents($pipes[2]);
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-        $exit = proc_close($process);
+        $deadline = microtime(true) + $timeout;
+        $output = $this->exchange($pipes, $stdin, $deadline);
+        $exit = $output === null ? null : $this->exitCode($process, $deadline);
 
-        if ($exit !== 0) {
-            throw new SimulatorException(trim($stderr !== false && $stderr !== '' ? $stderr : (string) $stdout) ?: 'Command failed: '.implode(' ', $command));
+        if ($output === null || $exit === null) {
+            $this->kill($process);
+
+            throw new SimulatorException(sprintf('%s did not finish within %s seconds, so it was stopped.', implode(' ', $command), $timeout));
         }
 
-        return $stdout === false ? '' : $stdout;
+        proc_close($process);
+        [$stdout, $stderr] = $output;
+
+        if ($exit !== 0) {
+            throw new SimulatorException(trim($stderr !== '' ? $stderr : $stdout) ?: 'Command failed: '.implode(' ', $command));
+        }
+
+        return $stdout;
+    }
+
+    /**
+     * Feed stdin and read stdout and stderr all at once. Reading one pipe to
+     * the end before the next stalls a child that fills the other pipe's
+     * buffer, and then both sides wait on each other forever.
+     *
+     * @param  array<int, resource>  $pipes
+     * @return array{0: string, 1: string}|null null when the deadline passes first
+     */
+    private function exchange(array $pipes, ?string $stdin, float $deadline): ?array
+    {
+        $output = [1 => '', 2 => ''];
+        $reading = [1 => $pipes[1], 2 => $pipes[2]];
+        $writing = $pipes[0] ?? null;
+        $pending = $stdin ?? '';
+
+        foreach ($pipes as $pipe) {
+            stream_set_blocking($pipe, false);
+        }
+
+        if ($writing !== null && $pending === '') {
+            fclose($writing);
+            $writing = null;
+        }
+
+        while ($reading !== [] || $writing !== null) {
+            $remaining = $deadline - microtime(true);
+
+            if ($remaining <= 0) {
+                return null;
+            }
+
+            $read = array_values($reading);
+            $write = $writing === null ? [] : [$writing];
+            $except = null;
+
+            // false means a signal interrupted the wait. Wait again.
+            if (@stream_select($read, $write, $except, (int) $remaining, (int) (fmod($remaining, 1) * 1_000_000)) === false) {
+                continue;
+            }
+
+            if ($write !== [] && $writing !== null) {
+                $written = @fwrite($writing, $pending);
+                $pending = $written === false ? '' : substr($pending, $written);
+
+                if ($pending === '') {
+                    fclose($writing);
+                    $writing = null;
+                }
+            }
+
+            foreach ($read as $pipe) {
+                $index = array_search($pipe, $reading, true);
+                $chunk = fread($pipe, 65536);
+
+                if ($chunk !== false) {
+                    $output[$index] .= $chunk;
+                }
+
+                if ($chunk === false || feof($pipe)) {
+                    fclose($pipe);
+                    unset($reading[$index]);
+                }
+            }
+        }
+
+        return [$output[1], $output[2]];
+    }
+
+    /**
+     * @param  resource  $process
+     */
+    private function exitCode($process, float $deadline): ?int
+    {
+        while (($status = proc_get_status($process))['running']) {
+            if (microtime(true) >= $deadline) {
+                return null;
+            }
+
+            usleep(5_000);
+        }
+
+        return $status['exitcode'];
+    }
+
+    /**
+     * @param  resource  $process
+     */
+    private function kill($process): void
+    {
+        // SIGTERM, then SIGKILL. The SIG* constants need ext-pcntl.
+        proc_terminate($process, 15);
+        $grace = microtime(true) + static::GRACE;
+
+        while (proc_get_status($process)['running'] && microtime(true) < $grace) {
+            usleep(20_000);
+        }
+
+        if (proc_get_status($process)['running']) {
+            proc_terminate($process, 9);
+        }
+
+        proc_close($process);
     }
 
     /**

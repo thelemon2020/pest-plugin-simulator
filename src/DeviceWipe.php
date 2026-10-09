@@ -23,19 +23,19 @@ final class DeviceWipe
     public static function eraseSimulator(Command $command, string $udid): void
     {
         self::shutdownSimulator($command, $udid);
-        $command->run('xcrun', ['simctl', 'erase', $udid]);
+        $command->run('xcrun', ['simctl', 'erase', $udid], timeout: Command::DEVICE_TIMEOUT);
     }
 
     public static function deleteSimulator(Command $command, string $udid): void
     {
         self::shutdownSimulator($command, $udid);
-        $command->run('xcrun', ['simctl', 'delete', $udid]);
+        $command->run('xcrun', ['simctl', 'delete', $udid], timeout: Command::DEVICE_TIMEOUT);
     }
 
     private static function shutdownSimulator(Command $command, string $udid): void
     {
         try {
-            $command->run('xcrun', ['simctl', 'shutdown', $udid]);
+            $command->run('xcrun', ['simctl', 'shutdown', $udid], timeout: Command::DEVICE_TIMEOUT);
         } catch (SimulatorException) {
         }
     }

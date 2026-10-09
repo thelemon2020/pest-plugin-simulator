@@ -275,7 +275,13 @@ final class AndroidDriver implements Driver
             $commands[] = 'input text '.AndroidText::argument($character);
         }
 
-        $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', implode('; ', $commands)]);
+        // Each `input text` starts its own process on the device, which can
+        // take most of a second on CI. A long line outlasts the default.
+        $this->command->run(
+            $this->adb(),
+            ['-s', $this->serial(), 'shell', implode('; ', $commands)],
+            timeout: Command::TIMEOUT + count($characters),
+        );
     }
 
     private function onKeyboard(string $character): bool
@@ -628,7 +634,7 @@ final class AndroidDriver implements Driver
         array_push($arguments, '--build=debug', '--no-tty');
 
         try {
-            $this->command->run('php', $arguments, $this->configuration->appDirectory());
+            $this->command->run('php', $arguments, $this->configuration->appDirectory(), Command::BUILD_TIMEOUT);
         } catch (SimulatorException $exception) {
             // NativePHP kills ./gradlew at 600s. On a cold CI runner that
             // lands in the middle of the native compile, and the next
@@ -637,7 +643,7 @@ final class AndroidDriver implements Driver
                 throw $exception;
             }
 
-            $this->command->run('php', $arguments, $this->configuration->appDirectory());
+            $this->command->run('php', $arguments, $this->configuration->appDirectory(), Command::BUILD_TIMEOUT);
         }
 
         self::$built[$key] = true;
