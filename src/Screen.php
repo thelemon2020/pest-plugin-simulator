@@ -388,6 +388,22 @@ final class Screen
     }
 
     /**
+     * The negative of assertChecked(), the same way assertNotSelected() is the negative of
+     * assertSelected().
+     */
+    public function assertNotChecked(string $label): self
+    {
+        $elements = $this->until(
+            fn (array $elements): bool => $this->finder->isChecked($elements, $label, false),
+            "[{$label}] was checked.",
+        );
+
+        Assert::assertTrue($this->finder->isChecked($elements, $label, false));
+
+        return $this;
+    }
+
+    /**
      * A `<native:chip>`'s own on/off state, which assertChecked() cannot answer — chips
      * report `.isSelected`, not the Switch-only `checked` value assertChecked() reads.
      */
