@@ -275,7 +275,13 @@ final class AndroidDriver implements Driver
             $commands[] = 'input text '.AndroidText::argument($character);
         }
 
-        $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', implode('; ', $commands)]);
+        // Each `input text` starts its own process on the device, which can
+        // take most of a second on CI. A long line outlasts the default.
+        $this->command->run(
+            $this->adb(),
+            ['-s', $this->serial(), 'shell', implode('; ', $commands)],
+            timeout: Command::TIMEOUT + count($characters),
+        );
     }
 
     private function onKeyboard(string $character): bool

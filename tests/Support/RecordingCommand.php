@@ -13,6 +13,9 @@ final class RecordingCommand extends Command
     /** @var list<array{0: string, 1: list<string>}> */
     public array $calls = [];
 
+    /** @var array<string, float> keyed by the command line */
+    public array $timeouts = [];
+
     /** @var array<string, string> */
     public array $failures = [];
 
@@ -32,9 +35,10 @@ final class RecordingCommand extends Command
 
     public function __construct(private readonly string $container = '') {}
 
-    public function run(string $binary, array $arguments, ?string $cwd = null): string
+    public function run(string $binary, array $arguments, ?string $cwd = null, ?float $timeout = null): string
     {
         $this->calls[] = [$binary, $arguments];
+        $this->timeouts[implode(' ', [$binary, ...$arguments])] = (float) ($timeout ?? Command::limit($arguments));
 
         if ($this->responder !== null) {
             $response = ($this->responder)($binary, $arguments);
