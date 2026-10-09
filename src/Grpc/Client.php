@@ -30,18 +30,25 @@ class Client
     public const TIMEOUT_SECONDS = 30.0;
 
     /**
+     * A connection kept from an earlier call can be closed by the companion just as it is
+     * reused. curl then replays the request on a fresh connection by itself, but it cannot
+     * rewind a body it read through a callback (PHP has no CURLOPT_SEEKFUNCTION), so it
+     * gives up with CURLE_SEND_FAIL_REWIND, which PHP does not define. curl only rewinds a
+     * request it has judged safe to send again, so this one always gets a second go.
+     */
+    private const SEND_FAIL_REWIND = 65;
+
+    /**
      * curl's codes for a connection that died under a request before any answer came
-     * back. A connection kept from an earlier call can be closed by the companion just as
-     * it is reused, and curl would normally replay the request on a fresh one, but it
-     * cannot rewind a body it read through a callback (PHP has no CURLOPT_SEEKFUNCTION),
-     * so it gives up with one of these instead. PHP does not define 16, 65 and 92.
+     * back, when curl reports that instead of trying to replay it. Only a reused
+     * connection gets a second go on these; a fresh one dying means the companion is not
+     * answering. PHP does not define 16 and 92.
      */
     private const DEAD_CONNECTION = [
         16, // CURLE_HTTP2
         CURLE_GOT_NOTHING,
         CURLE_SEND_ERROR,
         CURLE_RECV_ERROR,
-        65, // CURLE_SEND_FAIL_REWIND
         92, // CURLE_HTTP2_STREAM
     ];
 
@@ -162,14 +169,16 @@ class Client
         }
 
         if (! is_string($response)) {
+            $errno = curl_errno($handle);
             $reused = curl_getinfo($handle, CURLINFO_NUM_CONNECTS) === 0;
-            $dead = in_array(curl_errno($handle), self::DEAD_CONNECTION, true) && $headers === '';
+            $replayable = $headers === ''
+                && ($errno === self::SEND_FAIL_REWIND || ($reused && in_array($errno, self::DEAD_CONNECTION, true)));
             $error = $this->failure($method, $handle);
             // A companion that timed out or dropped the connection mid-call is not one to
             // send the next call down; the next call opens a fresh connection.
             $this->handle = null;
 
-            if ($retry && $reused && $dead) {
+            if ($retry && $replayable) {
                 return null;
             }
 
