@@ -482,6 +482,8 @@ final class IosDriver implements Driver
             return;
         }
 
+        $this->awaitFocus();
+
         foreach (IosText::pieces($text) as $piece) {
             if (IosText::paste($piece)) {
                 $this->insertSymbol($piece);
@@ -491,6 +493,38 @@ final class IosDriver implements Driver
 
             $keys = Hid::keystrokes($piece);
             $this->releasing($keys, fn () => $this->client()->streamStrokes('hid', $keys, self::TEXT_KEY_GAP_MICROSECONDS));
+        }
+    }
+
+    /**
+     * A field that was just tapped spends about half a second taking focus, and the app
+     * answers nothing until it has: on an iPhone 17 Pro Simulator the first accessibility
+     * read after the tap took ~0.55s where later ones took ~0.1s. Keys sent in that window
+     * were lost mid-word. CollectShine's "Garage shelf" landed as "Gage shelf" in about
+     * half of fresh runs, and `type()`'s settle check then waited out its whole window
+     * before retrying. Typing after two matching reads lost nothing in 8 of 8 runs.
+     *
+     * So the first key waits until two reads in a row return the same tree, for up to 2
+     * seconds. A read that fails ends the wait rather than the typing.
+     */
+    private function awaitFocus(): void
+    {
+        $deadline = microtime(true) + 2.0;
+        $previous = null;
+
+        while (microtime(true) < $deadline) {
+            try {
+                $current = $this->describe();
+            } catch (SimulatorException) {
+                return;
+            }
+
+            if ($current === $previous) {
+                return;
+            }
+
+            $previous = $current;
+            usleep(100_000);
         }
     }
 
