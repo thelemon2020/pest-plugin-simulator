@@ -8,7 +8,7 @@ use NativePhp\Simulator\Grpc\Client;
 
 final class RecordingClient extends Client
 {
-    /** @var list<array{0: string, 1: string, 2: list<string>, 3?: int}> */
+    /** @var list<array{0: string, 1: string, 2: list<string>, 3?: int|float}> */
     public array $calls = [];
 
     public function __construct()
@@ -16,9 +16,9 @@ final class RecordingClient extends Client
         parent::__construct('http://127.0.0.1:0');
     }
 
-    public function stream(string $method, array $messages): string
+    public function stream(string $method, array $messages, float $durationSeconds = 0.0): string
     {
-        $this->calls[] = ['stream', $method, $messages];
+        $this->calls[] = $durationSeconds > 0 ? ['stream', $method, $messages, $durationSeconds] : ['stream', $method, $messages];
 
         return '';
     }

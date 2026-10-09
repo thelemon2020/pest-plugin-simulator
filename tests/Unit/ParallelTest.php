@@ -541,6 +541,60 @@ it('lists the shared emulators again once another device has booted in between',
     });
 });
 
+it('checks the shared simulator again when a screen command fails on it', function () {
+    withWorker(null, function (): void {
+        [$command, $driver] = iosWorker(simulatorJson());
+        $opens = 0;
+        $command->responder = function (string $binary, array $arguments) use (&$opens): ?string {
+            if (in_array('openurl', $arguments, true) && ++$opens === 1) {
+                throw new SimulatorException('Unable to lookup in current state: Shutdown');
+            }
+
+            return null;
+        };
+
+        $driver->ensureReady();
+        $driver->open('app://screen');
+
+        expect($opens)->toBe(2)
+            ->and(simulatorListings($command))->toBe(2);
+    });
+});
+
+it('lets a screen command fail on a simulator it has not brought up', function () {
+    withWorker(null, function (): void {
+        [$command, $driver] = iosWorker(simulatorJson());
+        $command->failures = ['openurl' => 'Unable to lookup in current state: Shutdown'];
+        (new ReflectionProperty(IosDriver::class, 'udid'))->setValue($driver, 'SOURCE');
+
+        expect(fn () => $driver->open('app://screen'))->toThrow(SimulatorException::class, 'Shutdown')
+            ->and(simulatorListings($command))->toBe(0);
+    });
+});
+
+it('checks the shared emulator again when a screen command fails on it', function () {
+    withWorker(null, function (): void {
+        $command = bootRecorder(alreadyRunning: true);
+        $boot = $command->responder;
+        $opens = 0;
+        $command->responder = function (string $binary, array $arguments) use ($boot, &$opens): ?string {
+            if (in_array('am', $arguments, true) && in_array('start', $arguments, true) && ++$opens === 1) {
+                throw new SimulatorException("adb: device 'emulator-5558' not found");
+            }
+
+            return $boot($binary, $arguments);
+        };
+        Configuration::configure(['bundle_id' => 'com.example.app']);
+        $driver = new AndroidDriver(new Device('android', 'Pixel 8', true), Configuration::resolve(), $command);
+
+        $driver->ensureReady();
+        $driver->open('app://screen');
+
+        expect($opens)->toBe(2)
+            ->and(emulatorListings($command))->toBe(2);
+    });
+});
+
 function withWorker(?int $index, Closure $test, ?string $unique = null): void
 {
     $token = getenv('TEST_TOKEN');
