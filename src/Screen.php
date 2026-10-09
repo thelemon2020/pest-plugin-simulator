@@ -80,7 +80,7 @@ final class Screen
 
             $this->driver->text($text);
 
-            if ($this->settled($label, $text)) {
+            if ($this->settled($label, $match, $text)) {
                 return $this;
             }
         }
@@ -111,8 +111,10 @@ final class Screen
      * always trustworthy: typing two `native:model` fields back to back, the SECOND
      * field's read occasionally matched once and then changed again right after, consistent
      * with a render still catching up even after the text first looked right.
+     *
+     * @param  array{label: string, role: ?string, id: ?string, center: array{0: float, 1: float}, value?: ?string}  $field
      */
-    private function settled(string $label, string $text): bool
+    private function settled(string $label, array $field, string $text): bool
     {
         $deadline = microtime(true) + min(10.0, $this->timeoutSeconds);
         $confirmed = false;
@@ -124,7 +126,7 @@ final class Screen
                 $elements = [];
             }
 
-            $matches = $elements !== [] && $this->finder->hasValue($elements, $label, $text);
+            $matches = $elements !== [] && $this->finder->holds($elements, $label, $field, $text);
 
             if ($matches && $confirmed) {
                 return true;

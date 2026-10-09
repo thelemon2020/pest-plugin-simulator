@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use NativePhp\Simulator\AccessibilityTree;
 use NativePhp\Simulator\Screen;
 use Tests\Support\FakeDriver;
 
@@ -58,6 +59,21 @@ it('focuses a field and types', function () {
     expect($driver->taps)->toBe([[200.0, 300.0]])
         ->and($driver->clears)->toBe(1)
         ->and($driver->texts)->toBe(['ada@example.com']);
+});
+
+it('settles typing into a field named only by its placeholder', function () {
+    // The placeholder is gone from the tree once text goes in (see ElementFinder::holds()),
+    // so without finding the field where it was tapped this burned every attempt.
+    $fixtures = dirname(__DIR__).'/Fixtures';
+    $driver = new FakeDriver([
+        AccessibilityTree::summarize((string) file_get_contents($fixtures.'/ios-unlabeled-search-field-empty.json')),
+        AccessibilityTree::summarize((string) file_get_contents($fixtures.'/ios-unlabeled-search-field-typed.json')),
+    ]);
+
+    (new Screen($driver, timeoutSeconds: 1))->type('Search artist or title…', 'Talk');
+
+    expect($driver->taps)->toBe([[145.0, 156.0]])
+        ->and($driver->texts)->toBe(['Talk']);
 });
 
 it('retries up to the attempt limit when the value never settles', function () {
