@@ -480,3 +480,16 @@ it('refuses to scrollTo() sideways', function () {
 
     (new Screen($driver, timeoutSeconds: 0))->scrollTo('Save', 'left');
 })->throws(SimulatorException::class, 'Scroll [left] is not up or down.');
+
+it('asserts a switch is off', function () {
+    $driver = new FakeDriver([[
+        control('Flashlight', ['role' => 'Switch', 'checked' => true]),
+        control('Wi-Fi', ['role' => 'Switch', 'checked' => false]),
+    ]]);
+    $screen = new Screen($driver, timeoutSeconds: 0, failureDirectory: sys_get_temp_dir().'/simulator-not-checked-test');
+
+    $screen->assertNotChecked('Wi-Fi');
+
+    expect(fn () => $screen->assertNotChecked('Flashlight'))
+        ->toThrow(AssertionFailedError::class, '[Flashlight] was checked.');
+});
