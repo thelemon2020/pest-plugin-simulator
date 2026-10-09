@@ -33,16 +33,20 @@ class Client
      * A connection kept from an earlier call can be closed by the companion just as it is
      * reused. curl then replays the request on a fresh connection by itself, but it cannot
      * rewind a body it read through a callback (PHP has no CURLOPT_SEEKFUNCTION), so it
-     * gives up with CURLE_SEND_FAIL_REWIND, which PHP does not define. curl only rewinds a
-     * request it has judged safe to send again, so this one always gets a second go.
+     * gives up with CURLE_SEND_FAIL_REWIND, which PHP does not define.
+     *
+     * curl decides it may replay a request from what came back (nothing), not from
+     * whether the companion already acted on the body it sent. A read can go again
+     * either way, but a `hid` stream the companion did act on would tap or type twice, so
+     * one only goes again when none of its body ever reached curl.
      */
     private const SEND_FAIL_REWIND = 65;
 
     /**
      * curl's codes for a connection that died under a request before any answer came
      * back, when curl reports that instead of trying to replay it. Only a reused
-     * connection gets a second go on these; a fresh one dying means the companion is not
-     * answering. PHP does not define 16 and 92.
+     * connection gets a second go on these, under the same rule as above; a fresh one
+     * dying means the companion is not answering. PHP does not define 16 and 92.
      */
     private const DEAD_CONNECTION = [
         16, // CURLE_HTTP2
@@ -60,9 +64,13 @@ class Client
         private readonly float $connectTimeoutSeconds = self::CONNECT_TIMEOUT_SECONDS,
     ) {}
 
+    /**
+     * The only unary call made is a read (accessibility_info), so one can always be sent
+     * again.
+     */
     public function unary(string $method, string $message): string
     {
-        return $this->call($method, [Protobuf::frame($message)], 0, 0.0);
+        return $this->call($method, [Protobuf::frame($message)], 0, 0.0, idempotent: true);
     }
 
     /**
@@ -73,7 +81,7 @@ class Client
      */
     public function stream(string $method, array $messages, float $durationSeconds = 0.0): string
     {
-        return $this->call($method, [implode('', array_map(Protobuf::frame(...), $messages))], 0, $durationSeconds);
+        return $this->call($method, [implode('', array_map(Protobuf::frame(...), $messages))], 0, $durationSeconds, idempotent: false);
     }
 
     /**
@@ -100,25 +108,27 @@ class Client
      */
     public function streamPaced(string $method, array $messages, int $gapMicroseconds): string
     {
-        return $this->call($method, array_map(Protobuf::frame(...), $messages), $gapMicroseconds, 0.0);
+        return $this->call($method, array_map(Protobuf::frame(...), $messages), $gapMicroseconds, 0.0, idempotent: false);
     }
 
     /**
      * @param  list<string>  $chunks  handed to curl in order, $gapMicroseconds apart
+     * @param  bool  $idempotent  whether the companion acting on the call twice is harmless
      */
-    private function call(string $method, array $chunks, int $gapMicroseconds, float $durationSeconds): string
+    private function call(string $method, array $chunks, int $gapMicroseconds, float $durationSeconds, bool $idempotent): string
     {
-        return $this->exchange($method, $chunks, $gapMicroseconds, $durationSeconds, retry: true)
-            ?? $this->exchange($method, $chunks, $gapMicroseconds, $durationSeconds, retry: false)
+        return $this->exchange($method, $chunks, $gapMicroseconds, $durationSeconds, $idempotent, retry: true)
+            ?? $this->exchange($method, $chunks, $gapMicroseconds, $durationSeconds, $idempotent, retry: false)
             ?? throw new SimulatorException("Companion [{$method}] failed.");
     }
 
     /**
      * @param  list<string>  $chunks
-     * @return string|null null when a reused connection died before any answer and
-     *                     $retry allows one more go on a fresh connection
+     * @return string|null null when a reused connection died before any answer, the call
+     *                     is safe to send again, and $retry allows one more go on a fresh
+     *                     connection
      */
-    private function exchange(string $method, array $chunks, int $gapMicroseconds, float $durationSeconds, bool $retry): ?string
+    private function exchange(string $method, array $chunks, int $gapMicroseconds, float $durationSeconds, bool $idempotent, bool $retry): ?string
     {
         $handle = $this->handle ??= $this->open();
         $headers = '';
@@ -172,6 +182,7 @@ class Client
             $errno = curl_errno($handle);
             $reused = curl_getinfo($handle, CURLINFO_NUM_CONNECTS) === 0;
             $replayable = $headers === ''
+                && ($idempotent || $next === 0)
                 && ($errno === self::SEND_FAIL_REWIND || ($reused && in_array($errno, self::DEAD_CONNECTION, true)));
             $error = $this->failure($method, $handle);
             // A companion that timed out or dropped the connection mid-call is not one to
