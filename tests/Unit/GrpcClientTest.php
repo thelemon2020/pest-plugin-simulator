@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use NativePhp\Simulator\Exceptions\CompanionUnresponsive;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 use NativePhp\Simulator\Grpc\Client;
 use NativePhp\Simulator\Grpc\Protobuf;
@@ -79,7 +80,7 @@ it('gives up on a companion that never answers', function () {
     $started = microtime(true);
 
     expect(fn () => (new Client($this->stub->url(), timeoutSeconds: 0.5))->unary('accessibility_info', 'request'))
-        ->toThrow(SimulatorException::class, 'Companion [accessibility_info] did not answer in time')
+        ->toThrow(CompanionUnresponsive::class, 'Companion [accessibility_info] did not answer in time')
         ->and(microtime(true) - $started)->toBeLessThan(3.0);
 });
 
@@ -108,7 +109,7 @@ it('says when nothing is listening', function () {
     $url = 'http://127.0.0.1:'.StubCompanion::unusedPort();
 
     expect(fn () => (new Client($url))->unary('accessibility_info', 'request'))
-        ->toThrow(SimulatorException::class, "Companion [accessibility_info] is not reachable at {$url}");
+        ->toThrow(CompanionUnresponsive::class, "Companion [accessibility_info] is not reachable at {$url}");
 });
 
 it('says what status came back when there is no grpc-status at all', function () {

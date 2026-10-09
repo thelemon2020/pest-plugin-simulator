@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use NativePhp\Simulator\Configuration;
 use NativePhp\Simulator\Device;
+use NativePhp\Simulator\Exceptions\CompanionUnresponsive;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 use NativePhp\Simulator\Grpc\Client;
 use NativePhp\Simulator\Hid;
@@ -33,33 +34,32 @@ it('encodes a slower swipe than the default', function () {
 });
 
 it('lifts the touch when a tap fails between its down and up', function () {
-    $client = new class extends Client
-    {
-        /** @var list<list<string>> */
-        public array $streamed = [];
-
-        public function __construct()
-        {
-            parent::__construct('http://127.0.0.1:0');
-        }
-
-        public function stream(string $method, array $messages, float $durationSeconds = 0.0): string
-        {
-            $this->streamed[] = $messages;
-
-            return '';
-        }
-
-        public function streamPaced(string $method, array $messages, int $gapMicroseconds): string
-        {
-            throw new SimulatorException('Companion [hid] did not answer in time');
-        }
-    };
+    $client = failingClient(new SimulatorException('Companion [hid] failed: Recv failure'));
     $driver = new IosDriver(new Device('ios', 'iPhone', true), Configuration::resolve());
     (new ReflectionProperty(IosDriver::class, 'client'))->setValue($driver, $client);
 
-    expect(fn () => $driver->tap(50, 60))->toThrow(SimulatorException::class, 'did not answer in time')
+    expect(fn () => $driver->tap(50, 60))->toThrow(SimulatorException::class, 'Recv failure')
         ->and($client->streamed)->toBe([[Hid::tap(50, 60)[1]]]);
+});
+
+it('lets go of every key and Shift when typing fails part-way', function () {
+    $client = failingClient(new SimulatorException('Companion [hid] failed: Recv failure'));
+    $driver = new IosDriver(new Device('ios', 'iPhone', true), Configuration::resolve());
+    (new ReflectionProperty(IosDriver::class, 'client'))->setValue($driver, $client);
+
+    expect(fn () => $driver->text('aB'))->toThrow(SimulatorException::class, 'Recv failure')
+        ->and($client->streamed)->toBe([Hid::releases(Hid::keystrokes('aB'))])
+        ->and($client->streamed[0])->toHaveCount(3);
+});
+
+it('does not wait on a companion that stopped answering to let go', function () {
+    $client = failingClient(new CompanionUnresponsive('Companion [hid] did not answer in time'));
+    $driver = new IosDriver(new Device('ios', 'iPhone', true), Configuration::resolve());
+    (new ReflectionProperty(IosDriver::class, 'client'))->setValue($driver, $client);
+
+    expect(fn () => $driver->tap(50, 60))->toThrow(CompanionUnresponsive::class)
+        ->and(fn () => $driver->text('a'))->toThrow(CompanionUnresponsive::class)
+        ->and($client->streamed)->toBe([]);
 });
 
 it('types each key as a stroke of its own', function () {
@@ -99,4 +99,38 @@ function iosInputDriver(RecordingClient $client): IosDriver
     (new ReflectionProperty(IosDriver::class, 'client'))->setValue($driver, $client);
 
     return $driver;
+}
+
+/**
+ * A client whose paced calls fail with $failure, and which keeps every plain stream sent.
+ */
+function failingClient(SimulatorException $failure): Client
+{
+    return new class($failure) extends Client
+    {
+        /** @var list<list<string>> */
+        public array $streamed = [];
+
+        public function __construct(private readonly SimulatorException $failure)
+        {
+            parent::__construct('http://127.0.0.1:0');
+        }
+
+        public function stream(string $method, array $messages, float $durationSeconds = 0.0): string
+        {
+            $this->streamed[] = $messages;
+
+            return '';
+        }
+
+        public function streamPaced(string $method, array $messages, int $gapMicroseconds): string
+        {
+            throw $this->failure;
+        }
+
+        public function streamStrokes(string $method, array $strokes, int $gapMicroseconds): string
+        {
+            throw $this->failure;
+        }
+    };
 }
