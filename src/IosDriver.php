@@ -23,6 +23,15 @@ final class IosDriver implements Driver
     /** @var array<string, true> */
     private static array $wiped = [];
 
+    /**
+     * The driver whose shared Simulator was brought up last. screen() asks for readiness
+     * on every call, and the boot path lists every installed Simulator through simctl each
+     * time (~150ms). Only another driver booting its own device can take this one's down,
+     * because booting a named device shuts the others, so until one does there is nothing
+     * to ask simctl again.
+     */
+    private static ?self $ready = null;
+
     private ?string $udid = null;
 
     private ?string $dataContainer = null;
@@ -45,12 +54,16 @@ final class IosDriver implements Driver
     {
         if (Worker::parallel()) {
             $this->bootForWorker();
-        } else {
+        } elseif (self::$ready !== $this) {
             $this->bootShared();
         }
 
         $this->startCompanion();
         $this->buildOnce();
+
+        if (! Worker::parallel()) {
+            self::$ready = $this;
+        }
     }
 
     private function bootShared(): void
