@@ -445,6 +445,75 @@ it('stops waiting when the emulator process has already exited', function () {
     }
 });
 
+it('lists the shared simulators once, not on every screen', function () {
+    withWorker(null, function (): void {
+        [$command, $driver] = iosWorker(simulatorJson());
+
+        $driver->ensureReady();
+        $driver->ensureReady();
+        $driver->ensureReady();
+
+        expect(simulatorListings($command))->toBe(1);
+    });
+});
+
+it('lists the shared simulators again once another device has booted in between', function () {
+    withWorker(null, function (): void {
+        $socket = new ScriptedSocket;
+        $command = recordingClones($socket, simulatorJson());
+        $configuration = Configuration::resolve();
+        $phone = new IosDriver(new Device('ios', 'iPhone 17', true), $configuration, $command, $socket);
+        $pad = new IosDriver(new Device('ios', 'iPad Air', true), $configuration, $command, $socket);
+
+        $phone->ensureReady();
+        $pad->ensureReady();
+        $phone->ensureReady();
+        $phone->ensureReady();
+
+        expect(simulatorListings($command))->toBe(3);
+    });
+});
+
+it('lists the shared emulators once, not on every screen', function () {
+    withWorker(null, function (): void {
+        $command = bootRecorder(alreadyRunning: true);
+        $driver = new AndroidDriver(new Device('android', 'Pixel 8', true), Configuration::resolve(), $command);
+
+        $driver->ensureReady();
+        $driver->ensureReady();
+        $driver->ensureReady();
+
+        expect(emulatorListings($command))->toBe(1);
+    });
+});
+
+it('lists the shared emulators again once another device has booted in between', function () {
+    withWorker(null, function (): void {
+        $command = new RecordingCommand;
+        $command->responder = function (string $binary, array $arguments): ?string {
+            if ($arguments === ['devices']) {
+                return "List of devices attached\nemulator-5554\tdevice\nemulator-5556\tdevice\n";
+            }
+
+            if (in_array('name', $arguments, true)) {
+                return $arguments[1] === 'emulator-5554' ? "Pixel 8\nOK\n" : "Pixel Tablet\nOK\n";
+            }
+
+            return null;
+        };
+        $configuration = Configuration::resolve();
+        $pixel = new AndroidDriver(new Device('android', 'Pixel 8', true), $configuration, $command);
+        $tablet = new AndroidDriver(new Device('android', 'Pixel Tablet', true), $configuration, $command);
+
+        $pixel->ensureReady();
+        $tablet->ensureReady();
+        $pixel->ensureReady();
+        $pixel->ensureReady();
+
+        expect(emulatorListings($command))->toBe(3);
+    });
+});
+
 function withWorker(?int $index, Closure $test, ?string $unique = null): void
 {
     $token = getenv('TEST_TOKEN');
@@ -487,6 +556,8 @@ function resetDriverState(): void
     (new ReflectionProperty(IosDriver::class, 'hardwareKeyboard'))->setValue(null, false);
     (new ReflectionProperty(IosDriver::class, 'wiped'))->setValue(null, []);
     (new ReflectionProperty(AndroidDriver::class, 'wiped'))->setValue(null, []);
+    (new ReflectionProperty(IosDriver::class, 'ready'))->setValue(null, null);
+    (new ReflectionProperty(AndroidDriver::class, 'ready'))->setValue(null, null);
     SnapshotWriter::reset();
     Shutdown::reset();
 }
@@ -627,4 +698,20 @@ function bootRecorder(bool $alreadyRunning = false): RecordingCommand
     };
 
     return $command;
+}
+
+function simulatorListings(RecordingCommand $command): int
+{
+    return count(array_filter(
+        $command->calls,
+        fn (array $call): bool => $call === ['xcrun', ['simctl', 'list', 'devices', 'available', '-j']],
+    ));
+}
+
+function emulatorListings(RecordingCommand $command): int
+{
+    return count(array_filter(
+        $command->calls,
+        fn (array $call): bool => $call[1] === ['devices'],
+    ));
 }

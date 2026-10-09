@@ -19,6 +19,15 @@ final class AndroidDriver implements Driver
     /** @var array<string, true> */
     private static array $wiped = [];
 
+    /**
+     * The driver whose shared emulator was brought up last. screen() asks for readiness
+     * on every call, and the boot path runs `adb devices` plus `adb emu avd name` for
+     * every emulator each time. Only another driver booting its own device can take this
+     * one's down, because booting a named device kills the others, so until one does
+     * there is nothing to ask adb again.
+     */
+    private static ?self $ready = null;
+
     private ?string $serial = null;
 
     private ?int $recordingPid = null;
@@ -40,11 +49,19 @@ final class AndroidDriver implements Driver
     {
         if (Worker::parallel()) {
             $this->bootForWorker();
-            $this->buildOnce();
-
-            return;
+        } elseif (self::$ready !== $this) {
+            $this->bootShared();
         }
 
+        $this->buildOnce();
+
+        if (! Worker::parallel()) {
+            self::$ready = $this;
+        }
+    }
+
+    private function bootShared(): void
+    {
         $booted = $this->bootedAvds();
 
         foreach (BootPlan::shutdowns($this->device->named, $this->device->name, array_keys($booted)) as $name) {
@@ -53,7 +70,6 @@ final class AndroidDriver implements Driver
 
         if ($this->shouldWipe()) {
             $this->wipe($booted);
-            $this->buildOnce();
 
             return;
         }
@@ -63,8 +79,6 @@ final class AndroidDriver implements Driver
         } else {
             $this->bootNamed($booted);
         }
-
-        $this->buildOnce();
     }
 
     public function installDatabase(string $sqlitePath): void
