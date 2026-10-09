@@ -4,13 +4,14 @@ declare(strict_types=1);
 
 namespace NativePhp\Simulator;
 
-use Closure;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 use NativePhp\Simulator\Grpc\Client;
 use NativePhp\Simulator\Grpc\Protobuf;
 
 final class IosDriver implements Driver
 {
+    use RemembersReadiness;
+
     private static array $built = [];
 
     private static ?int $companionPid = null;
@@ -23,15 +24,6 @@ final class IosDriver implements Driver
 
     /** @var array<string, true> */
     private static array $wiped = [];
-
-    /**
-     * The driver whose shared Simulator was brought up last. screen() asks for readiness
-     * on every call, and the boot path lists every installed Simulator through simctl each
-     * time (~150ms). Only another driver booting its own device can take this one's down,
-     * because booting a named device shuts the others, so until one does there is nothing
-     * to ask simctl again.
-     */
-    private static ?self $ready = null;
 
     private const CALL_TIMEOUT_FLOOR_SECONDS = 10.0;
 
@@ -60,6 +52,9 @@ final class IosDriver implements Driver
         if ($parallel) {
             $this->bootForWorker();
         } elseif (self::$ready !== $this) {
+            // Booting shuts the other Simulators down. If anything after that fails, the
+            // driver trusted until now would skip its boot path against one that is off.
+            self::$ready = null;
             $this->bootShared();
         }
 
@@ -72,26 +67,18 @@ final class IosDriver implements Driver
     }
 
     /**
-     * Runs one of screen()'s per-test device commands. ensureReady() trusts a device it
-     * brought up earlier without asking simctl again, so a Simulator that crashed or was
-     * shut down since would fail here; check it again, booting it if it has to, and try
-     * once more, as the boot path did on every screen() before readiness was remembered.
-     *
-     * @param  Closure(): void  $command
+     * Asks simctl rather than the companion, which can outlive its Simulator. When simctl
+     * itself cannot answer, the failure that led here is the one worth reporting.
      */
-    private function recovering(Closure $command): void
+    private function alive(): bool
     {
         try {
-            $command();
-        } catch (SimulatorException $exception) {
-            if (self::$ready !== $this) {
-                throw $exception;
-            }
-
-            self::$ready = null;
-            $this->ensureReady();
-            $command();
+            $json = $this->command->run('xcrun', ['simctl', 'list', 'devices', 'available', '-j']);
+        } catch (SimulatorException) {
+            return true;
         }
+
+        return in_array($this->udid, array_column(SimulatorList::booted($json), 'udid'), true);
     }
 
     private function bootShared(): void
@@ -591,6 +578,9 @@ final class IosDriver implements Driver
 
     public function startRecording(string $path): void
     {
+        // record() comes before screen(), and simctl started against a Simulator that has
+        // gone writes nothing without failing here.
+        $this->revive();
         $this->recordingPid = $this->command->start('xcrun', [
             'simctl', 'io', $this->udid(), 'recordVideo', '--codec=h264', '--force', $path,
         ], $this->recordingLog());
@@ -610,12 +600,12 @@ final class IosDriver implements Driver
 
     public function grant(array $services): void
     {
-        $this->privacy('grant', $services);
+        $this->recovering(fn () => $this->privacy('grant', $services));
     }
 
     public function revoke(array $services): void
     {
-        $this->privacy('revoke', $services);
+        $this->recovering(fn () => $this->privacy('revoke', $services));
     }
 
     /**
