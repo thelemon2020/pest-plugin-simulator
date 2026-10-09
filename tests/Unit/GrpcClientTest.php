@@ -125,8 +125,14 @@ it('tries once more on a fresh connection when a reused one dies before any answ
     $first = $client->unary('accessibility_info', 'one');
     $second = $client->unary('accessibility_info', 'two');
 
+    $connections = array_column($this->stub->requests(), 'connection');
+
+    // Some libcurl builds open a connection of their own to replay the request before
+    // finding they can't rewind it, so the retry's connection number isn't fixed.
     expect([$first, $second])->toBe(['first', 'second'])
-        ->and(array_column($this->stub->requests(), 'connection'))->toBe([1, 1, 2]);
+        ->and($connections)->toHaveCount(3)
+        ->and($connections[1])->toBe($connections[0])
+        ->and($connections[2])->toBeGreaterThan($connections[1]);
 });
 
 it('does not try again when a fresh connection dies', function () {
