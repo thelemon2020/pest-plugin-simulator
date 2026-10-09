@@ -26,6 +26,26 @@ final class Gesture
     }
 
     /**
+     * A drag along one row, between $left and $right. `right` moves the row so you can see
+     * what is further right, the way scroll('down') shows what is further down.
+     *
+     * @return array{0: float, 1: float, 2: float, 3: float}
+     */
+    public static function sideways(string $direction, float $left, float $right, float $y, ?float $distance = null): array
+    {
+        self::assertDistance($distance);
+
+        $width = $right - $left;
+        $span = $width * ($distance ?? 0.5);
+
+        return match ($direction) {
+            'right' => [$left + $width * 0.75, $y, self::clamp($left + $width * 0.75 - $span, $left + 1, $right - 1), $y],
+            'left' => [$left + $width * 0.25, $y, self::clamp($left + $width * 0.25 + $span, $left + 1, $right - 1), $y],
+            default => throw new SimulatorException("Scroll [{$direction}] is not left or right."),
+        };
+    }
+
+    /**
      * @return array{0: float, 1: float, 2: float, 3: float}
      */
     public static function swipe(string $direction, float $width, float $height, ?float $originX = null, ?float $originY = null, ?float $distance = null): array
