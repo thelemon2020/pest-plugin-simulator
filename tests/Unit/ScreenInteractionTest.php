@@ -400,6 +400,55 @@ it('taps a chip in a sheet over a tab bar where it is', function () {
         ->and(array_map(fn (float $axis): float => round($axis, 1), $driver->taps[0]))->toBe([59.2, 487.0]);
 });
 
+it('waits for a sheet that just opened to finish sliding in before tapping into it', function () {
+    // iOS drops a tap while a sheet presents, and the tree already has the sheet where it
+    // will stop, so only the time since the sheet first showed up says when it is safe.
+    $sheet = AccessibilityTree::summarize((string) file_get_contents(dirname(__DIR__).'/Fixtures/ios-note-sheet-over-tab-bar.json'));
+    $driver = new FakeDriver([
+        [control('+ Add a note')],
+        $sheet,
+    ]);
+    $screen = new Screen($driver, timeoutSeconds: 5);
+    $timed = function (Closure $action): float {
+        $start = microtime(true);
+        $action();
+
+        return microtime(true) - $start;
+    };
+
+    $opening = $timed(fn () => $screen->tap('+ Add a note'));
+    $intoSheet = $timed(fn () => $screen->tap('😌 Chill'));
+    $again = $timed(fn () => $screen->tap('Cancel'));
+
+    expect($opening)->toBeLessThan(0.2)
+        ->and($intoSheet)->toBeGreaterThan(0.7)
+        ->and($again)->toBeLessThan(0.2)
+        ->and($driver->taps)->toHaveCount(3);
+});
+
+it('counts a sheet\'s presentation from the read that first showed it', function () {
+    $sheet = AccessibilityTree::summarize((string) file_get_contents(dirname(__DIR__).'/Fixtures/ios-note-sheet-over-tab-bar.json'));
+    $driver = new FakeDriver([$sheet]);
+    $screen = new Screen($driver, timeoutSeconds: 5);
+
+    $screen->assertSee('How was it?');
+    usleep(800_000);
+    $start = microtime(true);
+    $screen->tap('😌 Chill');
+
+    expect(microtime(true) - $start)->toBeLessThan(0.2);
+});
+
+it('does not wait for a sheet in a unit test', function () {
+    $sheet = AccessibilityTree::summarize((string) file_get_contents(dirname(__DIR__).'/Fixtures/ios-note-sheet-over-tab-bar.json'));
+    $driver = new FakeDriver([[control('+ Add a note')], $sheet]);
+    $start = microtime(true);
+
+    (new Screen($driver, timeoutSeconds: 0))->tap('+ Add a note')->tap('😌 Chill');
+
+    expect(microtime(true) - $start)->toBeLessThan(0.2);
+});
+
 it('scrolls a row on screen before swiping from it', function () {
     $driver = new FakeDriver([
         [control('Row 40', ['center' => [100.0, 1000.0]])],
