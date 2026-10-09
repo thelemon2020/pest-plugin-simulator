@@ -5,6 +5,7 @@
     "license": "MIT",
     "require": {
         "php": "^8.3",
+        "ext-curl": "*",
         "pestphp/pest": "^4.0 || ^5.0",
         "phpunit/phpunit": "^12.0 || ^13.0"
     },

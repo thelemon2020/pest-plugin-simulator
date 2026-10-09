@@ -308,6 +308,16 @@ final class IosDriver implements Driver
      * above. Current best guess is that surface's own gesture recognizer is claiming the
      * touch before the disclosure's tap gesture ever sees it. Genuinely unresolved; no
      * write test exists for it in SegmentEditorTest.
+     *
+     * Correction, found when Client.php moved from the curl binary to ext-curl: the
+     * named-pipe version of `streamPaced()` never paused mid-body. curl reads a
+     * `--data-binary @file` source to the end before it even connects, so every tap above
+     * went out as an instantaneous down+up, only 400ms late, and everything recorded above
+     * was measured under that. With the hold now real on the wire (the companion logs the
+     * two touches ~400ms apart), re-checked on an iPhone 17 Pro Simulator under a load
+     * average of 10-45: LightingSchedule's "Run this schedule" switch failed 3/3 under the
+     * old send and passed 4/4 under this one, and the "Wed" chip inside a horizontal
+     * `<native:scroll-view>` passed under both.
      */
     private const TAP_HOLD_MICROSECONDS = 400_000;
 
@@ -385,6 +395,14 @@ final class IosDriver implements Driver
      * at a fixed point regardless of this gap. Not chased further here — would need either
      * reproducing it against a field with no `native:model` round-trip at all, or adding a
      * settle between `type()` calls, to tell apart from a residual pacing issue.
+     *
+     * Correction (see the one on `TAP_HOLD_MICROSECONDS`): the named-pipe version never
+     * paced these keys either. It waited out every gap, then sent the same back-to-back
+     * burst, so the 20ms and 60ms results above were really delays before that burst.
+     * With the gap now real, AddRecordTest's back-to-back case ("Talk Talk" then "Spirit
+     * Of Eden") settled on the second `type()` attempt for the first field and the first
+     * attempt for the second, in each of two runs. The old send used all three attempts
+     * on both fields without ever settling, in each of two runs.
      */
     private const TEXT_KEY_GAP_MICROSECONDS = 20_000;
 
