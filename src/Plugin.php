@@ -22,6 +22,7 @@ final class Plugin implements Bootable, HandlesArguments, Terminable
         }
 
         self::$booted = true;
+        Shutdown::trap();
         TestSuite::getInstance()->tests->addTestCaseMethodFilter(new MobileTestFilter);
         ParallelLanes::publish();
 

@@ -394,4 +394,6 @@ A test limited to a platform the suite does not run is skipped. A machine withou
 
 When Pest finishes, it shuts down the Simulator, Emulator, and `idb_companion` that this run started. A device that was already booted stays up. An `idb_companion` already listening for this simulator is reused. One listening for a different simulator is left alone, and the plugin starts its own on the next port.
 
+A run stopped with Ctrl+C or `SIGTERM`, or one that dies of a fatal error, shuts them down too. Catching the signal needs PHP's `pcntl` extension.
+
 A `simctl`, `adb`, or other tool call that does not finish in 60 seconds is stopped, and the test fails naming that command. Booting, erasing, and shutting down a Simulator get 10 minutes. `native:run` gets 30.
