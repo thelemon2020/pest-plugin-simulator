@@ -877,6 +877,10 @@ final class AccessibilityTree
      * tablet aspect ratio. A scroll view also reports the rows below the
      * fold, and a finger dragged to that content is off the glass.
      *
+     * A sheet's dimming view starts a whole screen above and to the left of
+     * the origin and is three screens across, the same aspect ratio. It is
+     * not the display either.
+     *
      * @param  list<array{0: float, 1: float, 2: float, 3: float}>  $frames
      * @return array{0: float, 1: float}|null
      */
@@ -886,7 +890,7 @@ final class AccessibilityTree
         $area = 0.0;
 
         foreach ($frames as [$x, $y, $width, $height]) {
-            if ($x > 1 || $y > 1 || $width < 200 || $height < 200) {
+            if (abs($x) > 1 || abs($y) > 1 || $width < 200 || $height < 200) {
                 continue;
             }
 
