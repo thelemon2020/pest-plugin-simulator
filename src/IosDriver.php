@@ -61,7 +61,7 @@ final class IosDriver implements Driver
         $bootedNames = array_column($booted, 'name');
 
         foreach (BootPlan::shutdowns($this->device->named, $this->device->name, $bootedNames) as $name) {
-            $this->command->run('xcrun', ['simctl', 'shutdown', SimulatorList::udidFor($json, $name)]);
+            $this->command->run('xcrun', ['simctl', 'shutdown', SimulatorList::udidFor($json, $name)], timeout: Command::DEVICE_TIMEOUT);
         }
 
         if (! $this->device->named && count($bootedNames) === 1) {
@@ -70,11 +70,11 @@ final class IosDriver implements Driver
 
             if ($wiped || $restartForKeyboard) {
                 if (! $wiped) {
-                    $this->command->run('xcrun', ['simctl', 'shutdown', $this->udid]);
+                    $this->command->run('xcrun', ['simctl', 'shutdown', $this->udid], timeout: Command::DEVICE_TIMEOUT);
                 }
 
-                $this->command->run('xcrun', ['simctl', 'boot', $this->udid]);
-                $this->command->run('xcrun', ['simctl', 'bootstatus', $this->udid, '-b']);
+                $this->command->run('xcrun', ['simctl', 'boot', $this->udid], timeout: Command::DEVICE_TIMEOUT);
+                $this->command->run('xcrun', ['simctl', 'bootstatus', $this->udid, '-b'], timeout: Command::DEVICE_TIMEOUT);
             }
         } else {
             $this->udid = SimulatorList::udidFor($json, $this->device->name);
@@ -87,16 +87,16 @@ final class IosDriver implements Driver
 
             if ($wiped || BootPlan::shouldBoot($this->device->named, $this->device->name, $bootedNames) || ($restartForKeyboard && $alreadyBooted)) {
                 if ($alreadyBooted) {
-                    $this->command->run('xcrun', ['simctl', 'shutdown', $this->udid]);
+                    $this->command->run('xcrun', ['simctl', 'shutdown', $this->udid], timeout: Command::DEVICE_TIMEOUT);
                 }
 
-                $this->command->run('xcrun', ['simctl', 'boot', $this->udid]);
-                $this->command->run('xcrun', ['simctl', 'bootstatus', $this->udid, '-b']);
+                $this->command->run('xcrun', ['simctl', 'boot', $this->udid], timeout: Command::DEVICE_TIMEOUT);
+                $this->command->run('xcrun', ['simctl', 'bootstatus', $this->udid, '-b'], timeout: Command::DEVICE_TIMEOUT);
                 $udid = $this->udid;
                 $command = $this->command;
                 Shutdown::defer(function () use ($command, $udid): void {
                     try {
-                        $command->run('xcrun', ['simctl', 'shutdown', $udid]);
+                        $command->run('xcrun', ['simctl', 'shutdown', $udid], timeout: Command::DEVICE_TIMEOUT);
                     } catch (SimulatorException) {
                     }
                 });
@@ -140,7 +140,7 @@ final class IosDriver implements Driver
         }
 
         if ($existing === null) {
-            $this->udid = trim($this->command->run('xcrun', ['simctl', 'clone', $source['udid'], $name]));
+            $this->udid = trim($this->command->run('xcrun', ['simctl', 'clone', $source['udid'], $name], timeout: Command::DEVICE_TIMEOUT));
             $state = 'Shutdown';
         } else {
             $this->udid = $existing['udid'];
@@ -151,16 +151,16 @@ final class IosDriver implements Driver
         $booted = $state === 'Booted';
 
         if ($booted && $restartForKeyboard) {
-            $this->command->run('xcrun', ['simctl', 'shutdown', $this->udid]);
+            $this->command->run('xcrun', ['simctl', 'shutdown', $this->udid], timeout: Command::DEVICE_TIMEOUT);
             $booted = false;
         }
 
         if (! $booted) {
-            $this->command->run('xcrun', ['simctl', 'boot', $this->udid]);
+            $this->command->run('xcrun', ['simctl', 'boot', $this->udid], timeout: Command::DEVICE_TIMEOUT);
         }
 
         // A leftover whose state is already Booted can still be mid-boot.
-        $this->command->run('xcrun', ['simctl', 'bootstatus', $this->udid, '-b']);
+        $this->command->run('xcrun', ['simctl', 'bootstatus', $this->udid, '-b'], timeout: Command::DEVICE_TIMEOUT);
 
         $simulator = $this->udid;
         $command = $this->command;
@@ -195,7 +195,7 @@ final class IosDriver implements Driver
     private static function shutdownSimulator(Command $command, string $simulator): void
     {
         try {
-            $command->run('xcrun', ['simctl', 'shutdown', $simulator]);
+            $command->run('xcrun', ['simctl', 'shutdown', $simulator], timeout: Command::DEVICE_TIMEOUT);
         } catch (SimulatorException) {
         }
     }
@@ -582,7 +582,7 @@ final class IosDriver implements Driver
 
         $this->command->run('php', [
             'artisan', 'native:run', 'ios', $this->udid(), '--build=debug', '--no-tty',
-        ], $this->configuration->appDirectory());
+        ], $this->configuration->appDirectory(), Command::BUILD_TIMEOUT);
 
         self::$built[$key] = true;
     }
