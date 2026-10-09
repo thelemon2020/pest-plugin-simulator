@@ -185,18 +185,51 @@ final class ElementFinder
     }
 
     /**
+     * Whether the field `type()` tapped now holds `$value`. A field with no label or id of
+     * its own is named by its placeholder, which iOS reports as the field's value only
+     * while it is empty. Once text goes in, nothing in the tree carries that name, so the
+     * field is found again as the text field nearest where it was tapped.
+     *
+     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}, value?: ?string}>  $elements
+     * @param  array{label: string, role: ?string, id: ?string, center: array{0: float, 1: float}, value?: ?string}  $field
+     */
+    public function holds(array $elements, string $target, array $field, string $value): bool
+    {
+        if ($this->hasValue($elements, $target, $value)) {
+            return true;
+        }
+
+        if (! in_array($field['role'], self::TEXT_ROLES, true)) {
+            return false;
+        }
+
+        $nearest = null;
+        $distance = INF;
+
+        foreach ($elements as $element) {
+            $center = $element['center'] ?? null;
+
+            if (! in_array($element['role'], self::TEXT_ROLES, true) || ! is_array($center)) {
+                continue;
+            }
+
+            $away = hypot($center[0] - $field['center'][0], $center[1] - $field['center'][1]);
+
+            if ($away < $distance) {
+                $nearest = $element;
+                $distance = $away;
+            }
+        }
+
+        return $nearest !== null && $this->value($nearest) === $value;
+    }
+
+    /**
      * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}, value?: ?string}>  $elements
      */
     public function valueOf(array $elements, string $target): string
     {
-        $match = $this->match($elements, $target);
-        $value = $match['value'] ?? null;
-
-        if (is_string($value)) {
-            return $value;
-        }
-
-        return $match['role'] === 'TextField' ? $match['label'] : '';
+        return $this->value($this->match($elements, $target));
     }
 
     /**
@@ -480,6 +513,20 @@ final class ElementFinder
     }
 
     /**
+     * @param  array{label: string, role: ?string, value?: ?string}  $element
+     */
+    private function value(array $element): string
+    {
+        $value = $element['value'] ?? null;
+
+        if (is_string($value)) {
+            return $value;
+        }
+
+        return $element['role'] === 'TextField' ? $element['label'] : '';
+    }
+
+    /**
      * @param  array{label: string, role: ?string, center?: ?array{0: float|int, 1: float|int}, chrome?: ?string}  $element
      */
     private function isPhoto(array $element): bool
@@ -502,6 +549,8 @@ final class ElementFinder
      * `Button` in the match set.
      */
     private const INTERACTIVE_ROLES = ['TextField', 'TextView', 'Switch'];
+
+    private const TEXT_ROLES = ['TextField', 'TextView'];
 
     /**
      * @param  list<array{label: string, role: ?string, id: ?string, center: array{0: float, 1: float}}>  $matches

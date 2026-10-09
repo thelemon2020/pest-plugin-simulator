@@ -211,7 +211,7 @@ screen('/settings/edit')
 
 The plugin only sees native controls. A `<webview>` is one node. Blade and Livewire inside it are outside `tap()`, `press()`, `type()`, and `assertSee()`.
 
-`tap()`, `press()`, `type()`, and the assertions look for an accessibility id first, then an exact label, then a label that contains the text. The label is what the phone reads aloud: the visible text, or the `a11y-label`. An icon button, chip, tab, or nav action has no label until that prop is set. `tap('save-button')` matches an accessibility id even when the control has no visible text.
+`tap()`, `press()`, `type()`, and the assertions look for an accessibility id first, then an exact label, then a label that contains the text. The label is what the phone reads aloud: the visible text, or the `a11y-label`. An icon button, chip, tab, or nav action has no label until that prop is set. `tap('save-button')` matches an accessibility id even when the control has no visible text. A field with no label is named by its placeholder, but only while it is empty: iOS reports the placeholder as the field's value, and typed text replaces it. `type()` checks the field where it tapped, so `type('Search…', 'Talk')` works. `assertValue('Search…', 'Talk')` cannot find that field. Give it a label to assert its value.
 
 ## Screenshots and recordings
 

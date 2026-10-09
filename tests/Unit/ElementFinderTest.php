@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use NativePhp\Simulator\AccessibilityTree;
 use NativePhp\Simulator\ElementFinder;
 
 $button = fn (string $label, ?string $id = null, array $center = [10, 10], string $role = 'Button'): array => [
@@ -155,4 +156,39 @@ it('finds the Open button only while the system dialog is up', function () use (
 
     expect($dialog['center'])->toBe([275, 474])
         ->and($finder->openDialogButton([$button('Open')]))->toBeNull();
+});
+
+it('finds a field named only by its placeholder where it was tapped, once text replaces the placeholder', function () {
+    // Captured from CollectShine's collection screen on an iOS 26.5 Simulator. The search
+    // field has no label or identifier; iOS reports its placeholder as the value while it
+    // is empty, and the typed text once it is not.
+    $fixtures = dirname(__DIR__).'/Fixtures';
+    $empty = AccessibilityTree::summarize((string) file_get_contents($fixtures.'/ios-unlabeled-search-field-empty.json'));
+    $typed = AccessibilityTree::summarize((string) file_get_contents($fixtures.'/ios-unlabeled-search-field-typed.json'));
+    $finder = new ElementFinder;
+
+    $field = $finder->match($empty, 'Search artist or title…');
+
+    expect($field['role'])->toBe('TextField')
+        ->and($finder->sees($typed, 'Search artist or title…'))->toBeFalse()
+        ->and($finder->holds($typed, 'Search artist or title…', $field, 'Talk'))->toBeTrue()
+        ->and($finder->holds($typed, 'Search artist or title…', $field, 'Tal'))->toBeFalse()
+        ->and($finder->holds($empty, 'Search artist or title…', $field, 'Talk'))->toBeFalse();
+});
+
+it('reads the field nearest where it was tapped, not any field holding the text', function () use ($button) {
+    $field = $button('Password', null, [200, 300], 'TextField');
+
+    expect((new ElementFinder)->holds([
+        $button('secret', null, [200, 200], 'TextField'),
+        $button('sec', null, [200, 302], 'TextField'),
+    ], 'Password', $field, 'secret'))->toBeFalse();
+});
+
+it('does not look for a field where a control that is not one was tapped', function () use ($button) {
+    $control = $button('Search', null, [200, 300], 'StaticText');
+
+    expect((new ElementFinder)->holds([
+        $button('Talk', null, [200, 300], 'TextField'),
+    ], 'Search', $control, 'Talk'))->toBeFalse();
 });
