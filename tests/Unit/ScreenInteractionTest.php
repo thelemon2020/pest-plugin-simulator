@@ -35,16 +35,16 @@ it('scrolls, swipes, and goes back', function () {
 it('waits for a scroll to settle before the next tap reads a position', function () {
     $driver = new FakeDriver([
         [control('Header')], // scroll()'s own pre-swipe read()
-        [control('Save', ['center' => [500.0, 700.0]])], // settle(): still decelerating
-        [control('Save', ['center' => [500.0, 500.0]])], // settle(): still decelerating
-        [control('Save', ['center' => [500.0, 500.0]])], // settle(): matches the previous read — settled
+        [control('Save', ['center' => [300.0, 700.0]])], // settle(): still decelerating
+        [control('Save', ['center' => [300.0, 500.0]])], // settle(): still decelerating
+        [control('Save', ['center' => [300.0, 500.0]])], // settle(): matches the previous read — settled
     ]);
 
     // A real timeout, so settle() actually polls instead of skipping (it treats <= 0 as
     // the "unit test, no waiting" convention `until()` already uses).
     (new Screen($driver, timeoutSeconds: 1))->scroll('down')->tap('Save');
 
-    expect($driver->taps)->toBe([[500.0, 500.0]]);
+    expect($driver->taps)->toBe([[300.0, 500.0]]);
 });
 
 it('rides out a companion that has not stabilized yet when scroll() is the first action', function () {
@@ -397,6 +397,58 @@ it('scrolls a row on screen before swiping from it', function () {
         [...Gesture::scroll('down', 390, 844, 0.5), 0.6],
         [...Gesture::swipe('left', 390, 844, 100, 500), 0.3],
     ]);
+});
+
+it('drags a carousel sideways on its own row to a card past the right edge', function () {
+    $driver = new FakeDriver([
+        [control('Card 5', ['center' => [600.0, 300.0]])],
+        [control('Card 5', ['center' => [200.0, 300.0]])],
+    ]);
+
+    (new Screen($driver, timeoutSeconds: 0))->tap('Card 5');
+
+    expect($driver->swipes)->toBe([[...Gesture::swipe('left', 390, 844, 292.5, 300, 0.5), 0.6]])
+        ->and($driver->taps)->toBe([[200.0, 300.0]]);
+});
+
+it('drags a carousel the other way to a card past the left edge', function () {
+    $driver = new FakeDriver([
+        [control('Card 1', ['center' => [-150.0, 300.0]])],
+        [control('Card 1', ['center' => [150.0, 300.0]])],
+    ]);
+
+    (new Screen($driver, timeoutSeconds: 0))->press('Card 1');
+
+    expect($driver->swipes)->toBe([[...Gesture::swipe('right', 390, 844, 97.5, 300, 0.5), 0.6]])
+        ->and($driver->presses)->toBe([[150.0, 300.0, 0.8]]);
+});
+
+it('scrolls a carousel row on screen before dragging it sideways', function () {
+    $driver = new FakeDriver([
+        [control('Card 5', ['center' => [600.0, 1500.0]])],
+        [control('Card 5', ['center' => [600.0, 400.0]])],
+        [control('Card 5', ['center' => [200.0, 400.0]])],
+    ]);
+
+    (new Screen($driver, timeoutSeconds: 0))->tap('Card 5');
+
+    expect($driver->swipes)->toBe([
+        [...Gesture::scroll('down', 390, 844, 0.5), 0.6],
+        [...Gesture::swipe('left', 390, 844, 292.5, 400, 0.5), 0.6],
+    ])->and($driver->taps)->toBe([[200.0, 400.0]]);
+});
+
+it('says a card stayed past the edge after eight scrolls', function () {
+    $driver = new FakeDriver([[
+        control('Card 9', ['center' => [2000.0, 300.0]]),
+    ]]);
+
+    expect(fn () => (new Screen($driver, timeoutSeconds: 0, failureDirectory: sys_get_temp_dir().'/simulator-off-edge-test'))
+        ->tap('Card 9'))
+        ->toThrow(AssertionFailedError::class, 'Found [Card 9] to tap, but it stayed to the right of the screen after 8 scrolls.');
+
+    expect($driver->swipes)->toHaveCount(8)
+        ->and($driver->taps)->toBe([]);
 });
 
 it('says a row stayed off screen after eight scrolls', function () {

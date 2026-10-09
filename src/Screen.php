@@ -150,7 +150,8 @@ final class Screen
     public function scroll(string $direction = 'down', ?float $distance = null, ?float $seconds = null): self
     {
         $this->readRetrying();
-        $this->drag($direction, $distance, $seconds ?? 0.3);
+        [$width, $height] = $this->driver->viewport();
+        $this->drag(Gesture::scroll($direction, $width, $height, $distance), $seconds ?? 0.3);
 
         return $this;
     }
@@ -184,17 +185,17 @@ final class Screen
         }
 
         [$width, $height] = $this->driver->viewport();
-        [$x1, $y1, $x2, $y2] = Gesture::swipe($direction, $width, $height, $originX, $originY, $distance);
-        $this->driver->swipe($x1, $y1, $x2, $y2, $this->seconds($seconds ?? 0.3));
-        $this->settle();
+        $this->drag(Gesture::swipe($direction, $width, $height, $originX, $originY, $distance), $seconds ?? 0.3);
 
         return $this;
     }
 
-    private function drag(string $direction, ?float $distance, float $seconds): void
+    /**
+     * @param  array{0: float, 1: float, 2: float, 3: float}  $gesture
+     */
+    private function drag(array $gesture, float $seconds): void
     {
-        [$width, $height] = $this->driver->viewport();
-        [$x1, $y1, $x2, $y2] = Gesture::scroll($direction, $width, $height, $distance);
+        [$x1, $y1, $x2, $y2] = $gesture;
         $this->driver->swipe($x1, $y1, $x2, $y2, $this->seconds($seconds));
         $this->settle();
     }
@@ -689,10 +690,10 @@ final class Screen
     /**
      * Find a control, then scroll until its center is on screen.
      *
-     * A scroll view reports rows below the fold, and rows scrolled under a nav bar or tab
-     * bar, at their real positions. A match alone can be a point past the glass or on a
-     * bar, and a tap there lands on nothing, or on the bar, with no error. The next
-     * assertion then fails about something else.
+     * A scroll view reports rows below the fold, rows scrolled under a nav bar or tab bar,
+     * and carousel cards past the screen's edge at their real positions. A match alone can
+     * be a point past the glass or on a bar, and a tap there lands on nothing, or on the
+     * bar, with no error. The next assertion then fails about something else.
      *
      * With $search set (scrollTo()), a label that is not in the tree yet scrolls that way
      * instead of waiting for it. Every read and scroll shares one timeout.
@@ -719,35 +720,44 @@ final class Screen
                 $this->fail($ambiguous->getMessage(), $elements);
             }
 
-            $scroll = $match === null ? [$search, null] : $this->toward($match, $elements);
+            if ($match === null) {
+                [$width, $height] = $this->driver->viewport();
+                $scroll = [null, Gesture::scroll($search, $width, $height)];
+            } else {
+                $scroll = $this->toward($match, $elements);
+            }
 
             if ($scroll === null) {
                 return $match;
             }
 
-            [$direction, $distance] = $scroll;
+            [$where, $gesture] = $scroll;
 
             if ($scrolls >= self::SCROLL_ATTEMPTS || ($scrolls > 0 && $this->timeoutSeconds > 0 && microtime(true) >= $deadline)) {
-                $this->fail($match === null
-                    ? "Scrolled {$direction} ".($scrolls === 1 ? 'once' : "{$scrolls} times")." and did not find [{$label}]."
-                    : "Found [{$label}] to {$action}, but it stayed ".($direction === 'down' ? 'below' : 'above').' the screen after '.($scrolls === 1 ? '1 scroll' : "{$scrolls} scrolls").'.',
+                $this->fail($where === null
+                    ? "Scrolled {$search} ".($scrolls === 1 ? 'once' : "{$scrolls} times")." and did not find [{$label}]."
+                    : "Found [{$label}] to {$action}, but it stayed {$where} the screen after ".($scrolls === 1 ? '1 scroll' : "{$scrolls} scrolls").'.',
                     $elements,
                 );
             }
 
-            $this->drag($direction, $distance, self::SCROLL_SECONDS);
+            $this->drag($gesture, self::SCROLL_SECONDS);
             $scrolls++;
         }
     }
 
     /**
-     * The scroll that brings a control to the middle of the screen, or null when it is
-     * already on screen. A nav bar or tab bar's own controls never move, so they are never
-     * scrolled toward.
+     * Where a control is off screen, and the drag that brings it toward the middle, or null
+     * when it is already on screen. A nav bar or tab bar's own controls never move, so they
+     * are never scrolled toward.
+     *
+     * Up and down come first. A card past the left or right edge is then dragged sideways
+     * on its own row, so the carousel it sits in moves, not whatever is at the middle of
+     * the screen.
      *
      * @param  array{label: string, role: ?string, id: ?string, center: array{0: float|int, 1: float|int}, chrome?: ?string}  $match
      * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}}>  $elements
-     * @return array{0: 'up'|'down', 1: float}|null
+     * @return array{0: string, 1: array{0: float, 1: float, 2: float, 3: float}}|null
      */
     private function toward(array $match, array $elements): ?array
     {
@@ -755,18 +765,37 @@ final class Screen
             return null;
         }
 
-        [, $height] = $this->driver->viewport();
+        [$width, $height] = $this->driver->viewport();
         [$top, $bottom] = $this->visibleBand($elements, $height);
+        $x = (float) $match['center'][0];
         $y = (float) $match['center'][1];
 
-        if ($y >= $top && $y <= $bottom) {
-            return null;
+        if ($y < $top || $y > $bottom) {
+            $distance = $this->span($y, ($top + $bottom) / 2, $height);
+
+            return $y > $bottom
+                ? ['below', Gesture::scroll('down', $width, $height, $distance)]
+                : ['above', Gesture::scroll('up', $width, $height, $distance)];
         }
 
-        // Half a screen at most, like scroll(). Never so little that the drag is read as a tap.
-        $distance = max(0.1, min(0.5, abs($y - ($top + $bottom) / 2) / $height));
+        if ($x < 0 || $x > $width) {
+            $distance = $this->span($x, $width / 2, $width);
 
-        return [$y > $bottom ? 'down' : 'up', $distance];
+            return $x > $width
+                ? ['to the right of', Gesture::swipe('left', $width, $height, $width * 0.75, $y, $distance)]
+                : ['to the left of', Gesture::swipe('right', $width, $height, $width * 0.25, $y, $distance)];
+        }
+
+        return null;
+    }
+
+    /**
+     * How far to drag, as a share of the screen, to bring a position to the middle. Half a
+     * screen at most, like scroll(). Never so little that the drag is read as a tap.
+     */
+    private function span(float $position, float $middle, float $length): float
+    {
+        return max(0.1, min(0.5, abs($position - $middle) / $length));
     }
 
     /**
