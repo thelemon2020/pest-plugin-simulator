@@ -8,7 +8,7 @@ use NativePhp\Simulator\Grpc\Client;
 
 final class RecordingClient extends Client
 {
-    /** @var list<array{0: string, 1: string, 2: list<string>, 3?: int|float}> */
+    /** @var list<array{0: string, 1: string, 2: list<string>|list<list<string>>, 3?: int|float}> */
     public array $calls = [];
 
     public function __construct()
@@ -26,6 +26,13 @@ final class RecordingClient extends Client
     public function streamPaced(string $method, array $messages, int $gapMicroseconds): string
     {
         $this->calls[] = ['streamPaced', $method, $messages, $gapMicroseconds];
+
+        return '';
+    }
+
+    public function streamStrokes(string $method, array $strokes, int $gapMicroseconds): string
+    {
+        $this->calls[] = ['streamStrokes', $method, $strokes, $gapMicroseconds];
 
         return '';
     }

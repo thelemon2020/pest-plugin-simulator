@@ -202,6 +202,33 @@ it('holds SIGTERM back until the last paced frame is sent', function () {
         ->and($handled - $started)->toBeGreaterThanOrEqual(0.35);
 })->skip(! function_exists('pcntl_sigprocmask'), 'Needs the pcntl extension.');
 
+it('lets SIGTERM through between strokes, not only after the last', function () {
+    $this->stub = StubCompanion::start([['messages' => []]]);
+    $previous = pcntl_signal_get_handler(SIGTERM);
+    $async = pcntl_async_signals(true);
+    $handled = null;
+    pcntl_signal(SIGTERM, function () use (&$handled): void {
+        $handled ??= microtime(true);
+    });
+    // Frames at 0, 0.5, 1.0 and 1.5s. The signal lands in the gap between the strokes.
+    $killer = signalSoon('TERM', 0.7);
+
+    try {
+        (new Client($this->stub->url()))->streamStrokes('hid', [['a down', 'a up'], ['b down', 'b up']], 500_000);
+    } finally {
+        proc_close($killer);
+        pcntl_signal(SIGTERM, $previous);
+        pcntl_async_signals($async);
+    }
+
+    $frames = $this->stub->requests()[0]['frames'];
+
+    expect(array_column($frames, 'bytes'))->toBe(array_map(Protobuf::frame(...), ['a down', 'a up', 'b down', 'b up']))
+        ->and($handled)->not->toBeNull()
+        ->and($handled)->toBeGreaterThan($frames[1]['at'])
+        ->and($handled)->toBeLessThan($frames[2]['at']);
+})->skip(! function_exists('pcntl_sigprocmask'), 'Needs the pcntl extension.');
+
 /**
  * Sends this process the named signal after a delay, from a child process.
  *

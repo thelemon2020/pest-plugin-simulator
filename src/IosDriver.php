@@ -473,7 +473,7 @@ final class IosDriver implements Driver
                 continue;
             }
 
-            $this->client()->streamPaced('hid', Hid::text($piece), self::TEXT_KEY_GAP_MICROSECONDS);
+            $this->client()->streamStrokes('hid', Hid::keystrokes($piece), self::TEXT_KEY_GAP_MICROSECONDS);
         }
     }
 

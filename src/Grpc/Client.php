@@ -70,7 +70,7 @@ class Client
      */
     public function unary(string $method, string $message): string
     {
-        return $this->call($method, [Protobuf::frame($message)], 0, 0.0, idempotent: true);
+        return $this->call($method, [[Protobuf::frame($message)]], 0, 0.0, idempotent: true);
     }
 
     /**
@@ -81,7 +81,7 @@ class Client
      */
     public function stream(string $method, array $messages, float $durationSeconds = 0.0): string
     {
-        return $this->call($method, [implode('', array_map(Protobuf::frame(...), $messages))], 0, $durationSeconds, idempotent: false);
+        return $this->call($method, [[implode('', array_map(Protobuf::frame(...), $messages))]], 0, $durationSeconds, idempotent: false);
     }
 
     /**
@@ -104,33 +104,60 @@ class Client
      * meant to: curl reads a `--data-binary @file` source to the end before it even
      * connects, so it waited out every gap, then sent all the frames back to back.
      *
+     * The messages make one stroke, such as a tap's down and up: Ctrl+C waits until the
+     * last of them is out (see holdSignals()).
+     *
      * @param  list<string>  $messages
      */
     public function streamPaced(string $method, array $messages, int $gapMicroseconds): string
     {
-        return $this->call($method, array_map(Protobuf::frame(...), $messages), $gapMicroseconds, 0.0, idempotent: false);
+        return $this->streamStrokes($method, [$messages], $gapMicroseconds);
     }
 
     /**
-     * @param  list<string>  $chunks  handed to curl in order, $gapMicroseconds apart
+     * Like streamPaced(), for messages that fall into strokes of their own, such as each
+     * key of a typed string. Every message still goes out $gapMicroseconds after the one
+     * before, but Ctrl+C waits only for the stroke part-way out, not the whole string.
+     *
+     * @param  list<list<string>>  $strokes
+     */
+    public function streamStrokes(string $method, array $strokes, int $gapMicroseconds): string
+    {
+        $framed = array_map(fn (array $stroke): array => array_map(Protobuf::frame(...), $stroke), $strokes);
+
+        return $this->call($method, $framed, $gapMicroseconds, 0.0, idempotent: false);
+    }
+
+    /**
+     * @param  list<list<string>>  $strokes  chunks handed to curl in order, $gapMicroseconds apart
      * @param  bool  $idempotent  whether the companion acting on the call twice is harmless
      */
-    private function call(string $method, array $chunks, int $gapMicroseconds, float $durationSeconds, bool $idempotent): string
+    private function call(string $method, array $strokes, int $gapMicroseconds, float $durationSeconds, bool $idempotent): string
     {
-        return $this->exchange($method, $chunks, $gapMicroseconds, $durationSeconds, $idempotent, retry: true)
-            ?? $this->exchange($method, $chunks, $gapMicroseconds, $durationSeconds, $idempotent, retry: false)
+        return $this->exchange($method, $strokes, $gapMicroseconds, $durationSeconds, $idempotent, retry: true)
+            ?? $this->exchange($method, $strokes, $gapMicroseconds, $durationSeconds, $idempotent, retry: false)
             ?? throw new SimulatorException("Companion [{$method}] failed.");
     }
 
     /**
-     * @param  list<string>  $chunks
+     * @param  list<list<string>>  $strokes
      * @return string|null null when a reused connection died before any answer, the call
      *                     is safe to send again, and $retry allows one more go on a fresh
      *                     connection
      */
-    private function exchange(string $method, array $chunks, int $gapMicroseconds, float $durationSeconds, bool $idempotent, bool $retry): ?string
+    private function exchange(string $method, array $strokes, int $gapMicroseconds, float $durationSeconds, bool $idempotent, bool $retry): ?string
     {
         $handle = $this->handle ??= $this->open();
+        $chunks = array_merge(...$strokes);
+        // Where each stroke starts, and whether it has more than one chunk to keep together.
+        $starts = [];
+        $offset = 0;
+
+        foreach ($strokes as $stroke) {
+            $starts[$offset] = count($stroke) > 1;
+            $offset += count($stroke);
+        }
+
         $headers = '';
         $next = 0;
         $pending = '';
@@ -147,19 +174,28 @@ class Client
 
                 return strlen($line);
             },
-            CURLOPT_READFUNCTION => static function (CurlHandle $handle, mixed $stream, int $length) use ($chunks, $gapMicroseconds, &$next, &$pending, &$mask): string {
+            CURLOPT_READFUNCTION => static function (CurlHandle $handle, mixed $stream, int $length) use ($chunks, $starts, $gapMicroseconds, &$next, &$pending, &$mask): string {
                 if ($pending === '') {
-                    if ($next >= count($chunks)) {
-                        // curl asks again only once it has sent the last frame, so a
-                        // held signal can be let through now.
+                    // curl asks again only once it has sent the previous frame, so when
+                    // that one ended a stroke, a held signal can be let through now,
+                    // before the gap rather than after a whole string of them.
+                    if ($next >= count($chunks) || isset($starts[$next])) {
                         self::releaseSignals($mask);
+                    }
 
+                    if ($next >= count($chunks)) {
                         return '';
                     }
 
                     if ($next > 0 && $gapMicroseconds > 0) {
-                        $mask ??= self::holdSignals();
                         self::pause($gapMicroseconds);
+                    }
+
+                    // Held from before a stroke's first frame, not just its second: a
+                    // signal that lands while curl sends the first would otherwise be
+                    // handled as soon as curl calls back here, before anything was held.
+                    if ($gapMicroseconds > 0 && ($starts[$next] ?? false)) {
+                        $mask ??= self::holdSignals();
                     }
 
                     $pending = $chunks[$next++];
@@ -221,10 +257,11 @@ class Client
     }
 
     /**
-     * Holds Ctrl+C and SIGTERM back while frames are still going out apart. Shutdown's
-     * handler stops the process from inside this callback, after a tap's down and before
-     * its up, which would leave a finger on the Simulator's glass. The signal still
-     * arrives, as soon as the last frame is sent.
+     * Holds Ctrl+C and SIGTERM back while a stroke is part-way out. Shutdown's handler
+     * stops the process from inside this callback, which between a tap's down and its up
+     * would leave a finger on the Simulator's glass, or a key held down between a key's.
+     * The signal still arrives, as soon as the stroke's last frame is sent, so a long
+     * typed string doesn't keep Ctrl+C waiting until its very end.
      *
      * @return array<int>|null the mask to put back, or null when signals cannot be held
      */
