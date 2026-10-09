@@ -76,6 +76,32 @@ it('settles typing into a field named only by its placeholder', function () {
         ->and($driver->texts)->toBe(['Talk']);
 });
 
+it('settles typing into a secure field that reads back masked', function () {
+    $fixtures = dirname(__DIR__).'/Fixtures';
+    $driver = new FakeDriver([
+        AccessibilityTree::summarize((string) file_get_contents($fixtures.'/ios-secure-field-empty.json')),
+        AccessibilityTree::summarize((string) file_get_contents($fixtures.'/ios-secure-field-typed.json')),
+    ]);
+
+    (new Screen($driver, timeoutSeconds: 1))->type('Password', 'secret');
+
+    expect($driver->taps)->toHaveCount(1)
+        ->and($driver->texts)->toBe(['secret']);
+});
+
+it('settles typing into an editor named by a placeholder drawn over it', function () {
+    $fixtures = dirname(__DIR__).'/Fixtures';
+    $driver = new FakeDriver([
+        AccessibilityTree::summarize((string) file_get_contents($fixtures.'/ios-placeholder-editor-empty.json')),
+        AccessibilityTree::summarize((string) file_get_contents($fixtures.'/ios-placeholder-editor-typed.json')),
+    ]);
+
+    (new Screen($driver, timeoutSeconds: 1))->type('What should I play tonight?', 'What should I play?');
+
+    expect($driver->taps)->toBe([[201.0, 755.5]])
+        ->and($driver->texts)->toBe(['What should I play?']);
+});
+
 it('retries up to the attempt limit when the value never settles', function () {
     $driver = new FakeDriver([
         [

@@ -334,3 +334,42 @@ it('marks nothing as a carousel on a page that only scrolls up and down', functi
 
     expect(array_column($rows, 'carousel', 'label'))->toBe(['Row 1' => null, 'Row 40' => null]);
 });
+
+it('marks a secure field', function () {
+    $rows = AccessibilityTree::summarize((string) json_encode([
+        ['type' => 'TextField', 'label' => 'Email', 'value' => 'ada@example.com', 'traits' => ['TextEntry'], 'frame' => ['x' => 44, 'y' => 369, 'width' => 314, 'height' => 22]],
+        ['type' => 'SecureTextField', 'label' => 'Password', 'value' => '••••••', 'traits' => ['SecureTextField', 'TextEntry'], 'frame' => ['x' => 44, 'y' => 451, 'width' => 314, 'height' => 21]],
+    ]));
+
+    expect($rows[0]['secure'])->toBeFalse()
+        ->and($rows[1]['role'])->toBe('TextField')
+        ->and($rows[1]['secure'])->toBeTrue();
+});
+
+it('names an empty unlabeled editor by the placeholder drawn inside it', function () {
+    // CollectShine's chat composer: the editor reports no label or value until text goes
+    // in, and the placeholder is a sibling caption laid over it.
+    $rows = AccessibilityTree::summarize((string) json_encode([
+        ['type' => 'TextView', 'label' => null, 'value' => null, 'frame' => ['x' => 23, 'y' => 737, 'width' => 356, 'height' => 37]],
+        ['type' => 'StaticText', 'label' => 'What should I play tonight?', 'frame' => ['x' => 28, 'y' => 745, 'width' => 202, 'height' => 21]],
+        ['type' => 'StaticText', 'label' => 'Ask about your own records.', 'frame' => ['x' => 16, 'y' => 132, 'width' => 334, 'height' => 62]],
+    ]));
+
+    expect($rows)->toHaveCount(2)
+        ->and($rows[0]['label'])->toBe('What should I play tonight?')
+        ->and($rows[0]['role'])->toBe('TextView')
+        ->and($rows[0]['center'])->toBe([201.0, 755.5])
+        ->and($rows[1]['label'])->toBe('Ask about your own records.');
+});
+
+it('leaves the caption alone once the editor holds text', function () {
+    $rows = AccessibilityTree::summarize((string) json_encode([
+        ['type' => 'TextView', 'label' => null, 'value' => 'What should I play?', 'frame' => ['x' => 23, 'y' => 737, 'width' => 356, 'height' => 37]],
+        ['type' => 'StaticText', 'label' => 'What should I play? ', 'frame' => ['x' => 28, 'y' => 745, 'width' => 149, 'height' => 21]],
+    ]));
+
+    expect($rows)->toHaveCount(2)
+        ->and($rows[0]['label'])->toBe('What should I play?')
+        ->and($rows[0]['role'])->toBe('TextView')
+        ->and($rows[1]['role'])->toBe('StaticText');
+});

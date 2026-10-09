@@ -176,6 +176,50 @@ it('finds a field named only by its placeholder where it was tapped, once text r
         ->and($finder->holds($empty, 'Search artist or title…', $field, 'Talk'))->toBeFalse();
 });
 
+it('confirms a secure field by one bullet per typed character', function () {
+    // Captured from CollectShine's sign-in screen on an iOS 26.5 Simulator. iOS reports a
+    // secure field's text masked, until "Show password" turns it into a plain field.
+    $fixtures = dirname(__DIR__).'/Fixtures';
+    $empty = AccessibilityTree::summarize((string) file_get_contents($fixtures.'/ios-secure-field-empty.json'));
+    $typed = AccessibilityTree::summarize((string) file_get_contents($fixtures.'/ios-secure-field-typed.json'));
+    $revealed = AccessibilityTree::summarize((string) file_get_contents($fixtures.'/ios-secure-field-revealed.json'));
+    $finder = new ElementFinder;
+
+    $field = $finder->match($empty, 'Password');
+
+    expect($field['secure'])->toBeTrue()
+        ->and($finder->valueOf($typed, 'Password'))->toBe('••••••')
+        ->and($finder->holds($typed, 'Password', $field, 'secret'))->toBeTrue()
+        ->and($finder->holds($typed, 'Password', $field, 'secre'))->toBeFalse()
+        ->and($finder->holds($empty, 'Password', $field, 'secret'))->toBeFalse()
+        ->and($finder->valueOf($revealed, 'Password'))->toBe('secret')
+        ->and($finder->holds($revealed, 'Password', $field, 'secret'))->toBeTrue()
+        ->and($finder->holds($revealed, 'Password', $field, 'secrets'))->toBeFalse();
+});
+
+it('compares a field that is not secure as typed, even against bullets', function () use ($button) {
+    $field = $button('Code', null, [200, 300], 'TextField') + ['value' => '••••••'];
+
+    expect((new ElementFinder)->holds([$field], 'Code', $field, 'secret'))->toBeFalse();
+});
+
+it('finds an editor named by the placeholder drawn over it, once text replaces the placeholder', function () {
+    // Captured from CollectShine's chat composer on an iOS 26.5 Simulator. The editor has
+    // no label, and its placeholder is a separate caption laid over it.
+    $fixtures = dirname(__DIR__).'/Fixtures';
+    $empty = AccessibilityTree::summarize((string) file_get_contents($fixtures.'/ios-placeholder-editor-empty.json'));
+    $typed = AccessibilityTree::summarize((string) file_get_contents($fixtures.'/ios-placeholder-editor-typed.json'));
+    $finder = new ElementFinder;
+
+    $field = $finder->match($empty, 'What should I play tonight?');
+
+    expect($field['role'])->toBe('TextView')
+        ->and($finder->sees($typed, 'What should I play tonight?'))->toBeFalse()
+        ->and($finder->holds($typed, 'What should I play tonight?', $field, 'What should I play?'))->toBeTrue()
+        ->and($finder->holds($typed, 'What should I play tonight?', $field, 'What should I play'))->toBeFalse()
+        ->and($finder->holds($empty, 'What should I play tonight?', $field, 'What should I play?'))->toBeFalse();
+});
+
 it('reads the field nearest where it was tapped, not any field holding the text', function () use ($button) {
     $field = $button('Password', null, [200, 300], 'TextField');
 

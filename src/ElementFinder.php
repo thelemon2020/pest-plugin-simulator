@@ -190,13 +190,16 @@ final class ElementFinder
      * while it is empty. Once text goes in, nothing in the tree carries that name, so the
      * field is found again as the text field nearest where it was tapped.
      *
-     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}, value?: ?string}>  $elements
+     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}, value?: ?string, secure?: bool}>  $elements
      * @param  array{label: string, role: ?string, id: ?string, center: array{0: float, 1: float}, value?: ?string}  $field
      */
     public function holds(array $elements, string $target, array $field, string $value): bool
     {
-        if ($this->hasValue($elements, $target, $value)) {
-            return true;
+        try {
+            if ($this->shows($this->match($elements, $target), $value)) {
+                return true;
+            }
+        } catch (NoMatch) {
         }
 
         if (! in_array($field['role'], self::TEXT_ROLES, true)) {
@@ -221,7 +224,22 @@ final class ElementFinder
             }
         }
 
-        return $nearest !== null && $this->value($nearest) === $value;
+        return $nearest !== null && $this->shows($nearest, $value);
+    }
+
+    /**
+     * iOS reads a secure field back as one bullet per character until it is shown, so
+     * that is all a typed password can be checked against.
+     *
+     * @param  array{label: string, role: ?string, value?: ?string, secure?: bool}  $field
+     */
+    private function shows(array $field, string $value): bool
+    {
+        if (($field['secure'] ?? false) === true) {
+            $value = str_repeat("\u{2022}", mb_strlen($value));
+        }
+
+        return $this->value($field) === $value;
     }
 
     /**
