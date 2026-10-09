@@ -541,12 +541,23 @@ it('lists the shared emulators again once another device has booted in between',
     });
 });
 
-it('checks the shared simulator again when a screen command fails on it', function () {
+it('boots the shared simulator again when a screen command finds it gone', function () {
     withWorker(null, function (): void {
         [$command, $driver] = iosWorker(simulatorJson());
+        $state = 'Booted';
         $opens = 0;
-        $command->responder = function (string $binary, array $arguments) use (&$opens): ?string {
+        $command->responder = function (string $binary, array $arguments) use (&$state, &$opens): ?string {
+            if (in_array('-j', $arguments, true)) {
+                return simulatorJson(phone: $state);
+            }
+
+            if ($arguments === ['simctl', 'boot', 'SOURCE']) {
+                $state = 'Booted';
+            }
+
             if (in_array('openurl', $arguments, true) && ++$opens === 1) {
+                $state = 'Shutdown';
+
                 throw new SimulatorException('Unable to lookup in current state: Shutdown');
             }
 
@@ -557,7 +568,21 @@ it('checks the shared simulator again when a screen command fails on it', functi
         $driver->open('app://screen');
 
         expect($opens)->toBe(2)
-            ->and(simulatorListings($command))->toBe(2);
+            ->and(simulatorListings($command))->toBe(3)
+            ->and($command->calls)->toContain(['xcrun', ['simctl', 'boot', 'SOURCE']]);
+    });
+});
+
+it('lets a screen command fail when the shared simulator is still up', function () {
+    withWorker(null, function (): void {
+        [$command, $driver] = iosWorker(simulatorJson());
+        $command->failures = ['openurl' => 'No application is registered for that URL'];
+
+        $driver->ensureReady();
+
+        expect(fn () => $driver->open('app://screen'))->toThrow(SimulatorException::class, 'No application is registered')
+            ->and(simulatorListings($command))->toBe(2)
+            ->and(array_values(array_filter($command->calls, fn (array $call): bool => in_array('openurl', $call[1], true))))->toHaveCount(1);
     });
 });
 
@@ -572,13 +597,75 @@ it('lets a screen command fail on a simulator it has not brought up', function (
     });
 });
 
-it('checks the shared emulator again when a screen command fails on it', function () {
+it('grants permissions again once the shared simulator it found gone is booted', function () {
+    withWorker(null, function (): void {
+        Configuration::configure(['bundle_id' => 'com.example.app']);
+        [$command, $driver] = iosWorker(simulatorJson());
+        $state = 'Booted';
+        $grants = 0;
+        $command->responder = function (string $binary, array $arguments) use (&$state, &$grants): ?string {
+            if (in_array('-j', $arguments, true)) {
+                return simulatorJson(phone: $state);
+            }
+
+            if ($arguments === ['simctl', 'boot', 'SOURCE']) {
+                $state = 'Booted';
+            }
+
+            if (in_array('privacy', $arguments, true) && ++$grants === 1) {
+                $state = 'Shutdown';
+
+                throw new SimulatorException('Unable to lookup in current state: Shutdown');
+            }
+
+            return null;
+        };
+
+        $driver->ensureReady();
+        $driver->grant(['location']);
+
+        expect($grants)->toBe(2)
+            ->and($command->calls)->toContain(['xcrun', ['simctl', 'boot', 'SOURCE']]);
+    });
+});
+
+it('trusts no shared simulator once another device failed part-way through getting ready', function () {
+    withWorker(null, function (): void {
+        $socket = new ScriptedSocket;
+        $command = recordingClones($socket, simulatorJson());
+        $clones = $command->responder;
+        $command->responder = function (string $binary, array $arguments) use ($clones): ?string {
+            if (in_array('PAD', $arguments, true) && (in_array('get_app_container', $arguments, true) || in_array('native:run', $arguments, true))) {
+                throw new SimulatorException('The iPad build failed.');
+            }
+
+            return $clones($binary, $arguments);
+        };
+        $configuration = Configuration::resolve();
+        $phone = new IosDriver(new Device('ios', 'iPhone 17', true), $configuration, $command, $socket);
+        $pad = new IosDriver(new Device('ios', 'iPad Air', true), $configuration, $command, $socket);
+
+        $phone->ensureReady();
+
+        expect(fn () => $pad->ensureReady())->toThrow(SimulatorException::class, 'The iPad build failed.');
+
+        $phone->ensureReady();
+
+        expect(simulatorListings($command))->toBe(3);
+    });
+});
+
+it('boots the shared emulator again when a screen command finds it gone', function () {
     withWorker(null, function (): void {
         $command = bootRecorder(alreadyRunning: true);
         $boot = $command->responder;
         $opens = 0;
         $command->responder = function (string $binary, array $arguments) use ($boot, &$opens): ?string {
             if (in_array('am', $arguments, true) && in_array('start', $arguments, true) && ++$opens === 1) {
+                throw new SimulatorException("adb: device 'emulator-5558' not found");
+            }
+
+            if (in_array('get-state', $arguments, true)) {
                 throw new SimulatorException("adb: device 'emulator-5558' not found");
             }
 
@@ -592,6 +679,89 @@ it('checks the shared emulator again when a screen command fails on it', functio
 
         expect($opens)->toBe(2)
             ->and(emulatorListings($command))->toBe(2);
+    });
+});
+
+it('lets a screen command fail when the shared emulator is still up', function () {
+    withWorker(null, function (): void {
+        $command = bootRecorder(alreadyRunning: true);
+        $boot = $command->responder;
+        $command->responder = function (string $binary, array $arguments) use ($boot): ?string {
+            if (in_array('am', $arguments, true) && in_array('start', $arguments, true)) {
+                throw new SimulatorException('Activity not started, unable to resolve Intent');
+            }
+
+            if (in_array('get-state', $arguments, true)) {
+                return "device\n";
+            }
+
+            return $boot($binary, $arguments);
+        };
+        Configuration::configure(['bundle_id' => 'com.example.app']);
+        $driver = new AndroidDriver(new Device('android', 'Pixel 8', true), Configuration::resolve(), $command);
+
+        $driver->ensureReady();
+
+        expect(fn () => $driver->open('app://screen'))->toThrow(SimulatorException::class, 'unable to resolve Intent')
+            ->and(emulatorListings($command))->toBe(1);
+    });
+});
+
+it('boots the shared emulator again before recording on one that has gone', function () {
+    withWorker(null, function (): void {
+        $command = bootRecorder(alreadyRunning: true);
+        $boot = $command->responder;
+        $gone = false;
+        $command->responder = function (string $binary, array $arguments) use ($boot, &$gone): ?string {
+            if (in_array('get-state', $arguments, true)) {
+                return $gone ? throw new SimulatorException("adb: device 'emulator-5558' not found") : "device\n";
+            }
+
+            return $boot($binary, $arguments);
+        };
+        $driver = new AndroidDriver(new Device('android', 'Pixel 8', true), Configuration::resolve(), $command);
+
+        $driver->ensureReady();
+        $gone = true;
+        $driver->startRecording(sys_get_temp_dir().'/pest-recording.mp4');
+
+        $listings = array_keys(array_filter($command->calls, fn (array $call): bool => $call[1] === ['devices']));
+        $recordAt = array_key_first(array_filter($command->calls, fn (array $call): bool => in_array('screenrecord', $call[1], true)));
+
+        expect($listings)->toHaveCount(2)
+            ->and($listings[1])->toBeLessThan($recordAt);
+    });
+});
+
+it('trusts no shared emulator once another device failed part-way through getting ready', function () {
+    withWorker(null, function (): void {
+        $command = new RecordingCommand;
+        $command->responder = function (string $binary, array $arguments): ?string {
+            if ($arguments === ['devices']) {
+                return "List of devices attached\nemulator-5554\tdevice\nemulator-5556\tdevice\n";
+            }
+
+            if (in_array('name', $arguments, true)) {
+                return $arguments[1] === 'emulator-5554' ? "Pixel 8\nOK\n" : "Pixel Tablet\nOK\n";
+            }
+
+            if (in_array('native:run', $arguments, true) && in_array('emulator-5556', $arguments, true)) {
+                throw new SimulatorException('The tablet build failed.');
+            }
+
+            return null;
+        };
+        $configuration = Configuration::resolve();
+        $pixel = new AndroidDriver(new Device('android', 'Pixel 8', true), $configuration, $command);
+        $tablet = new AndroidDriver(new Device('android', 'Pixel Tablet', true), $configuration, $command);
+
+        $pixel->ensureReady();
+
+        expect(fn () => $tablet->ensureReady())->toThrow(SimulatorException::class, 'The tablet build failed.');
+
+        $pixel->ensureReady();
+
+        expect(emulatorListings($command))->toBe(3);
     });
 });
 
@@ -646,12 +816,12 @@ function resetDriverState(): void
 /**
  * @param  list<array{name: string, udid: string, state: string, isAvailable: bool}>  $also
  */
-function simulatorJson(array $also = []): string
+function simulatorJson(array $also = [], string $phone = 'Booted'): string
 {
     return (string) json_encode([
         'devices' => [
             'com.apple.CoreSimulator.SimRuntime.iOS-26-0' => [
-                ['name' => 'iPhone 17', 'udid' => 'SOURCE', 'state' => 'Booted', 'isAvailable' => true],
+                ['name' => 'iPhone 17', 'udid' => 'SOURCE', 'state' => $phone, 'isAvailable' => true],
                 ['name' => 'iPad Air', 'udid' => 'PAD', 'state' => 'Booted', 'isAvailable' => true],
                 ...$also,
             ],

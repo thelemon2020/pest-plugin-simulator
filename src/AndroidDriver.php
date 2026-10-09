@@ -4,11 +4,12 @@ declare(strict_types=1);
 
 namespace NativePhp\Simulator;
 
-use Closure;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 
 final class AndroidDriver implements Driver
 {
+    use RemembersReadiness;
+
     private const RECORDING = '/sdcard/pest-simulator-recording.mp4';
 
     private static array $built = [];
@@ -19,15 +20,6 @@ final class AndroidDriver implements Driver
 
     /** @var array<string, true> */
     private static array $wiped = [];
-
-    /**
-     * The driver whose shared emulator was brought up last. screen() asks for readiness
-     * on every call, and the boot path runs `adb devices` plus `adb emu avd name` for
-     * every emulator each time. Only another driver booting its own device can take this
-     * one's down, because booting a named device kills the others, so until one does
-     * there is nothing to ask adb again.
-     */
-    private static ?self $ready = null;
 
     private ?string $serial = null;
 
@@ -53,6 +45,9 @@ final class AndroidDriver implements Driver
         if ($parallel) {
             $this->bootForWorker();
         } elseif (self::$ready !== $this) {
+            // Booting kills the other emulators. If anything after that fails, the driver
+            // trusted until now would skip its boot path against one that has exited.
+            self::$ready = null;
             $this->bootShared();
         }
 
@@ -64,25 +59,15 @@ final class AndroidDriver implements Driver
     }
 
     /**
-     * Runs one of screen()'s per-test device commands. ensureReady() trusts an emulator
-     * it brought up earlier without asking adb again, so one that exited since would fail
-     * here; check again, relaunching it if it has to, and try once more, as the boot path
-     * did on every screen() before readiness was remembered.
-     *
-     * @param  Closure(): void  $command
+     * adb answers "device" for an emulator that is up, and fails for a serial that has
+     * gone.
      */
-    private function recovering(Closure $command): void
+    private function alive(): bool
     {
         try {
-            $command();
-        } catch (SimulatorException $exception) {
-            if (self::$ready !== $this) {
-                throw $exception;
-            }
-
-            self::$ready = null;
-            $this->ensureReady();
-            $command();
+            return trim($this->command->run($this->adb(), ['-s', $this->serial(), 'get-state'])) === 'device';
+        } catch (SimulatorException) {
+            return false;
         }
     }
 
@@ -389,6 +374,9 @@ final class AndroidDriver implements Driver
 
     public function startRecording(string $path): void
     {
+        // record() comes before screen(), and screenrecord started against an emulator
+        // that has gone writes nothing without failing here.
+        $this->revive();
         $this->recordingPath = $path;
         // screenrecord will not write more than 180 seconds.
         $this->recordingPid = $this->command->start($this->adb(), [
@@ -424,12 +412,12 @@ final class AndroidDriver implements Driver
 
     public function grant(array $services): void
     {
-        $this->permission('grant', $services);
+        $this->recovering(fn () => $this->permission('grant', $services));
     }
 
     public function revoke(array $services): void
     {
-        $this->permission('revoke', $services);
+        $this->recovering(fn () => $this->permission('revoke', $services));
     }
 
     /**
