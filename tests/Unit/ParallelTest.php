@@ -474,6 +474,30 @@ it('lists the shared simulators again once another device has booted in between'
     });
 });
 
+it('starts the companion again for a device whose companion another device replaced', function () {
+    withWorker(null, function (): void {
+        $socket = new ScriptedSocket;
+        $command = recordingClones($socket, simulatorJson());
+        $command->afterStop = function () use ($socket): void {
+            $socket->listening = false;
+        };
+        $configuration = Configuration::resolve();
+        $phone = new IosDriver(new Device('ios', 'iPhone 17', true), $configuration, $command, $socket);
+        $pad = new IosDriver(new Device('ios', 'iPad Air', true), $configuration, $command, $socket);
+
+        $phone->ensureReady();
+        $pad->ensureReady();
+        $phone->ensureReady();
+        $phone->ensureReady();
+
+        $startCalls = array_filter($command->calls, fn (array $call): bool => ($call[1][0] ?? null) === '--udid');
+        $lastKillAt = array_key_last(array_filter($command->calls, fn (array $call): bool => $call[0] === 'kill'));
+
+        expect(array_values(array_map(fn (array $call): string => $call[1][1], $startCalls)))->toBe(['SOURCE', 'PAD', 'SOURCE'])
+            ->and($lastKillAt)->toBeLessThan(array_key_last($startCalls));
+    });
+});
+
 it('lists the shared emulators once, not on every screen', function () {
     withWorker(null, function (): void {
         $command = bootRecorder(alreadyRunning: true);
