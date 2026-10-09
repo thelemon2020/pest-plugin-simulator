@@ -32,6 +32,17 @@ final class Screen
      */
     private const SCROLL_SECONDS = 0.6;
 
+    /**
+     * How long after a sheet first shows up in a read to wait before touching the screen
+     * (see presented()): twice the 0.4 seconds a tap into one took to land.
+     */
+    private const SHEET_SECONDS = 0.8;
+
+    /**
+     * When a read first had the sheet that is up now, or null when the last read had none.
+     */
+    private ?float $sheetSeen = null;
+
     public function tap(string $label): self
     {
         $match = $this->locate($label, 'tap');
@@ -212,6 +223,7 @@ final class Screen
     private function drag(array $gesture, float $seconds): void
     {
         [$x1, $y1, $x2, $y2] = $gesture;
+        $this->presented();
         $this->driver->swipe($x1, $y1, $x2, $y2, $this->seconds($seconds));
         $this->settle();
     }
@@ -674,7 +686,7 @@ final class Screen
             $button = $this->finder->openDialogButton($elements);
 
             if ($button === null) {
-                return $elements;
+                break;
             }
 
             $this->driver->tap((float) $button['center'][0], (float) $button['center'][1]);
@@ -686,7 +698,33 @@ final class Screen
             $elements = $this->driver->describe();
         }
 
+        $this->sheetSeen = $this->finder->hasSheet($elements) ? ($this->sheetSeen ?? microtime(true)) : null;
+
         return $elements;
+    }
+
+    /**
+     * Wait out a sheet that is still sliding in before touching the screen.
+     *
+     * iOS drops every touch while a sheet presents. The tree cannot show it: from the first
+     * read that has the sheet, every frame in it is already where the sheet will stop, so
+     * two identical reads (settle()) pass at once. On an iPhone 17 Pro a tap into the sheet
+     * landed from 0.4 seconds after that first read, and was dropped at 0.3.
+     *
+     * Closing a sheet needs no wait: the tree keeps the sheet until it has slid away, and a
+     * tap sent the moment it left the tree landed.
+     */
+    private function presented(): void
+    {
+        if ($this->sheetSeen === null || $this->timeoutSeconds <= 0) {
+            return;
+        }
+
+        $left = $this->sheetSeen + self::SHEET_SECONDS - microtime(true);
+
+        if ($left > 0) {
+            usleep((int) round($left * 1_000_000));
+        }
     }
 
     /**
@@ -752,6 +790,8 @@ final class Screen
             }
 
             if ($scroll === null) {
+                $this->presented();
+
                 return $match;
             }
 

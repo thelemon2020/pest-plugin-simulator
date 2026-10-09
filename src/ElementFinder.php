@@ -464,6 +464,23 @@ final class ElementFinder
     }
 
     /**
+     * An iOS sheet is up: the dimming view it lays over the screen behind it. iOS names that
+     * view by its class and gives it an identifier, neither of them translated.
+     *
+     * @param  list<array{label: string, role: ?string, id: ?string}>  $elements
+     */
+    public function hasSheet(array $elements): bool
+    {
+        foreach ($elements as $element) {
+            if (($element['role'] ?? null) === 'UIDimmingView' || ($element['id'] ?? null) === 'PopoverDismissRegion') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}}>  $elements
      */
     public function describe(array $elements): string
