@@ -232,6 +232,20 @@ it('keeps the display when a scrolled page is taller than the glass', function (
     expect(AccessibilityTree::viewport($json))->toBe([402.0, 874.0]);
 });
 
+it('keeps the display when a sheet dims past every edge of it', function () {
+    // A sheet's dimming view, as iOS 26 reads it: three screens wide and tall, centered.
+    $json = (string) json_encode([
+        'type' => 'Application',
+        'frame' => ['x' => 0, 'y' => 0, 'width' => 402, 'height' => 874],
+        'children' => [
+            ['type' => 'UIDimmingView', 'label' => 'dismiss popup', 'frame' => ['x' => -402, 'y' => -874, 'width' => 1206, 'height' => 2622]],
+        ],
+    ]);
+
+    expect(AccessibilityTree::viewport($json))->toBe([402.0, 874.0])
+        ->and(AccessibilityTree::viewport((string) file_get_contents(dirname(__DIR__).'/Fixtures/ios-note-sheet-over-tab-bar.json')))->toBe([402.0, 874.0]);
+});
+
 it('keeps a control that only has an accessibility id', function () {
     $rows = AccessibilityTree::summarize((string) json_encode([
         ['type' => 'Button', 'AXUniqueId' => 'save-button', 'AXFrame' => '{{10, 20}, {40, 40}}'],

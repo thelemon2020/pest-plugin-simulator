@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use NativePhp\Simulator\AccessibilityTree;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 use NativePhp\Simulator\Gesture;
 use NativePhp\Simulator\Screen;
@@ -383,6 +384,20 @@ it('scrolls a row out from under the nav bar', function () {
     expect($driver->swipes)->toHaveCount(1)
         ->and($driver->swipes[0][3])->toBeGreaterThan($driver->swipes[0][1])
         ->and($driver->taps)->toBe([[100.0, 400.0]]);
+});
+
+it('taps a chip in a sheet over a tab bar where it is', function () {
+    // CollectShine's note sheet. Its dimming view reaches a screen past every edge, and read
+    // as the display it doubled the viewport: the tab bar fell in the top half, and the chip
+    // under it was "above the screen".
+    $json = (string) file_get_contents(dirname(__DIR__).'/Fixtures/ios-note-sheet-over-tab-bar.json');
+    $driver = new FakeDriver([AccessibilityTree::summarize($json)]);
+    $driver->viewport = AccessibilityTree::viewport($json);
+
+    (new Screen($driver, timeoutSeconds: 0))->tap('😌 Chill');
+
+    expect($driver->swipes)->toBe([])
+        ->and(array_map(fn (float $axis): float => round($axis, 1), $driver->taps[0]))->toBe([59.2, 487.0]);
 });
 
 it('scrolls a row on screen before swiping from it', function () {
