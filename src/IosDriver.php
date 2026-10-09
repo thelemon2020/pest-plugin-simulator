@@ -644,10 +644,14 @@ final class IosDriver implements Driver
 
     private function startCompanion(): void
     {
-        if ($this->client !== null) {
+        // A suite naming two devices alternates them test by test, and the other driver
+        // stops this one's companion to start its own. A Client kept from before that
+        // talks to a port where nothing, or the other device's companion, now listens.
+        if ($this->client !== null && self::$companionSimulator === $this->udid) {
             return;
         }
 
+        $this->client = null;
         $simulator = $this->udid();
         $port = $this->companionPort($simulator);
 

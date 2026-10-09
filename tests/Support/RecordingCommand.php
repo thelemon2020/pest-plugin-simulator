@@ -29,6 +29,8 @@ final class RecordingCommand extends Command
 
     public ?Closure $afterStart = null;
 
+    public ?Closure $afterStop = null;
+
     public bool $alive = true;
 
     public bool $exited = true;
@@ -85,6 +87,10 @@ final class RecordingCommand extends Command
     public function stop(int $pid): void
     {
         $this->calls[] = ['kill', [(string) $pid]];
+
+        if ($this->afterStop !== null) {
+            ($this->afterStop)();
+        }
     }
 
     public function interrupt(int $pid): void
