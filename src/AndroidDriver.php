@@ -634,7 +634,7 @@ final class AndroidDriver implements Driver
         array_push($arguments, '--build=debug', '--no-tty');
 
         try {
-            $this->command->run('php', $arguments, $this->configuration->appDirectory(), Command::BUILD_TIMEOUT);
+            $this->command->run('php', $arguments, $this->configuration->appDirectory());
         } catch (SimulatorException $exception) {
             // NativePHP kills ./gradlew at 600s. On a cold CI runner that
             // lands in the middle of the native compile, and the next
@@ -643,7 +643,7 @@ final class AndroidDriver implements Driver
                 throw $exception;
             }
 
-            $this->command->run('php', $arguments, $this->configuration->appDirectory(), Command::BUILD_TIMEOUT);
+            $this->command->run('php', $arguments, $this->configuration->appDirectory());
         }
 
         self::$built[$key] = true;
