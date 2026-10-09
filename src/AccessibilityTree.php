@@ -7,7 +7,7 @@ namespace NativePhp\Simulator;
 final class AccessibilityTree
 {
     /**
-     * @return list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}, value: ?string, enabled: bool, selected: bool, checked: bool, chrome: ?string, webview: bool}>
+     * @return list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}, value: ?string, enabled: bool, selected: bool, checked: bool, chrome: ?string, webview: bool, carousel: ?array{0: float, 1: float, 2: float, 3: float}}>
      */
     public static function summarize(string $json): array
     {
@@ -78,6 +78,7 @@ final class AccessibilityTree
                 'checked' => self::checked($node, $role),
                 'chrome' => $chrome,
                 'webview' => $role === 'WebView',
+                'carousel' => is_array($node['__carousel'] ?? null) ? $node['__carousel'] : null,
             ];
         }
 
@@ -412,8 +413,9 @@ final class AccessibilityTree
     /**
      * @param  array<mixed>  $node
      * @param  list<array<mixed>>  $nodes
+     * @param  array{0: float, 1: float, 2: float, 3: float}|null  $carousel
      */
-    private static function walk(array $node, array &$nodes, ?string $chrome = null): void
+    private static function walk(array $node, array &$nodes, ?string $chrome = null, ?array $carousel = null): void
     {
         $own = self::chrome($node);
 
@@ -423,7 +425,100 @@ final class AccessibilityTree
 
         $chrome = $own ?? $chrome;
         $node['__chrome'] = $chrome;
+        $node['__carousel'] = $carousel;
         $nodes[] = $node;
+
+        if (self::scrollsSideways($node)) {
+            $carousel = self::frame($node);
+        }
+
+        foreach (self::children($node) as $child) {
+            self::walk($child, $nodes, $chrome, $carousel);
+        }
+    }
+
+    /**
+     * A scroll view that moves sideways, like a row of chips or cards. Screen drags inside
+     * its frame to reach a card past its edge, and drags nothing that is not in one,
+     * because a sideways drag on a list row can open its swipe actions.
+     *
+     * iOS gives a scroll view a "Horizontal scroll bar" indicator when it scrolls that
+     * way. Without one (a view that hides its indicators, or another language), it still
+     * scrolls sideways when its content reaches past its own left or right edge. A
+     * nested scroll view clips its own content, so only its frame counts.
+     *
+     * Android's dump has no hierarchy here and leaves out what is off screen, so nothing
+     * on Android is a carousel.
+     *
+     * @param  array<mixed>  $node
+     */
+    private static function scrollsSideways(array $node): bool
+    {
+        $frame = self::frame($node);
+
+        if ($frame === null || ! self::scrolls($node)) {
+            return false;
+        }
+
+        foreach (self::children($node) as $child) {
+            if (self::indicator($child) && str_contains(strtolower((string) ($child['label'] ?? $child['AXLabel'] ?? '')), 'horizontal')) {
+                return true;
+            }
+        }
+
+        return self::overflowsSideways($node, $frame);
+    }
+
+    /**
+     * @param  array<mixed>  $node
+     * @param  array{0: float, 1: float, 2: float, 3: float}  $frame
+     */
+    private static function overflowsSideways(array $node, array $frame): bool
+    {
+        foreach (self::children($node) as $child) {
+            if (self::indicator($child)) {
+                continue;
+            }
+
+            $inner = self::frame($child);
+
+            if ($inner !== null && ($inner[0] < $frame[0] - 1 || $inner[0] + $inner[2] > $frame[0] + $frame[2] + 1)) {
+                return true;
+            }
+
+            if (! self::scrolls($child) && self::overflowsSideways($child, $frame)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  array<mixed>  $node
+     */
+    private static function scrolls(array $node): bool
+    {
+        $type = strtolower((string) ($node['type'] ?? $node['role'] ?? $node['AXRole'] ?? ''));
+
+        return (str_contains($type, 'scrollview') || str_contains($type, 'collectionview')) && ! self::indicator($node);
+    }
+
+    /**
+     * @param  array<mixed>  $node
+     */
+    private static function indicator(array $node): bool
+    {
+        return str_contains(strtolower((string) ($node['type'] ?? $node['role'] ?? '')), 'scrollindicator');
+    }
+
+    /**
+     * @param  array<mixed>  $node
+     * @return list<array<mixed>>
+     */
+    private static function children(array $node): array
+    {
+        $children = [];
 
         foreach (['children', 'AXChildren', 'nodes', 'elements'] as $key) {
             if (! isset($node[$key]) || ! is_array($node[$key])) {
@@ -432,10 +527,12 @@ final class AccessibilityTree
 
             foreach ($node[$key] as $child) {
                 if (is_array($child)) {
-                    self::walk($child, $nodes, $chrome);
+                    $children[] = $child;
                 }
             }
         }
+
+        return $children;
     }
 
     /**

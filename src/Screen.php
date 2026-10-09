@@ -733,6 +733,10 @@ final class Screen
 
             [$where, $gesture] = $scroll;
 
+            if ($gesture === null) {
+                $this->fail("Found [{$label}] to {$action}, but it is {$where} the screen, and nothing it sits in scrolls sideways.", $elements);
+            }
+
             if ($scrolls >= self::SCROLL_ATTEMPTS || ($scrolls > 0 && $this->timeoutSeconds > 0 && microtime(true) >= $deadline)) {
                 $this->fail($where === null
                     ? "Scrolled {$search} ".($scrolls === 1 ? 'once' : "{$scrolls} times")." and did not find [{$label}]."
@@ -751,13 +755,14 @@ final class Screen
      * when it is already on screen. A nav bar or tab bar's own controls never move, so they
      * are never scrolled toward.
      *
-     * Up and down come first. A card past the left or right edge is then dragged sideways
-     * on its own row, so the carousel it sits in moves, not whatever is at the middle of
-     * the screen.
+     * Up and down come first. A card past the edge of the carousel it sits in is then
+     * dragged sideways inside that carousel. A control past the edge of the screen in
+     * nothing that scrolls sideways gets no drag (a null gesture): a sideways drag on a
+     * list row can open its swipe actions.
      *
-     * @param  array{label: string, role: ?string, id: ?string, center: array{0: float|int, 1: float|int}, chrome?: ?string}  $match
+     * @param  array{label: string, role: ?string, id: ?string, center: array{0: float|int, 1: float|int}, chrome?: ?string, carousel?: ?array{0: float, 1: float, 2: float, 3: float}}  $match
      * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}}>  $elements
-     * @return array{0: string, 1: array{0: float, 1: float, 2: float, 3: float}}|null
+     * @return array{0: string, 1: array{0: float, 1: float, 2: float, 3: float}|null}|null
      */
     private function toward(array $match, array $elements): ?array
     {
@@ -778,15 +783,43 @@ final class Screen
                 : ['above', Gesture::scroll('up', $width, $height, $distance)];
         }
 
-        if ($x < 0 || $x > $width) {
-            $distance = $this->span($x, $width / 2, $width);
+        [$left, $right] = $this->across($match);
 
-            return $x > $width
-                ? ['to the right of', Gesture::swipe('left', $width, $height, $width * 0.75, $y, $distance)]
-                : ['to the left of', Gesture::swipe('right', $width, $height, $width * 0.25, $y, $distance)];
+        if ($x < $left || $x > $right) {
+            $where = $x > $right ? 'to the right of' : 'to the left of';
+
+            if (! is_array($match['carousel'] ?? null)) {
+                return [$where, null];
+            }
+
+            $distance = $this->span($x, ($left + $right) / 2, $right - $left);
+
+            return [$where, Gesture::sideways($x > $right ? 'right' : 'left', $left, $right, $y, $distance)];
         }
 
         return null;
+    }
+
+    /**
+     * The part of the screen a control's carousel shows: its left and right edge, or the
+     * whole width when the control is in no carousel.
+     *
+     * @param  array{carousel?: ?array{0: float, 1: float, 2: float, 3: float}}  $element
+     * @return array{0: float, 1: float}
+     */
+    private function across(array $element): array
+    {
+        [$width] = $this->driver->viewport();
+        $carousel = $element['carousel'] ?? null;
+
+        if (! is_array($carousel)) {
+            return [0.0, $width];
+        }
+
+        $left = max(0.0, (float) $carousel[0]);
+        $right = min($width, (float) $carousel[0] + (float) $carousel[2]);
+
+        return $left < $right ? [$left, $right] : [0.0, $width];
     }
 
     /**

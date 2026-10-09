@@ -399,53 +399,83 @@ it('scrolls a row on screen before swiping from it', function () {
     ]);
 });
 
-it('drags a carousel sideways on its own row to a card past the right edge', function () {
+function card(string $label, float $x, float $y = 306.0): array
+{
+    // A row of day chips as iOS reads it: a ScrollView 370 wide, inset 16 from each edge.
+    return control($label, ['role' => 'StaticText', 'center' => [$x, $y], 'carousel' => [16.0, $y - 21.0, 370.0, 42.0]]);
+}
+
+it('drags a carousel sideways inside its own frame to a card past the right edge', function () {
     $driver = new FakeDriver([
-        [control('Card 5', ['center' => [600.0, 300.0]])],
-        [control('Card 5', ['center' => [200.0, 300.0]])],
+        [card('Sun', 427.0)],
+        [card('Sun', 300.0)],
     ]);
 
-    (new Screen($driver, timeoutSeconds: 0))->tap('Card 5');
+    (new Screen($driver, timeoutSeconds: 0))->tap('Sun');
 
-    expect($driver->swipes)->toBe([[...Gesture::swipe('left', 390, 844, 292.5, 300, 0.5), 0.6]])
-        ->and($driver->taps)->toBe([[200.0, 300.0]]);
+    expect($driver->swipes)->toBe([[...Gesture::sideways('right', 16, 386, 306, 0.5), 0.6]])
+        ->and($driver->taps)->toBe([[300.0, 306.0]]);
 });
 
 it('drags a carousel the other way to a card past the left edge', function () {
     $driver = new FakeDriver([
-        [control('Card 1', ['center' => [-150.0, 300.0]])],
-        [control('Card 1', ['center' => [150.0, 300.0]])],
+        [card('Mon', -50.0)],
+        [card('Mon', 46.0)],
     ]);
 
-    (new Screen($driver, timeoutSeconds: 0))->press('Card 1');
+    (new Screen($driver, timeoutSeconds: 0))->press('Mon');
 
-    expect($driver->swipes)->toBe([[...Gesture::swipe('right', 390, 844, 97.5, 300, 0.5), 0.6]])
-        ->and($driver->presses)->toBe([[150.0, 300.0, 0.8]]);
+    expect($driver->swipes)->toBe([[...Gesture::sideways('left', 16, 386, 306, 0.5), 0.6]])
+        ->and($driver->presses)->toBe([[46.0, 306.0, 0.8]]);
 });
 
-it('scrolls a carousel row on screen before dragging it sideways', function () {
+it('drags a card the carousel clips, even with its center on the glass', function () {
     $driver = new FakeDriver([
-        [control('Card 5', ['center' => [600.0, 1500.0]])],
-        [control('Card 5', ['center' => [600.0, 400.0]])],
-        [control('Card 5', ['center' => [200.0, 400.0]])],
+        [card('Sun', 388.0)],
+        [card('Sun', 300.0)],
     ]);
 
-    (new Screen($driver, timeoutSeconds: 0))->tap('Card 5');
+    (new Screen($driver, timeoutSeconds: 0))->tap('Sun');
+
+    expect($driver->swipes)->toHaveCount(1)
+        ->and($driver->taps)->toBe([[300.0, 306.0]]);
+});
+
+it('scrolls a carousel on screen before dragging it sideways', function () {
+    $driver = new FakeDriver([
+        [card('Sun', 427.0, 1500.0)],
+        [card('Sun', 427.0, 400.0)],
+        [card('Sun', 300.0, 400.0)],
+    ]);
+
+    (new Screen($driver, timeoutSeconds: 0))->tap('Sun');
 
     expect($driver->swipes)->toBe([
         [...Gesture::scroll('down', 390, 844, 0.5), 0.6],
-        [...Gesture::swipe('left', 390, 844, 292.5, 400, 0.5), 0.6],
-    ])->and($driver->taps)->toBe([[200.0, 400.0]]);
+        [...Gesture::sideways('right', 16, 386, 400, 0.5), 0.6],
+    ])->and($driver->taps)->toBe([[300.0, 400.0]]);
+});
+
+it('does not drag a control sideways when nothing it sits in scrolls that way', function () {
+    // A list row: a sideways drag here would open its swipe actions, not move anything.
+    $driver = new FakeDriver([[
+        control('Archive', ['center' => [500.0, 300.0]]),
+    ]]);
+
+    expect(fn () => (new Screen($driver, timeoutSeconds: 0, failureDirectory: sys_get_temp_dir().'/simulator-no-carousel-test'))
+        ->tap('Archive'))
+        ->toThrow(AssertionFailedError::class, 'Found [Archive] to tap, but it is to the right of the screen, and nothing it sits in scrolls sideways.');
+
+    expect($driver->swipes)->toBe([])
+        ->and($driver->taps)->toBe([]);
 });
 
 it('says a card stayed past the edge after eight scrolls', function () {
-    $driver = new FakeDriver([[
-        control('Card 9', ['center' => [2000.0, 300.0]]),
-    ]]);
+    $driver = new FakeDriver([[card('Sun', 2000.0)]]);
 
     expect(fn () => (new Screen($driver, timeoutSeconds: 0, failureDirectory: sys_get_temp_dir().'/simulator-off-edge-test'))
-        ->tap('Card 9'))
-        ->toThrow(AssertionFailedError::class, 'Found [Card 9] to tap, but it stayed to the right of the screen after 8 scrolls.');
+        ->tap('Sun'))
+        ->toThrow(AssertionFailedError::class, 'Found [Sun] to tap, but it stayed to the right of the screen after 8 scrolls.');
 
     expect($driver->swipes)->toHaveCount(8)
         ->and($driver->taps)->toBe([]);

@@ -22,6 +22,16 @@ it('swipes in the direction of the finger', function () {
         ->and(Gesture::swipe('left', 200, 400, 100, 80))->toBe([100.0, 80.0, 10.0, 80.0]);
 });
 
+it('scrolls a row sideways by dragging a finger across it', function () {
+    expect(Gesture::sideways('right', 16, 386, 306))->toBe([293.5, 306.0, 108.5, 306.0])
+        ->and(Gesture::sideways('left', 16, 386, 306))->toBe([108.5, 306.0, 293.5, 306.0])
+        ->and(Gesture::sideways('right', 0, 400, 50, 1.0))->toBe([300.0, 50.0, 1.0, 50.0]);
+});
+
+it('refuses a sideways scroll that is not left or right', function () {
+    Gesture::sideways('down', 0, 400, 50);
+})->throws(SimulatorException::class, 'Scroll [down] is not left or right.');
+
 it('scrolls a shorter distance when asked', function () {
     expect(Gesture::scroll('down', 390, 844, 0.25))->toBe([195.0, 633.0, 195.0, 422.0]);
 });

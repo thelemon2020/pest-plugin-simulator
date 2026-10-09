@@ -264,3 +264,73 @@ it('recognizes a web view', function () {
     expect($rows[0]['role'])->toBe('WebView')
         ->and($rows[0]['webview'])->toBeTrue();
 });
+
+/**
+ * The Schedule screen as AXBRIDGE read it on an iPhone 17 Pro, trimmed: a vertical page
+ * ScrollView holding a row of day chips in its own horizontal ScrollView, Sun past the edge.
+ *
+ * @param  list<array<string, mixed>>  $indicators
+ */
+function scheduleTree(array $indicators): string
+{
+    $frame = fn (float $x, float $y, float $width, float $height): array => ['x' => $x, 'y' => $y, 'width' => $width, 'height' => $height];
+    $days = [['Mon', 16, 60], ['Tue', 84, 55], ['Wed', 148, 62], ['Sun', 399, 56]];
+
+    return (string) json_encode(['elements' => [[
+        'type' => 'ScrollView',
+        'frame' => $frame(0, 0, 402, 874),
+        'children' => [
+            [
+                'type' => 'ScrollView',
+                'frame' => $frame(16, 285, 370, 42),
+                'children' => [
+                    [
+                        'type' => 'PlatformGroupContainer',
+                        'frame' => $frame(16, 285, 440, 42),
+                        'children' => array_map(fn (array $day): array => [
+                            'type' => 'StaticText',
+                            'label' => $day[0],
+                            'frame' => $frame($day[1], 285, $day[2], 42),
+                        ], $days),
+                    ],
+                    ...$indicators,
+                ],
+            ],
+            ['type' => 'Button', 'label' => 'Add a window', 'frame' => $frame(137, 417, 128, 35)],
+            ['type' => '_UIScrollViewScrollIndicator', 'label' => 'Vertical scroll bar, 1 page', 'frame' => $frame(369, 116, 30, 696)],
+        ],
+    ]]]);
+}
+
+it('marks a control inside a row that scrolls sideways', function () {
+    $rows = AccessibilityTree::summarize(scheduleTree([
+        ['type' => '_UIScrollViewScrollIndicator', 'label' => 'Horizontal scroll bar, 2 pages', 'frame' => ['x' => 16, 'y' => 303, 'width' => 370, 'height' => 21]],
+    ]));
+    $byLabel = array_column($rows, null, 'label');
+
+    expect($byLabel['Sun']['carousel'])->toBe([16.0, 285.0, 370.0, 42.0])
+        ->and($byLabel['Mon']['carousel'])->toBe([16.0, 285.0, 370.0, 42.0])
+        ->and($byLabel['Add a window']['carousel'])->toBeNull();
+});
+
+it('marks a row that scrolls sideways from its content when it has no scroll bar', function () {
+    $byLabel = array_column(AccessibilityTree::summarize(scheduleTree([])), null, 'label');
+
+    // The chips reach x 456 past their own ScrollView, but that ScrollView clips them, so
+    // the page around it still only scrolls up and down.
+    expect($byLabel['Sun']['carousel'])->toBe([16.0, 285.0, 370.0, 42.0])
+        ->and($byLabel['Add a window']['carousel'])->toBeNull();
+});
+
+it('marks nothing as a carousel on a page that only scrolls up and down', function () {
+    $rows = AccessibilityTree::summarize((string) json_encode(['elements' => [[
+        'type' => 'ScrollView',
+        'frame' => ['x' => 0, 'y' => 0, 'width' => 402, 'height' => 874],
+        'children' => [
+            ['type' => 'Button', 'label' => 'Row 1', 'frame' => ['x' => 0, 'y' => 100, 'width' => 402, 'height' => 44]],
+            ['type' => 'Button', 'label' => 'Row 40', 'frame' => ['x' => 0, 'y' => 1900, 'width' => 402, 'height' => 44]],
+        ],
+    ]]]));
+
+    expect(array_column($rows, 'carousel', 'label'))->toBe(['Row 1' => null, 'Row 40' => null]);
+});
