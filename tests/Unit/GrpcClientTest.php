@@ -143,6 +143,21 @@ it('does not try again when a fresh connection dies', function () {
         ->and($this->stub->requests())->toHaveCount(1);
 });
 
+it('does not send a stream again once the companion has taken it', function (Closure $send) {
+    $this->stub = StubCompanion::start([['messages' => ['first']], ['close' => true], ['messages' => ['second']]]);
+    $client = new Client($this->stub->url());
+
+    $client->unary('accessibility_info', 'one');
+
+    // The companion read the whole tap before the connection dropped, so sending it
+    // again would tap twice.
+    expect(fn () => $send($client))->toThrow(SimulatorException::class, 'Companion [hid] failed')
+        ->and($this->stub->requests())->toHaveCount(2);
+})->with([
+    'all at once' => [fn (Client $client) => $client->stream('hid', ['down', 'up'])],
+    'paced' => [fn (Client $client) => $client->streamPaced('hid', ['down', 'up'], 1_000)],
+]);
+
 it('keeps the whole gap when a signal interrupts it', function () {
     $this->stub = StubCompanion::start([['messages' => []]]);
     $previous = pcntl_signal_get_handler(SIGUSR1);
