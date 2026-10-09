@@ -426,3 +426,57 @@ it('stops scrolling toward a row when the timeout runs out', function () {
         ->and(count($driver->swipes))->toBeGreaterThan(0)->toBeLessThan(8)
         ->and($driver->taps)->toBe([]);
 });
+
+it('scrolls until a row the list has not drawn yet is on screen', function () {
+    $driver = new FakeDriver([
+        [control('Row 1')],
+        [control('Row 20')],
+        [control('Row 40', ['center' => [100.0, 600.0]])],
+    ]);
+
+    (new Screen($driver, timeoutSeconds: 0))->scrollTo('Row 40')->tap('Row 40');
+
+    expect($driver->swipes)->toBe([
+        [...Gesture::scroll('down', 390, 844, 0.5), 0.6],
+        [...Gesture::scroll('down', 390, 844, 0.5), 0.6],
+    ])->and($driver->taps)->toBe([[100.0, 600.0]]);
+});
+
+it('scrolls up to a row, and back toward it when it is drawn past the screen', function () {
+    $driver = new FakeDriver([
+        [control('Row 20')],
+        [control('Row 1', ['center' => [100.0, 1200.0]])],
+        [control('Row 1', ['center' => [100.0, 400.0]])],
+    ]);
+
+    (new Screen($driver, timeoutSeconds: 0))->scrollTo('Row 1', 'up');
+
+    expect($driver->swipes)->toBe([
+        [...Gesture::scroll('up', 390, 844, 0.5), 0.6],
+        [...Gesture::scroll('down', 390, 844, 0.5), 0.6],
+    ]);
+});
+
+it('does not scroll to a row that is already on screen', function () {
+    $driver = new FakeDriver([[control('Save')]]);
+
+    (new Screen($driver, timeoutSeconds: 0))->scrollTo('Save');
+
+    expect($driver->swipes)->toBe([]);
+});
+
+it('says scrollTo() did not find a row after eight scrolls', function () {
+    $driver = new FakeDriver([[control('Row 1')]]);
+
+    expect(fn () => (new Screen($driver, timeoutSeconds: 0, failureDirectory: sys_get_temp_dir().'/simulator-scroll-to-test'))
+        ->scrollTo('Row 40'))
+        ->toThrow(AssertionFailedError::class, 'Scrolled down 8 times and did not find [Row 40].');
+
+    expect($driver->swipes)->toHaveCount(8);
+});
+
+it('refuses to scrollTo() sideways', function () {
+    $driver = new FakeDriver([[control('Save')]]);
+
+    (new Screen($driver, timeoutSeconds: 0))->scrollTo('Save', 'left');
+})->throws(SimulatorException::class, 'Scroll [left] is not up or down.');

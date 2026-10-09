@@ -201,6 +201,8 @@ screen('/settings/edit')
 
 `tap()`, `press()`, `type()`, `clear()`, and `swipe('left', 'Item')` bring the control on screen first. They scroll down to a row below the fold, and up to a row above the screen. A row under the nav bar or tab bar counts as off screen. The bars' own controls do not. After 8 scrolls, or when the timeout runs out, the call fails and says the control stayed off screen.
 
+`scrollTo('Item')` scrolls down until that control is on screen. A long list does not draw a row until it is close, so `tap()` alone cannot find one far down. `scrollTo('Item', 'up')` scrolls up. After 8 scrolls, the call fails.
+
 `assertSee('Saved')` reads the screen. `assertSee('Save', 'Name')` checks both labels on that one read, and waits until a single read contains every label. When the wait ends, the failure names the labels still missing from that read. Another `assertSee()` reads again. A `tap()` after it reads again too, and uses that coordinate.
 
 `assertNavTitle()` reads the navigation bar. `assertTabActive()` reads the selected tab. `assertNavigatedTo('/settings')` passes when that path is an accessibility id, or when the navigation title is the last part of the path (`Settings`). `assertEnabled()`, `assertDisabled()`, and `assertChecked()` read those states from the same screen.
