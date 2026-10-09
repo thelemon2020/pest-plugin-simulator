@@ -201,7 +201,7 @@ screen('/settings/edit')
 
 `tap()`, `press()`, `type()`, `clear()`, and `swipe('left', 'Item')` bring the control on screen first. They scroll down to a row below the fold, and up to a row above the screen. A card past the edge of a row that scrolls sideways, like a carousel of chips, is dragged into view inside that row. A control past the edge of the screen in anything else fails instead of being dragged, because a sideways drag on a list row opens its swipe actions. A row under the nav bar or tab bar counts as off screen. The bars' own controls do not. After 8 scrolls, or when the timeout runs out, the call fails and says the control stayed off screen.
 
-`scrollTo('Item')` scrolls down until that control is on screen. A long list does not draw a row until it is close, so `tap()` alone cannot find one far down. `scrollTo('Item', 'up')` scrolls up. After 8 scrolls, the call fails.
+`scrollTo('Item')` scrolls down until that control is on screen. A long list does not draw a row until it is close, so `tap()` alone cannot find one far down. `scrollTo('Item', 'up')` scrolls up. `scrollTo('Sun', 'right')` and `scrollTo('Mon', 'left')` drag the row on screen that scrolls sideways. When more than one row does, name a control on the one to drag: `scrollTo('Sun', 'right', 'Mon')`. iOS reports which rows scroll sideways. Android does not, so on Android always name the row. After 8 scrolls, the call fails.
 
 `assertSee('Saved')` reads the screen. `assertSee('Save', 'Name')` checks both labels on that one read, and waits until a single read contains every label. When the wait ends, the failure names the labels still missing from that read. Another `assertSee()` reads again. A `tap()` after it reads again too, and uses that coordinate.
 
