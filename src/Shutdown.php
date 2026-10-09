@@ -16,33 +16,8 @@ final class Shutdown
 
     public static function defer(Closure $task): void
     {
+        self::trap();
         self::$tasks[] = $task;
-    }
-
-    /**
-     * Pest's terminate hook only runs when the suite ends on its own. A fatal
-     * error or Ctrl+C would leave idb_companion, emulators, and recordings
-     * running, so run the tasks then too.
-     *
-     * A run in one process swaps in PHPUnit's own SIGINT handler once tests
-     * start. It stops after the current test, and terminate runs the tasks.
-     */
-    public static function trap(): void
-    {
-        if (self::$trapped) {
-            return;
-        }
-
-        self::$trapped = true;
-        register_shutdown_function(self::run(...));
-
-        if (! function_exists('pcntl_async_signals')) {
-            return;
-        }
-
-        pcntl_async_signals(true);
-        pcntl_signal(SIGINT, self::interrupted(...));
-        pcntl_signal(SIGTERM, self::interrupted(...));
     }
 
     public static function run(): void
@@ -62,6 +37,36 @@ final class Shutdown
         self::$tasks = [];
     }
 
+    /**
+     * Pest's terminate hook only runs when the suite ends on its own. A fatal
+     * error or Ctrl+C would leave idb_companion, emulators, and recordings
+     * running, so run the tasks then too. This waits for the first task, so a
+     * process with nothing to clean up keeps PHP's own signal handling.
+     */
+    private static function trap(): void
+    {
+        if (self::$trapped) {
+            return;
+        }
+
+        self::$trapped = true;
+        register_shutdown_function(self::run(...));
+
+        if (! function_exists('pcntl_async_signals')) {
+            return;
+        }
+
+        pcntl_async_signals(true);
+
+        foreach ([SIGINT, SIGTERM] as $signal) {
+            // A run in one process already has PHPUnit's SIGINT handler. It
+            // stops after the current test, and terminate runs the tasks.
+            if (pcntl_signal_get_handler($signal) === SIG_DFL) {
+                pcntl_signal($signal, self::interrupted(...));
+            }
+        }
+    }
+
     private static function interrupted(int $signal): void
     {
         // PHP blocks every signal while a handler runs, and the commands the
@@ -73,8 +78,9 @@ final class Shutdown
 
         self::run();
 
-        // Die by the signal rather than exit(). exit() runs destructors, and
-        // in ParaTest's parent one SIGKILLs the workers mid-cleanup.
+        // Die by the signal itself, so whatever started this process sees an
+        // interrupted run, not one that exited. exit() would also run
+        // destructors, which can kill child processes mid-cleanup.
         if (function_exists('posix_kill')) {
             posix_kill(getmypid(), $signal);
         }
