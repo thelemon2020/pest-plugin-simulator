@@ -396,4 +396,4 @@ When Pest finishes, it shuts down the Simulator, Emulator, and `idb_companion` t
 
 A run stopped with Ctrl+C or `SIGTERM`, or one that dies of a fatal error, shuts them down too. Catching the signal needs PHP's `pcntl` extension.
 
-A `simctl`, `adb`, or other tool call that does not finish in 60 seconds is stopped, and the test fails naming that command. Booting, erasing, and shutting down a Simulator get 10 minutes. `native:run` gets 30.
+A `simctl`, `adb`, or other tool call that does not finish in 60 seconds is stopped, and the test fails naming that command. Listing, booting, erasing, and shutting down Simulators get 10 minutes. `native:run` gets 30.

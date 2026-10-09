@@ -129,7 +129,7 @@ it('skips a platform when its devices cannot be listed', function () {
 
     $catalog = new DeviceCatalog(new class extends Command
     {
-        public function run(string $binary, array $arguments, ?string $cwd = null, float $timeout = Command::TIMEOUT): string
+        public function run(string $binary, array $arguments, ?string $cwd = null, ?float $timeout = null): string
         {
             if (in_array('-list-avds', $arguments, true)) {
                 throw new SimulatorException('No Android AVD is installed.');

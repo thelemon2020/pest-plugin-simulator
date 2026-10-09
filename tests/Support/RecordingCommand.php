@@ -35,10 +35,10 @@ final class RecordingCommand extends Command
 
     public function __construct(private readonly string $container = '') {}
 
-    public function run(string $binary, array $arguments, ?string $cwd = null, float $timeout = Command::TIMEOUT): string
+    public function run(string $binary, array $arguments, ?string $cwd = null, ?float $timeout = null): string
     {
         $this->calls[] = [$binary, $arguments];
-        $this->timeouts[implode(' ', [$binary, ...$arguments])] = $timeout;
+        $this->timeouts[implode(' ', [$binary, ...$arguments])] = (float) ($timeout ?? Command::limit($arguments));
 
         if ($this->responder !== null) {
             $response = ($this->responder)($binary, $arguments);
