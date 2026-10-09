@@ -155,6 +155,21 @@ final class Screen
         return $this;
     }
 
+    /**
+     * scroll() until a control is on screen. A long list does not draw a row until it is
+     * near the screen, so tap() alone cannot find one further down.
+     */
+    public function scrollTo(string $label, string $direction = 'down'): self
+    {
+        if (! in_array($direction, ['up', 'down'], true)) {
+            throw new SimulatorException("Scroll [{$direction}] is not up or down.");
+        }
+
+        $this->locate($label, 'scroll to', $direction);
+
+        return $this;
+    }
+
     public function swipe(string $direction, ?string $from = null, ?float $distance = null, ?float $seconds = null): self
     {
         $originX = null;
@@ -661,24 +676,34 @@ final class Screen
      * A scroll view reports rows below the fold, and rows scrolled under a nav bar or tab
      * bar, at their real positions. A match alone can be a point past the glass or on a
      * bar, and a tap there lands on nothing, or on the bar, with no error. The next
-     * assertion then fails about something else. Every read and scroll shares one timeout.
+     * assertion then fails about something else.
+     *
+     * With $search set (scrollTo()), a label that is not in the tree yet scrolls that way
+     * instead of waiting for it. Every read and scroll shares one timeout.
      *
      * @return array{label: string, role: ?string, id: ?string, center: array{0: float|int, 1: float|int}}
      */
-    private function locate(string $label, string $action): array
+    private function locate(string $label, string $action, ?string $search = null): array
     {
         $deadline = microtime(true) + $this->timeoutSeconds;
         $scrolls = 0;
 
         while (true) {
             $elements = $this->until(
-                fn (array $visible): bool => $this->canMatch($visible, $label),
+                fn (array $visible): bool => $search !== null || $this->canMatch($visible, $label),
                 "Could not find [{$label}] to {$action}.",
                 $deadline,
             );
 
-            $match = $this->finder->match($elements, $label);
-            $scroll = $this->toward($match, $elements);
+            try {
+                $match = $this->finder->match($elements, $label);
+            } catch (NoMatch) {
+                $match = null;
+            } catch (AmbiguousMatch $ambiguous) {
+                $this->fail($ambiguous->getMessage(), $elements);
+            }
+
+            $scroll = $match === null ? [$search, null] : $this->toward($match, $elements);
 
             if ($scroll === null) {
                 return $match;
@@ -687,8 +712,11 @@ final class Screen
             [$direction, $distance] = $scroll;
 
             if ($scrolls >= self::SCROLL_ATTEMPTS || ($scrolls > 0 && $this->timeoutSeconds > 0 && microtime(true) >= $deadline)) {
-                $where = $direction === 'down' ? 'below' : 'above';
-                $this->fail("Found [{$label}] to {$action}, but it stayed {$where} the screen after ".($scrolls === 1 ? '1 scroll' : "{$scrolls} scrolls").'.', $elements);
+                $this->fail($match === null
+                    ? "Scrolled {$direction} ".($scrolls === 1 ? 'once' : "{$scrolls} times")." and did not find [{$label}]."
+                    : "Found [{$label}] to {$action}, but it stayed ".($direction === 'down' ? 'below' : 'above').' the screen after '.($scrolls === 1 ? '1 scroll' : "{$scrolls} scrolls").'.',
+                    $elements,
+                );
             }
 
             $this->drag($direction, $distance, self::SCROLL_SECONDS);
