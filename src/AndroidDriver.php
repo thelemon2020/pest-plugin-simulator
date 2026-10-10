@@ -147,10 +147,12 @@ final class AndroidDriver implements Driver
     private function openUrl(string $url): void
     {
         $bundle = $this->configuration->bundleId();
+        // adb joins the arguments into one line for the device shell, where an & in the
+        // query would end the command.
         $result = $this->command->run($this->adb(), [
             '-s', $this->serial(), 'shell', 'am', 'start',
             '-a', 'android.intent.action.VIEW',
-            '-d', $url,
+            '-d', escapeshellarg($url),
             $bundle,
         ]);
 
@@ -179,16 +181,40 @@ final class AndroidDriver implements Driver
             return $elements;
         }
 
-        foreach ($elements as $element) {
-            if ($element['role'] === 'Button' && $element['label'] === 'Wait' && is_array($element['center'] ?? null)) {
-                $this->tap((float) $element['center'][0], (float) $element['center'][1]);
-                usleep(1_000_000);
+        $wait = $this->notRespondingWait($elements);
 
-                return $this->dismissSystemDialog($this->elementsFrom($this->dumpHierarchy()), $attempt + 1);
+        if ($wait === null) {
+            return $elements;
+        }
+
+        $this->tap((float) $wait[0], (float) $wait[1]);
+        usleep(1_000_000);
+
+        return $this->dismissSystemDialog($this->elementsFrom($this->dumpHierarchy()), $attempt + 1);
+    }
+
+    /**
+     * The Wait button of an "isn't responding" dialog. Its resource id is the same in
+     * every language. The English label covers a dump that leaves the id out.
+     *
+     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}}>  $elements
+     * @return ?array{0: float, 1: float}
+     */
+    private function notRespondingWait(array $elements): ?array
+    {
+        foreach ($elements as $element) {
+            if ($element['id'] === 'android:id/aerr_wait' && is_array($element['center'] ?? null)) {
+                return $element['center'];
             }
         }
 
-        return $elements;
+        foreach ($elements as $element) {
+            if ($element['role'] === 'Button' && $element['label'] === 'Wait' && is_array($element['center'] ?? null)) {
+                return $element['center'];
+            }
+        }
+
+        return null;
     }
 
     private function dumpHierarchy(): string
@@ -250,6 +276,23 @@ final class AndroidDriver implements Driver
             ]);
             $remaining -= $count;
         }
+
+        $this->hideKeyboard();
+    }
+
+    /**
+     * The iOS Simulator types through a hardware keyboard, so no software keyboard covers
+     * the screen there. Android's stays up after typing and covers the lower part of the
+     * screen, and what is under it is not in the dump at all, so the next tap() could not
+     * find a button below the field. The form also moves up while it is open. Back closes
+     * only the keyboard while it is up. The field keeps its focus and its text.
+     */
+    private function hideKeyboard(): void
+    {
+        $this->command->run($this->adb(), [
+            '-s', $this->serial(), 'shell',
+            'if dumpsys input_method | grep mInputShown=true >/dev/null; then input keyevent 4; fi',
+        ]);
     }
 
     public function text(string $text): void
@@ -262,8 +305,7 @@ final class AndroidDriver implements Driver
             // string overflows the emulator queue, and Compose drops letters.
             // Those calls share one adb shell, with a pause between them, so
             // a word is not one process per letter. `;` keeps going when one
-            // character fails. input text sends @ as Shift-2, and the software
-            // keyboard drops the letters around that event.
+            // character fails.
             $batch = [];
 
             foreach ($this->characters($line) as $character) {
@@ -271,11 +313,11 @@ final class AndroidDriver implements Driver
                     $this->flushText($batch);
                     $batch = [];
 
-                    if ($character === '@' && $this->tapLabeled('@')) {
-                        continue;
+                    if ($character === '@') {
+                        $this->typeAt();
+                    } else {
+                        $this->pasteOrFail($character);
                     }
-
-                    $this->paste($character);
 
                     continue;
                 }
@@ -286,9 +328,37 @@ final class AndroidDriver implements Driver
             $this->flushText($batch);
 
             if ($index < $last) {
-                $this->paste("\n");
+                $this->pasteOrFail("\n");
             }
         }
+
+        $this->hideKeyboard();
+    }
+
+    /**
+     * input text sends @ as Shift-2, and the software keyboard drops the letters around
+     * that event. So the @ key is tapped when the dump shows the keyboard, and @ is
+     * pasted when it does not. With no clipboard command either (android-36), the At key
+     * is pressed. It lands there, on the email keyboard too.
+     */
+    private function typeAt(): void
+    {
+        if ($this->tapLabeled('@') || $this->paste('@')) {
+            return;
+        }
+
+        $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'input', 'keyevent', '77']);
+    }
+
+    private function pasteOrFail(string $text): void
+    {
+        if ($this->paste($text)) {
+            return;
+        }
+
+        $character = $text === "\n" ? 'a new line' : '['.$text.']';
+
+        throw new SimulatorException("Cannot type {$character} on this emulator. `input text` only types ASCII, and the emulator has no `cmd clipboard` to paste it.");
     }
 
     /**
@@ -339,12 +409,23 @@ final class AndroidDriver implements Driver
         return false;
     }
 
-    private function paste(string $text): void
+    /**
+     * A system image with no clipboard command (android-36) says so on stderr and exits 0,
+     * so nothing would land and nothing would fail.
+     */
+    private function paste(string $text): bool
     {
-        $this->command->run($this->adb(), [
-            '-s', $this->serial(), 'shell', 'cmd', 'clipboard', 'set-text', AndroidText::argument($text),
+        $output = $this->command->run($this->adb(), [
+            '-s', $this->serial(), 'shell', 'cmd', 'clipboard', 'set-text', AndroidText::argument($text), '2>&1',
         ]);
+
+        if (str_contains($output, 'No shell command implementation') || str_contains($output, 'Unknown command')) {
+            return false;
+        }
+
         $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'input', 'keyevent', '279']);
+
+        return true;
     }
 
     /**
@@ -611,7 +692,9 @@ final class AndroidDriver implements Driver
             return false;
         }
 
-        if ($this->property($serial, 'init.svc.bootanim') !== 'stopped') {
+        // EmulatorBoot passes -no-boot-anim, and then the bootanim service never starts,
+        // so its property is never set.
+        if (! in_array($this->property($serial, 'init.svc.bootanim'), ['', 'stopped'], true)) {
             return false;
         }
 
@@ -780,6 +863,7 @@ final class AndroidDriver implements Driver
                 'checkable' => $child->getAttribute('checkable'),
                 'enabled' => $child->getAttribute('enabled'),
                 'selected' => $child->getAttribute('selected'),
+                'password' => $child->getAttribute('password'),
             ];
 
             if ($inherited !== null) {

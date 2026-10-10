@@ -6,7 +6,10 @@ use NativePhp\Simulator\AndroidDriver;
 use NativePhp\Simulator\Command;
 use NativePhp\Simulator\Configuration;
 use NativePhp\Simulator\Device;
+use NativePhp\Simulator\ElementFinder;
 use NativePhp\Simulator\Exceptions\SimulatorException;
+use NativePhp\Simulator\Screen;
+use Tests\Support\FakeDriver;
 use Tests\Support\RecordingCommand;
 
 afterEach(function () {
@@ -102,6 +105,30 @@ it('taps the at key when the keyboard shows it', function () {
     expect($taps[0][1])->toBe(['-s', 'emulator-5554', 'shell', 'input', 'tap', '150', '1650']);
 });
 
+it('presses the At key when the emulator has no clipboard command', function () {
+    $command = new RecordingCommand;
+    $command->outputs['set-text'] = "No shell command implementation.\n";
+    $driver = androidDriver($command);
+
+    $driver->text('A@b');
+
+    $sent = array_map(fn (array $call): string => implode(' ', array_slice($call[1], 2)), $command->calls);
+
+    expect($sent)->toContain('shell input keyevent 77')
+        ->and($sent)->not->toContain('shell input keyevent 279')
+        ->and(array_search('shell input keyevent 77', $sent, true))->toBeGreaterThan(array_search("shell input text 'A'", $sent, true))
+        ->and(array_search('shell input keyevent 77', $sent, true))->toBeLessThan(array_search("shell input text 'b'", $sent, true));
+});
+
+it('says it cannot type a character the emulator has no way to paste', function () {
+    $command = new RecordingCommand;
+    $command->outputs['set-text'] = "No shell command implementation.\n";
+    $driver = androidDriver($command);
+
+    expect(fn () => $driver->text('café'))->toThrow(SimulatorException::class, 'Cannot type [é] on this emulator.')
+        ->and(fn () => $driver->text("a\nb"))->toThrow(SimulatorException::class, 'Cannot type a new line on this emulator.');
+});
+
 it('swipes for a given duration and holds a press', function () {
     $command = new RecordingCommand;
     $driver = androidDriver($command);
@@ -124,16 +151,31 @@ it('clears by deleting from the end of the field', function () {
     $driver->clear(50);
     $driver->back();
 
-    expect($command->calls[0][1])->toBe([
-        '-s', 'emulator-5554', 'shell', 'input', 'keyevent', '123',
-        ...array_fill(0, 40, '67'),
-    ])->and($command->calls[1][1])->toBe([
-        '-s', 'emulator-5554', 'shell', 'input', 'keyevent', '123',
-        ...array_fill(0, 40, '67'),
-    ])->and($command->calls[2][1])->toBe([
-        '-s', 'emulator-5554', 'shell', 'input', 'keyevent', '123',
-        ...array_fill(0, 10, '67'),
-    ])->and($command->calls[3][1])->toBe(['-s', 'emulator-5554', 'shell', 'input', 'keyevent', '4']);
+    $keys = array_values(array_filter(
+        array_column($command->calls, 1),
+        fn (array $arguments): bool => ($arguments[3] ?? null) === 'input',
+    ));
+
+    expect($keys)->toBe([
+        ['-s', 'emulator-5554', 'shell', 'input', 'keyevent', '123', ...array_fill(0, 40, '67')],
+        ['-s', 'emulator-5554', 'shell', 'input', 'keyevent', '123', ...array_fill(0, 40, '67')],
+        ['-s', 'emulator-5554', 'shell', 'input', 'keyevent', '123', ...array_fill(0, 10, '67')],
+        ['-s', 'emulator-5554', 'shell', 'input', 'keyevent', '4'],
+    ]);
+});
+
+it('closes the software keyboard after typing or clearing, and only while it is up', function () {
+    $command = new RecordingCommand;
+    $driver = androidDriver($command);
+    $hide = ['-s', 'emulator-5554', 'shell', 'if dumpsys input_method | grep mInputShown=true >/dev/null; then input keyevent 4; fi'];
+
+    $driver->clear();
+    $afterClear = end($command->calls)[1];
+    $driver->text('ab');
+    $afterText = end($command->calls)[1];
+
+    expect($afterClear)->toBe($hide)
+        ->and($afterText)->toBe($hide);
 });
 
 it('reads the emulator screen size from the hierarchy', function () {
@@ -176,6 +218,138 @@ it('reads a stock hierarchy from node bounds', function () {
             @unlink($path);
         }
     }
+});
+
+it('confirms a typed password by its bullets, and by its text once it is shown', function () {
+    // Captured from CollectShine's sign-in screen on an android-36 emulator. Android marks
+    // the field password="true", reads it back as bullets, and keeps that mark once
+    // "Show password" reveals the text.
+    $read = function (string $fixture): array {
+        $command = new RecordingCommand;
+        $command->output = (string) file_get_contents(dirname(__DIR__).'/Fixtures/'.$fixture);
+
+        return androidDriver($command)->describe();
+    };
+    $empty = $read('android-secure-field-empty.xml');
+    $typed = $read('android-secure-field-typed.xml');
+    $revealed = $read('android-secure-field-revealed.xml');
+    $finder = new ElementFinder;
+
+    $field = $finder->match($empty, 'Password');
+
+    expect($field['secure'])->toBeTrue()
+        ->and($finder->match($empty, 'Email')['secure'])->toBeFalse()
+        ->and($finder->valueOf($typed, 'Password'))->toBe('••••••')
+        ->and($finder->holds($typed, 'Password', $field, 'secret'))->toBeTrue()
+        ->and($finder->holds($typed, 'Password', $field, 'secre'))->toBeFalse()
+        ->and($finder->holds($empty, 'Password', $field, 'secret'))->toBeFalse()
+        ->and($finder->holds($revealed, 'Password', $field, 'secret'))->toBeTrue()
+        ->and($finder->holds($revealed, 'Password', $field, 'secrets'))->toBeFalse()
+        ->and($finder->isChecked($typed, 'Show the password you typed', false))->toBeTrue()
+        ->and($finder->isChecked($revealed, 'Show the password you typed', true))->toBeTrue()
+        ->and($finder->isChecked($revealed, 'Show password', true))->toBeTrue()
+        ->and($finder->match($empty, 'Sign in')['role'])->toBe('Button');
+});
+
+it('settles typing into an Android password field on the first attempt', function () {
+    $read = function (string $fixture): array {
+        $command = new RecordingCommand;
+        $command->output = (string) file_get_contents(dirname(__DIR__).'/Fixtures/'.$fixture);
+
+        return androidDriver($command)->describe();
+    };
+    $driver = new FakeDriver([$read('android-secure-field-empty.xml'), $read('android-secure-field-typed.xml')]);
+    $driver->viewport = [1080.0, 2400.0];
+
+    (new Screen($driver, timeoutSeconds: 1))->type('Password', 'secret');
+
+    expect($driver->taps)->toHaveCount(1)
+        ->and($driver->texts)->toBe(['secret']);
+});
+
+it('quotes a deep link for the device shell', function () {
+    Configuration::configure(['bundle_id' => 'com.example.app']);
+    $command = new RecordingCommand;
+    $driver = androidDriver($command);
+
+    $driver->open("example://deep-link/discogs?oauth_token=tok-1&oauth_verifier=ver-1&note=it's");
+
+    expect($command->calls[0][1])->toBe([
+        '-s', 'emulator-5554', 'shell', 'am', 'start',
+        '-a', 'android.intent.action.VIEW',
+        '-d', "'example://deep-link/discogs?oauth_token=tok-1&oauth_verifier=ver-1&note=it'\\''s'",
+        'com.example.app',
+    ]);
+});
+
+it('waits out an app that is not responding by the button id, in any language', function () {
+    $command = new RecordingCommand;
+    $dialog = <<<'XML'
+        <hierarchy rotation="0" width="1080" height="2400">
+            <node text="Warten" resource-id="android:id/aerr_wait" class="android.widget.Button" package="android" bounds="[100,1300][980,1420]" />
+            <node text="App schließen" resource-id="android:id/aerr_close" class="android.widget.Button" package="android" bounds="[100,1180][980,1300]" />
+        </hierarchy>
+        XML;
+    $app = '<hierarchy rotation="0" width="1080" height="2400"><node text="Home" class="android.widget.TextView" bounds="[0,0][200,80]" /></hierarchy>';
+    $dumps = [$dialog, $app];
+    $command->responder = function (string $binary, array $arguments) use (&$dumps): ?string {
+        return in_array('uiautomator', $arguments, true) ? array_shift($dumps) : null;
+    };
+    $driver = androidDriver($command);
+
+    $elements = $driver->describe();
+
+    $taps = array_values(array_filter($command->calls, fn (array $call): bool => ($call[1][4] ?? null) === 'tap'));
+
+    expect($taps)->toHaveCount(1)
+        ->and($taps[0][1])->toBe(['-s', 'emulator-5554', 'shell', 'input', 'tap', '540', '1360'])
+        ->and(array_column($elements, 'label'))->toBe(['Home']);
+});
+
+it('waits out an app that is not responding by an English label when the id is missing', function () {
+    $command = new RecordingCommand;
+    $dialog = <<<'XML'
+        <hierarchy rotation="0" width="1080" height="2400">
+            <node text="Close app" class="android.widget.Button" bounds="[100,1180][980,1300]" />
+            <node text="Wait" class="android.widget.Button" bounds="[100,1300][980,1420]" />
+        </hierarchy>
+        XML;
+    $app = '<hierarchy rotation="0" width="1080" height="2400"><node text="Home" class="android.widget.TextView" bounds="[0,0][200,80]" /></hierarchy>';
+    $dumps = [$dialog, $app];
+    $command->responder = function (string $binary, array $arguments) use (&$dumps): ?string {
+        return in_array('uiautomator', $arguments, true) ? array_shift($dumps) : null;
+    };
+    $driver = androidDriver($command);
+
+    $driver->describe();
+
+    $taps = array_values(array_filter($command->calls, fn (array $call): bool => ($call[1][4] ?? null) === 'tap'));
+
+    expect($taps)->toHaveCount(1)
+        ->and($taps[0][1])->toBe(['-s', 'emulator-5554', 'shell', 'input', 'tap', '540', '1360']);
+});
+
+it('taps the dialog Wait button rather than an app button with the same label', function () {
+    $command = new RecordingCommand;
+    $dialog = <<<'XML'
+        <hierarchy rotation="0" width="1080" height="2400">
+            <node text="Wait" resource-id="com.example:id/snooze" class="android.widget.Button" bounds="[0,200][400,300]" />
+            <node text="Wait" resource-id="android:id/aerr_wait" class="android.widget.Button" package="android" bounds="[100,1300][980,1420]" />
+        </hierarchy>
+        XML;
+    $app = '<hierarchy rotation="0" width="1080" height="2400"><node text="Home" class="android.widget.TextView" bounds="[0,0][200,80]" /></hierarchy>';
+    $dumps = [$dialog, $app];
+    $command->responder = function (string $binary, array $arguments) use (&$dumps): ?string {
+        return in_array('uiautomator', $arguments, true) ? array_shift($dumps) : null;
+    };
+    $driver = androidDriver($command);
+
+    $driver->describe();
+
+    $taps = array_values(array_filter($command->calls, fn (array $call): bool => ($call[1][4] ?? null) === 'tap'));
+
+    expect($taps)->toHaveCount(1)
+        ->and($taps[0][1])->toBe(['-s', 'emulator-5554', 'shell', 'input', 'tap', '540', '1360']);
 });
 
 it('retries a native build that nativephp timed out', function () {
@@ -237,7 +411,13 @@ it('gives a long line of typing more time than one tap', function () {
 
     $driver->text(str_repeat('a', 120));
 
-    expect(array_values($command->timeouts))->toBe([(float) Command::TIMEOUT + 120]);
+    $typing = array_values(array_filter(
+        $command->timeouts,
+        fn (string $line): bool => str_contains($line, 'input text'),
+        ARRAY_FILTER_USE_KEY,
+    ));
+
+    expect($typing)->toBe([(float) Command::TIMEOUT + 120]);
 });
 
 it('does not retry a native build that failed to compile', function () {
