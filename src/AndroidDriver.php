@@ -366,6 +366,14 @@ final class AndroidDriver implements Driver
         return $this->viewport;
     }
 
+    /**
+     * No strip at the bottom of an Android screen has been seen to swallow a tap.
+     */
+    public function homeIndicator(): float
+    {
+        return 0.0;
+    }
+
     public function screenshot(string $path): void
     {
         $png = $this->command->run($this->adb(), ['-s', $this->serial(), 'exec-out', 'screencap', '-p']);

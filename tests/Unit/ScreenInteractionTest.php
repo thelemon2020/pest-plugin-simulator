@@ -505,6 +505,35 @@ it('waits for a sheet that just opened before answering it without locate()', fu
     ],
 ]);
 
+it('scrolls a control out from under the home indicator before tapping it', function () {
+    // CollectShine's "Use this record", on a pushed screen with no tab bar: its centre is
+    // inside the 874-point viewport, but in the home indicator's strip, where a tap lands on
+    // nothing.
+    $driver = new FakeDriver([
+        [control('Back', ['chrome' => 'navigation', 'center' => [38.0, 84.0]]), control('Use this record', ['center' => [201.0, 863.5]])],
+        [control('Back', ['chrome' => 'navigation', 'center' => [38.0, 84.0]]), control('Use this record', ['center' => [201.0, 480.0]])],
+    ]);
+    $driver->viewport = [402.0, 874.0];
+    $driver->homeIndicator = 34.0;
+
+    (new Screen($driver, timeoutSeconds: 0))->tap('Use this record');
+
+    expect($driver->swipes)->toHaveCount(1)
+        ->and($driver->swipes[0][3])->toBeLessThan($driver->swipes[0][1])
+        ->and($driver->taps)->toBe([[201.0, 480.0]]);
+});
+
+it('taps a control just above the home indicator where it is', function () {
+    $driver = new FakeDriver([[control('Save', ['center' => [201.0, 830.0]])]]);
+    $driver->viewport = [402.0, 874.0];
+    $driver->homeIndicator = 34.0;
+
+    (new Screen($driver, timeoutSeconds: 0))->tap('Save');
+
+    expect($driver->swipes)->toBe([])
+        ->and($driver->taps)->toBe([[201.0, 830.0]]);
+});
+
 it('scrolls a row on screen before swiping from it', function () {
     $driver = new FakeDriver([
         [control('Row 40', ['center' => [100.0, 1000.0]])],
