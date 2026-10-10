@@ -9,6 +9,7 @@ use NativePhp\Simulator\Exceptions\CompanionUnresponsive;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 use NativePhp\Simulator\FailureCapture;
 use NativePhp\Simulator\MobileTestFilter;
+use NativePhp\Simulator\Screen;
 use NativePhp\Simulator\Sessions;
 use NativePhp\Simulator\SuiteRegistration;
 use NativePhp\Simulator\TestDatabase;
@@ -140,6 +141,22 @@ it('does not ask a companion that stopped answering for the tree', function () {
             "Saved {$root}/trace.txt",
             "Saved {$root}/screen.png",
         ]))
+        ->and($this->driver->describeFailures)->toBe(1);
+});
+
+it('does not ask a companion that stopped answering for the tree when an assertion runs out of time', function () {
+    $this->driver->describeFailures = 2;
+    $this->driver->describeError = fn (): SimulatorException => new CompanionUnresponsive('Companion [accessibility_info] did not answer in time');
+    $root = $this->directory.'/failure';
+
+    try {
+        (new Screen($this->driver, timeoutSeconds: 0, failureDirectory: $root))->assertSee('Saved');
+    } catch (AssertionFailedError $error) {
+    }
+
+    expect($error->getMessage())->toContain('The last attempt to read the screen failed: Companion [accessibility_info] did not answer in time')
+        ->and($error->getMessage())->toContain("Saved {$root}/screen.png")
+        ->and(is_file($root.'/tree.json'))->toBeFalse()
         ->and($this->driver->describeFailures)->toBe(1);
 });
 
