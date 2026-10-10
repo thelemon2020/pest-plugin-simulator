@@ -421,6 +421,61 @@ it('starts its own companion when the listener belongs to another simulator', fu
     });
 });
 
+it('finishes waiting for an emulator that never started its boot animation', function () {
+    $command = new RecordingCommand;
+    $command->responder = function (string $binary, array $arguments): ?string {
+        if (in_array('devices', $arguments, true)) {
+            return "List of devices attached\nemulator-5554\tdevice\n";
+        }
+
+        if (in_array('name', $arguments, true)) {
+            return "Pixel 8\nOK\n";
+        }
+
+        if (in_array('getprop', $arguments, true)) {
+            $property = $arguments[array_search('getprop', $arguments, true) + 1] ?? '';
+
+            return $property === 'init.svc.bootanim' ? "\n" : "1\n";
+        }
+
+        if (in_array('path', $arguments, true)) {
+            return "package:/system/framework/framework-res.apk\n";
+        }
+
+        return null;
+    };
+    $driver = new AndroidDriver(new Device('android', 'Pixel 8', true), Configuration::resolve(), $command);
+
+    (new ReflectionMethod(AndroidDriver::class, 'waitUntilBooted'))->invoke($driver, '/tmp/app/emulator.log', null, 5);
+
+    expect((new ReflectionProperty(AndroidDriver::class, 'serial'))->getValue($driver))->toBe('emulator-5554');
+});
+
+it('keeps waiting while the boot animation still runs', function () {
+    $command = new RecordingCommand;
+    $command->responder = function (string $binary, array $arguments): ?string {
+        if (in_array('devices', $arguments, true)) {
+            return "List of devices attached\nemulator-5554\tdevice\n";
+        }
+
+        if (in_array('name', $arguments, true)) {
+            return "Pixel 8\nOK\n";
+        }
+
+        if (in_array('getprop', $arguments, true)) {
+            $property = $arguments[array_search('getprop', $arguments, true) + 1] ?? '';
+
+            return $property === 'init.svc.bootanim' ? "running\n" : "1\n";
+        }
+
+        return null;
+    };
+    $driver = new AndroidDriver(new Device('android', 'Pixel 8', true), Configuration::resolve(), $command);
+
+    expect(fn () => (new ReflectionMethod(AndroidDriver::class, 'waitUntilBooted'))->invoke($driver, '/tmp/app/emulator.log', null, 1))
+        ->toThrow(SimulatorException::class, 'did not boot');
+});
+
 it('names the emulator log when a cold boot does not finish', function () {
     $driver = new AndroidDriver(new Device('android', 'Pixel 8', true), Configuration::resolve(), new RecordingCommand);
 
