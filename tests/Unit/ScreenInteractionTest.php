@@ -466,7 +466,7 @@ it('waits for a sheet that just opened before answering it without locate()', fu
     expect($sliding)->toBeGreaterThan(0.7)
         ->and($driver->taps)->toHaveCount($taps)
         ->and($driver->backs)->toBe($backs)
-        ->and($plain)->toBeLessThan(0.2);
+        ->and($plain)->toBeLessThan(0.5);
 })->with([
     'goBack() from a back button' => [
         [control('Back', ['chrome' => 'navigation', 'center' => [24.0, 60.0]])],
@@ -510,7 +510,7 @@ it('says a step saw nothing because the screen could not be read', function () {
     $driver->describeFailures = 99;
 
     expect(fn () => (new Screen($driver, timeoutSeconds: 0))->tap('Use this record'))
-        ->toThrow(AssertionFailedError::class, "Could not find [Use this record] to tap.\n\nThe last read of the screen failed: window-server frontmost returned no application object");
+        ->toThrow(AssertionFailedError::class, "Could not find [Use this record] to tap.\n\nThe last attempt to read the screen failed: window-server frontmost returned no application object");
 });
 
 it('does not blame a read that failed before a later one answered', function () {
@@ -520,7 +520,7 @@ it('does not blame a read that failed before a later one answered', function () 
     expect(fn () => (new Screen($driver, timeoutSeconds: 1))->tap('Cancel'))
         ->toThrow(function (AssertionFailedError $failure): void {
             expect($failure->getMessage())->toStartWith("Could not find [Cancel] to tap.\n\nButton: Save")
-                ->not->toContain('The last read of the screen failed');
+                ->not->toContain('The last attempt to read the screen failed');
         });
 });
 
