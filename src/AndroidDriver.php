@@ -179,16 +179,40 @@ final class AndroidDriver implements Driver
             return $elements;
         }
 
-        foreach ($elements as $element) {
-            if ($element['role'] === 'Button' && $element['label'] === 'Wait' && is_array($element['center'] ?? null)) {
-                $this->tap((float) $element['center'][0], (float) $element['center'][1]);
-                usleep(1_000_000);
+        $wait = $this->notRespondingWait($elements);
 
-                return $this->dismissSystemDialog($this->elementsFrom($this->dumpHierarchy()), $attempt + 1);
+        if ($wait === null) {
+            return $elements;
+        }
+
+        $this->tap((float) $wait[0], (float) $wait[1]);
+        usleep(1_000_000);
+
+        return $this->dismissSystemDialog($this->elementsFrom($this->dumpHierarchy()), $attempt + 1);
+    }
+
+    /**
+     * The Wait button of an "isn't responding" dialog. Its resource id is the same in
+     * every language. The English label covers a dump that leaves the id out.
+     *
+     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}}>  $elements
+     * @return ?array{0: float, 1: float}
+     */
+    private function notRespondingWait(array $elements): ?array
+    {
+        foreach ($elements as $element) {
+            if ($element['id'] === 'android:id/aerr_wait' && is_array($element['center'] ?? null)) {
+                return $element['center'];
             }
         }
 
-        return $elements;
+        foreach ($elements as $element) {
+            if ($element['role'] === 'Button' && $element['label'] === 'Wait' && is_array($element['center'] ?? null)) {
+                return $element['center'];
+            }
+        }
+
+        return null;
     }
 
     private function dumpHierarchy(): string

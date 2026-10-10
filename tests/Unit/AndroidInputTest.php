@@ -178,6 +178,76 @@ it('reads a stock hierarchy from node bounds', function () {
     }
 });
 
+it('waits out an app that is not responding by the button id, in any language', function () {
+    $command = new RecordingCommand;
+    $dialog = <<<'XML'
+        <hierarchy rotation="0" width="1080" height="2400">
+            <node text="Warten" resource-id="android:id/aerr_wait" class="android.widget.Button" package="android" bounds="[100,1300][980,1420]" />
+            <node text="App schließen" resource-id="android:id/aerr_close" class="android.widget.Button" package="android" bounds="[100,1180][980,1300]" />
+        </hierarchy>
+        XML;
+    $app = '<hierarchy rotation="0" width="1080" height="2400"><node text="Home" class="android.widget.TextView" bounds="[0,0][200,80]" /></hierarchy>';
+    $dumps = [$dialog, $app];
+    $command->responder = function (string $binary, array $arguments) use (&$dumps): ?string {
+        return in_array('uiautomator', $arguments, true) ? array_shift($dumps) : null;
+    };
+    $driver = androidDriver($command);
+
+    $elements = $driver->describe();
+
+    $taps = array_values(array_filter($command->calls, fn (array $call): bool => ($call[1][4] ?? null) === 'tap'));
+
+    expect($taps)->toHaveCount(1)
+        ->and($taps[0][1])->toBe(['-s', 'emulator-5554', 'shell', 'input', 'tap', '540', '1360'])
+        ->and(array_column($elements, 'label'))->toBe(['Home']);
+});
+
+it('waits out an app that is not responding by an English label when the id is missing', function () {
+    $command = new RecordingCommand;
+    $dialog = <<<'XML'
+        <hierarchy rotation="0" width="1080" height="2400">
+            <node text="Close app" class="android.widget.Button" bounds="[100,1180][980,1300]" />
+            <node text="Wait" class="android.widget.Button" bounds="[100,1300][980,1420]" />
+        </hierarchy>
+        XML;
+    $app = '<hierarchy rotation="0" width="1080" height="2400"><node text="Home" class="android.widget.TextView" bounds="[0,0][200,80]" /></hierarchy>';
+    $dumps = [$dialog, $app];
+    $command->responder = function (string $binary, array $arguments) use (&$dumps): ?string {
+        return in_array('uiautomator', $arguments, true) ? array_shift($dumps) : null;
+    };
+    $driver = androidDriver($command);
+
+    $driver->describe();
+
+    $taps = array_values(array_filter($command->calls, fn (array $call): bool => ($call[1][4] ?? null) === 'tap'));
+
+    expect($taps)->toHaveCount(1)
+        ->and($taps[0][1])->toBe(['-s', 'emulator-5554', 'shell', 'input', 'tap', '540', '1360']);
+});
+
+it('taps the dialog Wait button rather than an app button with the same label', function () {
+    $command = new RecordingCommand;
+    $dialog = <<<'XML'
+        <hierarchy rotation="0" width="1080" height="2400">
+            <node text="Wait" resource-id="com.example:id/snooze" class="android.widget.Button" bounds="[0,200][400,300]" />
+            <node text="Wait" resource-id="android:id/aerr_wait" class="android.widget.Button" package="android" bounds="[100,1300][980,1420]" />
+        </hierarchy>
+        XML;
+    $app = '<hierarchy rotation="0" width="1080" height="2400"><node text="Home" class="android.widget.TextView" bounds="[0,0][200,80]" /></hierarchy>';
+    $dumps = [$dialog, $app];
+    $command->responder = function (string $binary, array $arguments) use (&$dumps): ?string {
+        return in_array('uiautomator', $arguments, true) ? array_shift($dumps) : null;
+    };
+    $driver = androidDriver($command);
+
+    $driver->describe();
+
+    $taps = array_values(array_filter($command->calls, fn (array $call): bool => ($call[1][4] ?? null) === 'tap'));
+
+    expect($taps)->toHaveCount(1)
+        ->and($taps[0][1])->toBe(['-s', 'emulator-5554', 'shell', 'input', 'tap', '540', '1360']);
+});
+
 it('retries a native build that nativephp timed out', function () {
     (new ReflectionProperty(AndroidDriver::class, 'built'))->setValue(null, []);
     $command = new RecordingCommand;
