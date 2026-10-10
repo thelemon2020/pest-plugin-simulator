@@ -81,7 +81,7 @@ class Command
         $process = proc_open($command, $descriptor, $pipes, $cwd);
 
         if (! is_resource($process)) {
-            VerboseLog::write(self::now() - $started, 'not run', VerboseLog::command($command));
+            $this->log($started, 'not run', $command);
 
             throw new SimulatorException('Could not run '.implode(' ', $command));
         }
@@ -92,7 +92,7 @@ class Command
 
         if ($output === null || $exit === null) {
             $this->kill($process, $pipes);
-            VerboseLog::write(self::now() - $started, 'timed out', VerboseLog::command($command));
+            $this->log($started, 'timed out', $command);
 
             throw new SimulatorException(sprintf('%s did not finish within %s seconds, so it was stopped.', implode(' ', $command), $timeout));
         }
@@ -100,13 +100,23 @@ class Command
         proc_close($process);
         [$stdout, $stderr] = $output;
         $failure = trim($stderr !== '' ? $stderr : $stdout);
-        VerboseLog::write(self::now() - $started, 'exit '.$exit, VerboseLog::command($command).($exit !== 0 && $failure !== '' ? ': '.$failure : ''));
+        $this->log($started, 'exit '.$exit, $command, $exit !== 0 ? $failure : '');
 
         if ($exit !== 0) {
             throw new SimulatorException($failure ?: 'Command failed: '.implode(' ', $command));
         }
 
         return $stdout;
+    }
+
+    /**
+     * @param  list<string>  $command
+     */
+    private function log(float $started, string $status, array $command, string $failure = ''): void
+    {
+        if (VerboseLog::enabled()) {
+            VerboseLog::write(self::now() - $started, $status, VerboseLog::command($command).($failure !== '' ? ': '.$failure : ''));
+        }
     }
 
     /**
@@ -312,12 +322,12 @@ class Command
         $pid = trim($output[0] ?? '');
 
         if ($pid === '' || ! ctype_digit($pid)) {
-            VerboseLog::write(0.0, 'not run', VerboseLog::command($command));
+            $this->log(self::now(), 'not run', $command);
 
             throw new SimulatorException('Could not start '.$binary);
         }
 
-        VerboseLog::write(0.0, 'started', VerboseLog::command($command).' (pid '.$pid.')');
+        $this->log(self::now(), 'started', $command, 'pid '.$pid);
 
         return (int) $pid;
     }

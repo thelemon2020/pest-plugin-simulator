@@ -375,7 +375,9 @@ The log is `simulator-logs/verbose.log`, or the path after `=`. Each run starts 
 
 A command ends with its exit code, or `timed out` when it was stopped. A companion call ends with its gRPC status, `timed out`, or the curl error. A step ends `ok`, `failed` for an assertion, or `error` when the device call threw.
 
-`--record-failures` records every test and keeps the video only when the test fails. The clip starts at the test's first `screen()` and is written where `record()` writes it. `Configuration::configure(['record_failures' => true])` does the same for every run. A `record()` inside that test keeps the clip, and writes it to the path you passed. Recording every test makes each one slower.
+`--record-failures` records every test and keeps the video only when the test fails. The clip starts at the test's first `screen()` and is written where `record()` writes it. `Configuration::configure(['record_failures' => true])` does the same for every run. A `record()` inside that test keeps the clip, and writes it to the path you passed. A `stopRecord()` ends the clip early, and it is still kept only when the test fails. Recording every test makes each one slower.
+
+The trace and the log show what `type()` typed. Text typed into a password field shows as dots in the trace, but on Android the `adb` command in the log still has it.
 
 `--simulator-verbose` and `--record-failures` are removed before PHPUnit starts. A parallel worker gets them too.
 
