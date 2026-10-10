@@ -147,10 +147,12 @@ final class AndroidDriver implements Driver
     private function openUrl(string $url): void
     {
         $bundle = $this->configuration->bundleId();
+        // adb joins the arguments into one line for the device shell, where an & in the
+        // query would end the command.
         $result = $this->command->run($this->adb(), [
             '-s', $this->serial(), 'shell', 'am', 'start',
             '-a', 'android.intent.action.VIEW',
-            '-d', $url,
+            '-d', escapeshellarg($url),
             $bundle,
         ]);
 
