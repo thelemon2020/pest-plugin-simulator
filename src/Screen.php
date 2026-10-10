@@ -779,7 +779,7 @@ final class Screen
         $message = $failure instanceof Closure ? $failure($last) : $failure;
 
         if ($unread !== null) {
-            $message .= "\n\nThe last read of the screen failed: ".$unread->getMessage();
+            $message .= "\n\nThe last attempt to read the screen failed: ".$unread->getMessage();
         }
 
         $this->fail($message, $last);
