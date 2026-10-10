@@ -782,7 +782,7 @@ final class Screen
             $message .= "\n\nThe last attempt to read the screen failed: ".$unread->getMessage();
         }
 
-        $this->fail($message, $last);
+        $this->fail($message, $last, $unread);
     }
 
     /**
@@ -811,11 +811,11 @@ final class Screen
     /**
      * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}}>  $elements
      */
-    private function fail(string $failure, array $elements): never
+    private function fail(string $failure, array $elements, ?SimulatorException $unread = null): never
     {
         $this->endStep('failed', $failure);
 
-        throw new AssertionFailedError($failure."\n\n".$this->listing($elements).$this->captureFailure());
+        throw new AssertionFailedError($failure."\n\n".$this->listing($elements).$this->captureFailure($unread));
     }
 
     /**
@@ -1152,10 +1152,13 @@ final class Screen
         return $top < $bottom ? [$top, $bottom] : [0.0, $height];
     }
 
-    private function captureFailure(): string
+    /**
+     * @param  ?SimulatorException  $unread  why the last read failed, so a companion that stopped answering is not asked for the tree again
+     */
+    private function captureFailure(?SimulatorException $unread = null): string
     {
         $root = $this->failureDirectory !== '' ? $this->failureDirectory : FailureCapture::directory();
 
-        return FailureCapture::listing($root, FailureCapture::save($this->driver, $root));
+        return FailureCapture::listing($root, FailureCapture::save($this->driver, $root, $unread));
     }
 }
