@@ -138,6 +138,20 @@ it('notes how many times type() typed and whether the field settled', function (
     ])->and(array_column(Trace::steps()[0]['sent'], 0))->toBe(['tap', 'clear', 'text', 'tap', 'clear', 'text', 'tap', 'clear', 'text']);
 });
 
+it('keeps a password out of the trace', function () {
+    $fixtures = dirname(__DIR__).'/Fixtures';
+    $driver = new FakeDriver([
+        AccessibilityTree::summarize((string) file_get_contents($fixtures.'/ios-secure-field-empty.json')),
+        AccessibilityTree::summarize((string) file_get_contents($fixtures.'/ios-secure-field-typed.json')),
+    ]);
+
+    (new Screen($driver, timeoutSeconds: 1))->type('Password', 'secret');
+
+    expect($driver->texts)->toBe(['secret'])
+        ->and(Trace::steps()[0]['sent'])->toContain(['text', '••••••'])
+        ->and(json_encode(Trace::steps()))->not->toContain('secret');
+});
+
 it('notes the wait for a sheet to slide in', function () {
     $sheet = AccessibilityTree::summarize((string) file_get_contents(dirname(__DIR__).'/Fixtures/ios-note-sheet-over-tab-bar.json'));
     $driver = new FakeDriver([[traced('+ Add a note')], $sheet]);

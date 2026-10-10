@@ -50,7 +50,9 @@ final class Trace
 
         self::$steps[] = $step;
 
-        VerboseLog::write($step['seconds'], (string) $step['result'], 'step '.self::line($step));
+        if (VerboseLog::enabled()) {
+            VerboseLog::write($step['seconds'], (string) $step['result'], 'step '.self::line($step));
+        }
     }
 
     /**

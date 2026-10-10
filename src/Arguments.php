@@ -249,7 +249,8 @@ final class Arguments
             }
 
             if ($argument === '--simulator-verbose' || str_starts_with($argument, '--simulator-verbose=')) {
-                $verbose = self::absolute(substr($argument, strlen('--simulator-verbose=')) ?: VerboseLog::DEFAULT);
+                $path = substr($argument, strlen('--simulator-verbose='));
+                $verbose = self::absolute($path === '' ? VerboseLog::DEFAULT : $path);
 
                 continue;
             }

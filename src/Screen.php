@@ -101,7 +101,8 @@ final class Screen
                     return;
                 }
 
-                $this->sent(['text', $text]);
+                // A password stays out of the trace, as it stays masked in tree.json.
+                $this->sent(['text', ($match['secure'] ?? false) === true ? str_repeat('•', mb_strlen($text)) : $text]);
                 $this->driver->text($text);
                 $settled = $this->settled($label, $match, $text);
                 $this->note('attempts', $attempt);
