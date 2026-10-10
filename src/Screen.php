@@ -315,6 +315,7 @@ final class Screen
                 return;
             }
 
+            $this->presented();
             $this->sent(['back']);
             $this->driver->back();
         });
@@ -342,6 +343,7 @@ final class Screen
                 $button = $this->finder->shareDismiss($elements);
 
                 if ($button === null) {
+                    $this->presented();
                     $this->sent(['back']);
                     $this->driver->back();
 
@@ -676,10 +678,13 @@ final class Screen
     }
 
     /**
+     * Tap a control's center, once any sheet has finished sliding in (see presented()).
+     *
      * @param  array{center: array{0: float|int, 1: float|int}}  $element
      */
     private function touch(array $element): void
     {
+        $this->presented();
         $x = (float) $element['center'][0];
         $y = (float) $element['center'][1];
         $this->sent(['tap', $x, $y]);
@@ -868,6 +873,10 @@ final class Screen
      *
      * Closing a sheet needs no wait: the tree keeps the sheet until it has slid away, and a
      * tap sent the moment it left the tree landed.
+     *
+     * Every touch waits, not only one at a control locate() found: goBack(), alert(),
+     * share(), and the photo picker find their control their own way, and the system
+     * sheets and pickers they answer slide in like any other.
      */
     private function presented(): void
     {

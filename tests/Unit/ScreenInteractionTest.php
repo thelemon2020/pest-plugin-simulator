@@ -449,6 +449,62 @@ it('does not wait for a sheet in a unit test', function () {
     expect(microtime(true) - $start)->toBeLessThan(0.2);
 });
 
+it('waits for a sheet that just opened before answering it without locate()', function (array $controls, Closure $act, int $taps, int $backs) {
+    // A sheet's dimming view, as iOS reads it, is what tells a read a sheet is up.
+    $dimming = control('dismiss popup', ['role' => 'UIDimmingView', 'id' => 'PopoverDismissRegion', 'center' => null]);
+    $timed = function (array $tree) use ($act): array {
+        $driver = new FakeDriver([$tree]);
+        $start = microtime(true);
+        $act(new Screen($driver, timeoutSeconds: 5));
+
+        return [microtime(true) - $start, $driver];
+    };
+
+    [$sliding, $driver] = $timed([$dimming, ...$controls]);
+    [$plain] = $timed($controls);
+
+    expect($sliding)->toBeGreaterThan(0.7)
+        ->and($driver->taps)->toHaveCount($taps)
+        ->and($driver->backs)->toBe($backs)
+        ->and($plain)->toBeLessThan(0.2);
+})->with([
+    'goBack() from a back button' => [
+        [control('Back', ['chrome' => 'navigation', 'center' => [24.0, 60.0]])],
+        fn (Screen $screen) => $screen->goBack(), 1, 0,
+    ],
+    'goBack() with the edge swipe' => [
+        [control('Note', ['role' => 'StaticText'])],
+        fn (Screen $screen) => $screen->goBack(), 0, 1,
+    ],
+    'alert()' => [
+        [control('Delete', ['chrome' => 'alert'])],
+        fn (Screen $screen) => $screen->alert('Delete'), 1, 0,
+    ],
+    'share() to a target' => [
+        [control('Copy', ['chrome' => 'share'])],
+        fn (Screen $screen) => $screen->share('Copy'), 1, 0,
+    ],
+    'share() closed from its button' => [
+        [control('Close', ['chrome' => 'share']), control('Copy', ['chrome' => 'share'])],
+        fn (Screen $screen) => $screen->share(), 1, 0,
+    ],
+    'share() closed with back' => [
+        [control('Copy', ['chrome' => 'share'])],
+        fn (Screen $screen) => $screen->share(), 0, 1,
+    ],
+    'pickPhoto()' => [
+        [
+            control('Photo, first', ['role' => 'Image', 'chrome' => 'photos', 'center' => [40.0, 120.0]]),
+            control('Add', ['chrome' => 'photos', 'center' => [300.0, 700.0]]),
+        ],
+        fn (Screen $screen) => $screen->pickPhoto(), 2, 0,
+    ],
+    'cancelPhoto()' => [
+        [control('Cancel', ['chrome' => 'photos'])],
+        fn (Screen $screen) => $screen->cancelPhoto(), 1, 0,
+    ],
+]);
+
 it('scrolls a row on screen before swiping from it', function () {
     $driver = new FakeDriver([
         [control('Row 40', ['center' => [100.0, 1000.0]])],
