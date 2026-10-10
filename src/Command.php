@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace NativePhp\Simulator;
 
+use NativePhp\Simulator\Exceptions\CommandTimedOut;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 
 class Command
@@ -94,7 +95,7 @@ class Command
             $this->kill($process, $pipes);
             $this->log($started, 'timed out', $command);
 
-            throw new SimulatorException(sprintf('%s did not finish within %s seconds, so it was stopped.', implode(' ', $command), $timeout));
+            throw new CommandTimedOut(sprintf('%s did not finish within %s seconds, so it was stopped.', implode(' ', $command), $timeout));
         }
 
         proc_close($process);

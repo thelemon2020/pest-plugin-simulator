@@ -43,12 +43,13 @@ final class MobileTestFilter implements TestCaseMethodFilter
         }
 
         $original = $method->closure;
+        $expectsError = $this->expectsError($method);
         array_unshift($method->datasets, array_map(
             fn (Device $device): array => [$device->key()],
             $devices,
         ));
 
-        $method->closure = function (string $key, mixed ...$args) use ($original) {
+        $method->closure = function (string $key, mixed ...$args) use ($original, $expectsError) {
             $device = Device::fromKey($key);
             Run::useDevice($device);
             Trace::begin();
@@ -62,6 +63,12 @@ final class MobileTestFilter implements TestCaseMethodFilter
 
             try {
                 return $original instanceof \Closure ? $original->call($this, ...$args) : null;
+            } catch (\Throwable $exception) {
+                if (! $expectsError) {
+                    FailureCapture::error($exception);
+                }
+
+                throw $exception;
             } finally {
                 try {
                     Recording::finish();
@@ -75,6 +82,21 @@ final class MobileTestFilter implements TestCaseMethodFilter
         };
 
         return true;
+    }
+
+    /**
+     * A test declared with throws() passes with its error, so a failure capture would only
+     * leave files behind and change the message it expects.
+     */
+    private function expectsError(TestCaseMethodFactory $method): bool
+    {
+        foreach (['expectException', 'expectExceptionMessage', 'expectExceptionCode'] as $expectation) {
+            if ($method->proxies->count($expectation) > 0) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function skip(TestCaseMethodFactory $method, string $reason): void

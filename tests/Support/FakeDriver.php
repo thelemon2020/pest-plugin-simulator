@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Support;
 
+use Closure;
 use NativePhp\Simulator\Driver;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 
@@ -15,6 +16,17 @@ final class FakeDriver implements Driver
      * (e.g. "window-server frontmost returned no application object").
      */
     public int $describeFailures = 0;
+
+    /**
+     * What those failures throw, when not that complaint.
+     *
+     * @var (Closure(): SimulatorException)|null
+     */
+    public ?Closure $describeError = null;
+
+    /** What open() throws, if anything. */
+    public ?SimulatorException $openError = null;
+
     /** @var list<array{0: float, 1: float}> */
     public array $taps = [];
 
@@ -76,6 +88,10 @@ final class FakeDriver implements Driver
 
     public function open(string $url): void
     {
+        if ($this->openError !== null) {
+            throw $this->openError;
+        }
+
         $this->opened[] = $url;
         $this->events[] = ['open', $url];
     }
@@ -85,7 +101,9 @@ final class FakeDriver implements Driver
         if ($this->describeFailures > 0) {
             $this->describeFailures--;
 
-            throw new SimulatorException('window-server frontmost returned no application object');
+            throw $this->describeError !== null
+                ? ($this->describeError)()
+                : new SimulatorException('window-server frontmost returned no application object');
         }
 
         $tree = $this->trees[min($this->reads, count($this->trees) - 1)];
