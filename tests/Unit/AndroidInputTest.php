@@ -151,16 +151,31 @@ it('clears by deleting from the end of the field', function () {
     $driver->clear(50);
     $driver->back();
 
-    expect($command->calls[0][1])->toBe([
-        '-s', 'emulator-5554', 'shell', 'input', 'keyevent', '123',
-        ...array_fill(0, 40, '67'),
-    ])->and($command->calls[1][1])->toBe([
-        '-s', 'emulator-5554', 'shell', 'input', 'keyevent', '123',
-        ...array_fill(0, 40, '67'),
-    ])->and($command->calls[2][1])->toBe([
-        '-s', 'emulator-5554', 'shell', 'input', 'keyevent', '123',
-        ...array_fill(0, 10, '67'),
-    ])->and($command->calls[3][1])->toBe(['-s', 'emulator-5554', 'shell', 'input', 'keyevent', '4']);
+    $keys = array_values(array_filter(
+        array_column($command->calls, 1),
+        fn (array $arguments): bool => ($arguments[3] ?? null) === 'input',
+    ));
+
+    expect($keys)->toBe([
+        ['-s', 'emulator-5554', 'shell', 'input', 'keyevent', '123', ...array_fill(0, 40, '67')],
+        ['-s', 'emulator-5554', 'shell', 'input', 'keyevent', '123', ...array_fill(0, 40, '67')],
+        ['-s', 'emulator-5554', 'shell', 'input', 'keyevent', '123', ...array_fill(0, 10, '67')],
+        ['-s', 'emulator-5554', 'shell', 'input', 'keyevent', '4'],
+    ]);
+});
+
+it('closes the software keyboard after typing or clearing, and only while it is up', function () {
+    $command = new RecordingCommand;
+    $driver = androidDriver($command);
+    $hide = ['-s', 'emulator-5554', 'shell', 'if dumpsys input_method | grep mInputShown=true >/dev/null; then input keyevent 4; fi'];
+
+    $driver->clear();
+    $afterClear = end($command->calls)[1];
+    $driver->text('ab');
+    $afterText = end($command->calls)[1];
+
+    expect($afterClear)->toBe($hide)
+        ->and($afterText)->toBe($hide);
 });
 
 it('reads the emulator screen size from the hierarchy', function () {
@@ -392,7 +407,13 @@ it('gives a long line of typing more time than one tap', function () {
 
     $driver->text(str_repeat('a', 120));
 
-    expect(array_values($command->timeouts))->toBe([(float) Command::TIMEOUT + 120]);
+    $typing = array_values(array_filter(
+        $command->timeouts,
+        fn (string $line): bool => str_contains($line, 'input text'),
+        ARRAY_FILTER_USE_KEY,
+    ));
+
+    expect($typing)->toBe([(float) Command::TIMEOUT + 120]);
 });
 
 it('does not retry a native build that failed to compile', function () {
