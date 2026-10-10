@@ -10,6 +10,7 @@ use NativePhp\Simulator\Exceptions\NoMatch;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 use PHPUnit\Framework\Assert;
 use PHPUnit\Framework\AssertionFailedError;
+use Throwable;
 
 final class Screen
 {
@@ -43,20 +44,30 @@ final class Screen
      */
     private ?float $sheetSeen = null;
 
+    /**
+     * The public call under way, for the trace a failure saves (see Trace).
+     *
+     * @var array<string, mixed>|null
+     */
+    private ?array $step = null;
+
     public function tap(string $label): self
     {
-        $match = $this->locate($label, 'tap');
-        $this->driver->tap((float) $match['center'][0], (float) $match['center'][1]);
-
-        return $this;
+        return $this->step('tap', $label, function () use ($label): void {
+            $this->touch($this->locate($label, 'tap'));
+        });
     }
 
     public function press(string $label, float $seconds = 0.8): self
     {
-        $match = $this->locate($label, 'press');
-        $this->driver->press((float) $match['center'][0], (float) $match['center'][1], $this->seconds($seconds));
-
-        return $this;
+        return $this->step('press', $label, function () use ($label, $seconds): void {
+            $match = $this->locate($label, 'press');
+            $x = (float) $match['center'][0];
+            $y = (float) $match['center'][1];
+            $seconds = $this->seconds($seconds);
+            $this->sent(['press', $x, $y, $seconds]);
+            $this->driver->press($x, $y, $seconds);
+        });
     }
 
     /**
@@ -79,24 +90,28 @@ final class Screen
 
     public function type(string $label, string $text): self
     {
-        $match = $this->locate($label, 'type into');
+        return $this->step('type', $label, function () use ($label, $text): void {
+            $match = $this->locate($label, 'type into');
 
-        for ($attempt = 0; $attempt < self::TYPE_ATTEMPTS; $attempt++) {
-            $this->driver->tap((float) $match['center'][0], (float) $match['center'][1]);
-            $this->driver->clear($this->replacementLength($match));
+            for ($attempt = 1; $attempt <= self::TYPE_ATTEMPTS; $attempt++) {
+                $this->touch($match);
+                $this->erase($this->replacementLength($match));
 
-            if ($text === '') {
-                return $this;
+                if ($text === '') {
+                    return;
+                }
+
+                $this->sent(['text', $text]);
+                $this->driver->text($text);
+                $settled = $this->settled($label, $match, $text);
+                $this->note('attempts', $attempt);
+                $this->note('settled', $settled);
+
+                if ($settled) {
+                    return;
+                }
             }
-
-            $this->driver->text($text);
-
-            if ($this->settled($label, $match, $text)) {
-                return $this;
-            }
-        }
-
-        return $this;
+        });
     }
 
     /**
@@ -153,20 +168,20 @@ final class Screen
 
     public function clear(string $label): self
     {
-        $match = $this->locate($label, 'clear');
-        $this->driver->tap((float) $match['center'][0], (float) $match['center'][1]);
-        $this->driver->clear($this->replacementLength($match));
-
-        return $this;
+        return $this->step('clear', $label, function () use ($label): void {
+            $match = $this->locate($label, 'clear');
+            $this->touch($match);
+            $this->erase($this->replacementLength($match));
+        });
     }
 
     public function scroll(string $direction = 'down', ?float $distance = null, ?float $seconds = null): self
     {
-        $this->readRetrying();
-        [$width, $height] = $this->driver->viewport();
-        $this->drag(Gesture::scroll($direction, $width, $height, $distance), $seconds ?? 0.3);
-
-        return $this;
+        return $this->step('scroll', $direction, function () use ($direction, $distance, $seconds): void {
+            $this->readRetrying();
+            [$width, $height] = $this->driver->viewport();
+            $this->drag(Gesture::scroll($direction, $width, $height, $distance), $seconds ?? 0.3);
+        });
     }
 
     /**
@@ -186,35 +201,35 @@ final class Screen
             throw new SimulatorException("scrollTo() drags from a control only to the left or right, not [{$direction}].");
         }
 
-        $row = null;
+        return $this->step('scrollTo', $label, function () use ($label, $direction, $from): void {
+            $row = null;
 
-        if ($from !== null) {
-            $match = $this->locate($from, 'scroll from');
-            $row = [...$this->across($match), (float) $match['center'][1]];
-        }
+            if ($from !== null) {
+                $match = $this->locate($from, 'scroll from');
+                $row = [...$this->across($match), (float) $match['center'][1]];
+            }
 
-        $this->locate($label, 'scroll to', $direction, $row);
-
-        return $this;
+            $this->locate($label, 'scroll to', $direction, $row);
+        });
     }
 
     public function swipe(string $direction, ?string $from = null, ?float $distance = null, ?float $seconds = null): self
     {
-        $originX = null;
-        $originY = null;
+        return $this->step('swipe', $from === null ? $direction : "{$direction} from {$from}", function () use ($direction, $from, $distance, $seconds): void {
+            $originX = null;
+            $originY = null;
 
-        if ($from !== null) {
-            $match = $this->locate($from, 'swipe');
-            $originX = (float) $match['center'][0];
-            $originY = (float) $match['center'][1];
-        } else {
-            $this->readRetrying();
-        }
+            if ($from !== null) {
+                $match = $this->locate($from, 'swipe');
+                $originX = (float) $match['center'][0];
+                $originY = (float) $match['center'][1];
+            } else {
+                $this->readRetrying();
+            }
 
-        [$width, $height] = $this->driver->viewport();
-        $this->drag(Gesture::swipe($direction, $width, $height, $originX, $originY, $distance), $seconds ?? 0.3);
-
-        return $this;
+            [$width, $height] = $this->driver->viewport();
+            $this->drag(Gesture::swipe($direction, $width, $height, $originX, $originY, $distance), $seconds ?? 0.3);
+        });
     }
 
     /**
@@ -223,8 +238,10 @@ final class Screen
     private function drag(array $gesture, float $seconds): void
     {
         [$x1, $y1, $x2, $y2] = $gesture;
+        $seconds = $this->seconds($seconds);
         $this->presented();
-        $this->driver->swipe($x1, $y1, $x2, $y2, $this->seconds($seconds));
+        $this->sent(['swipe', $x1, $y1, $x2, $y2, $seconds]);
+        $this->driver->swipe($x1, $y1, $x2, $y2, $seconds);
         $this->settle();
     }
 
@@ -261,159 +278,165 @@ final class Screen
             return;
         }
 
-        $deadline = microtime(true) + min(2.0, $this->timeoutSeconds);
+        $started = microtime(true);
+        $deadline = $started + min(2.0, $this->timeoutSeconds);
         $previous = null;
 
-        while (microtime(true) < $deadline) {
-            try {
-                $current = $this->driver->describe();
-            } catch (SimulatorException) {
-                return;
-            }
+        try {
+            while (microtime(true) < $deadline) {
+                try {
+                    $current = $this->driver->describe();
+                } catch (SimulatorException) {
+                    return;
+                }
 
-            if ($previous !== null && $current === $previous) {
-                return;
-            }
+                if ($previous !== null && $current === $previous) {
+                    return;
+                }
 
-            $previous = $current;
-            usleep(100_000);
+                $previous = $current;
+                usleep(100_000);
+            }
+        } finally {
+            $this->tally('settleWait', microtime(true) - $started);
         }
     }
 
     public function goBack(): self
     {
-        $elements = $this->readRetrying();
-        $button = $this->finder->navigationBack($elements);
+        return $this->step('goBack', null, function (): void {
+            $elements = $this->readRetrying();
+            $button = $this->finder->navigationBack($elements);
 
-        if ($button !== null) {
-            $this->driver->tap((float) $button['center'][0], (float) $button['center'][1]);
-            return $this;
-        }
+            if ($button !== null) {
+                $this->touch($button);
 
-        $this->driver->back();
+                return;
+            }
 
-        return $this;
+            $this->sent(['back']);
+            $this->driver->back();
+        });
     }
 
     public function alert(string $label): self
     {
-        $elements = $this->until(
-            fn (array $elements): bool => $this->finder->alertButton($elements, $label) !== null,
-            "The alert did not offer [{$label}].",
-        );
-        $button = $this->finder->alertButton($elements, $label);
-        $this->driver->tap((float) $button['center'][0], (float) $button['center'][1]);
-
-        return $this;
+        return $this->step('alert', $label, function () use ($label): void {
+            $elements = $this->until(
+                fn (array $elements): bool => $this->finder->alertButton($elements, $label) !== null,
+                "The alert did not offer [{$label}].",
+            );
+            $this->touch($this->finder->alertButton($elements, $label));
+        });
     }
 
     public function share(?string $target = null): self
     {
-        if ($target === null) {
-            $elements = $this->until(
-                fn (array $elements): bool => $this->finder->sharing($elements),
-                'The share sheet was not open.',
-            );
-            $button = $this->finder->shareDismiss($elements);
+        return $this->step('share', $target, function () use ($target): void {
+            if ($target === null) {
+                $elements = $this->until(
+                    fn (array $elements): bool => $this->finder->sharing($elements),
+                    'The share sheet was not open.',
+                );
+                $button = $this->finder->shareDismiss($elements);
 
-            if ($button === null) {
-                $this->driver->back();
-                return $this;
+                if ($button === null) {
+                    $this->sent(['back']);
+                    $this->driver->back();
+
+                    return;
+                }
+
+                $this->touch($button);
+
+                return;
             }
 
-            $this->driver->tap((float) $button['center'][0], (float) $button['center'][1]);
-            return $this;
-        }
-
-        $elements = $this->until(
-            fn (array $elements): bool => $this->finder->shareButton($elements, $target) !== null,
-            "The share sheet did not offer [{$target}].",
-        );
-        $button = $this->finder->shareButton($elements, $target);
-        $this->driver->tap((float) $button['center'][0], (float) $button['center'][1]);
-
-        return $this;
+            $elements = $this->until(
+                fn (array $elements): bool => $this->finder->shareButton($elements, $target) !== null,
+                "The share sheet did not offer [{$target}].",
+            );
+            $this->touch($this->finder->shareButton($elements, $target));
+        });
     }
 
     public function pickPhoto(): self
     {
-        $elements = $this->until(
-            fn (array $elements): bool => $this->finder->firstPhoto($elements) !== null,
-            'The photo picker had no image.',
-        );
-        $photo = $this->finder->firstPhoto($elements);
-        $this->driver->tap((float) $photo['center'][0], (float) $photo['center'][1]);
-        $confirm = $this->finder->photoConfirm($elements);
+        return $this->step('pickPhoto', null, function (): void {
+            $elements = $this->until(
+                fn (array $elements): bool => $this->finder->firstPhoto($elements) !== null,
+                'The photo picker had no image.',
+            );
+            $this->touch($this->finder->firstPhoto($elements));
+            $confirm = $this->finder->photoConfirm($elements);
 
-        if ($confirm === null) {
-            $confirm = $this->finder->photoConfirm($this->read());
-        }
+            if ($confirm === null) {
+                $confirm = $this->finder->photoConfirm($this->read());
+            }
 
-        if ($confirm !== null) {
-            $this->driver->tap((float) $confirm['center'][0], (float) $confirm['center'][1]);
-        }
-
-        return $this;
+            if ($confirm !== null) {
+                $this->touch($confirm);
+            }
+        });
     }
 
     public function cancelPhoto(): self
     {
-        $elements = $this->until(
-            fn (array $elements): bool => $this->finder->photoButton($elements, 'Cancel') !== null,
-            'The photo picker had no [Cancel] button.',
-        );
-        $button = $this->finder->photoButton($elements, 'Cancel');
-        $this->driver->tap((float) $button['center'][0], (float) $button['center'][1]);
-
-        return $this;
+        return $this->step('cancelPhoto', null, function (): void {
+            $elements = $this->until(
+                fn (array $elements): bool => $this->finder->photoButton($elements, 'Cancel') !== null,
+                'The photo picker had no [Cancel] button.',
+            );
+            $this->touch($this->finder->photoButton($elements, 'Cancel'));
+        });
     }
 
     public function assertValue(string $label, string $value): self
     {
-        $elements = $this->until(
-            fn (array $elements): bool => $this->finder->hasValue($elements, $label, $value),
-            "[{$label}] did not have value [{$value}].",
-        );
+        return $this->step('assertValue', $label, function () use ($label, $value): void {
+            $elements = $this->until(
+                fn (array $elements): bool => $this->finder->hasValue($elements, $label, $value),
+                "[{$label}] did not have value [{$value}].",
+            );
 
-        Assert::assertTrue($this->finder->hasValue($elements, $label, $value));
-
-        return $this;
+            Assert::assertTrue($this->finder->hasValue($elements, $label, $value));
+        });
     }
 
     public function assertEnabled(string $label): self
     {
-        $elements = $this->until(
-            fn (array $elements): bool => $this->finder->isEnabled($elements, $label, true),
-            "[{$label}] was disabled.",
-        );
+        return $this->step('assertEnabled', $label, function () use ($label): void {
+            $elements = $this->until(
+                fn (array $elements): bool => $this->finder->isEnabled($elements, $label, true),
+                "[{$label}] was disabled.",
+            );
 
-        Assert::assertTrue($this->finder->isEnabled($elements, $label, true));
-
-        return $this;
+            Assert::assertTrue($this->finder->isEnabled($elements, $label, true));
+        });
     }
 
     public function assertDisabled(string $label): self
     {
-        $elements = $this->until(
-            fn (array $elements): bool => $this->finder->isEnabled($elements, $label, false),
-            "[{$label}] was enabled.",
-        );
+        return $this->step('assertDisabled', $label, function () use ($label): void {
+            $elements = $this->until(
+                fn (array $elements): bool => $this->finder->isEnabled($elements, $label, false),
+                "[{$label}] was enabled.",
+            );
 
-        Assert::assertTrue($this->finder->isEnabled($elements, $label, false));
-
-        return $this;
+            Assert::assertTrue($this->finder->isEnabled($elements, $label, false));
+        });
     }
 
     public function assertChecked(string $label): self
     {
-        $elements = $this->until(
-            fn (array $elements): bool => $this->finder->isChecked($elements, $label, true),
-            "[{$label}] was unchecked.",
-        );
+        return $this->step('assertChecked', $label, function () use ($label): void {
+            $elements = $this->until(
+                fn (array $elements): bool => $this->finder->isChecked($elements, $label, true),
+                "[{$label}] was unchecked.",
+            );
 
-        Assert::assertTrue($this->finder->isChecked($elements, $label, true));
-
-        return $this;
+            Assert::assertTrue($this->finder->isChecked($elements, $label, true));
+        });
     }
 
     /**
@@ -422,14 +445,14 @@ final class Screen
      */
     public function assertNotChecked(string $label): self
     {
-        $elements = $this->until(
-            fn (array $elements): bool => $this->finder->isChecked($elements, $label, false),
-            "[{$label}] was checked.",
-        );
+        return $this->step('assertNotChecked', $label, function () use ($label): void {
+            $elements = $this->until(
+                fn (array $elements): bool => $this->finder->isChecked($elements, $label, false),
+                "[{$label}] was checked.",
+            );
 
-        Assert::assertTrue($this->finder->isChecked($elements, $label, false));
-
-        return $this;
+            Assert::assertTrue($this->finder->isChecked($elements, $label, false));
+        });
     }
 
     /**
@@ -438,14 +461,14 @@ final class Screen
      */
     public function assertSelected(string $label): self
     {
-        $elements = $this->until(
-            fn (array $elements): bool => $this->finder->isSelected($elements, $label, true),
-            "[{$label}] was not selected.",
-        );
+        return $this->step('assertSelected', $label, function () use ($label): void {
+            $elements = $this->until(
+                fn (array $elements): bool => $this->finder->isSelected($elements, $label, true),
+                "[{$label}] was not selected.",
+            );
 
-        Assert::assertTrue($this->finder->isSelected($elements, $label, true));
-
-        return $this;
+            Assert::assertTrue($this->finder->isSelected($elements, $label, true));
+        });
     }
 
     /**
@@ -454,50 +477,50 @@ final class Screen
      */
     public function assertNotSelected(string $label): self
     {
-        $elements = $this->until(
-            fn (array $elements): bool => $this->finder->isSelected($elements, $label, false),
-            "[{$label}] was selected.",
-        );
+        return $this->step('assertNotSelected', $label, function () use ($label): void {
+            $elements = $this->until(
+                fn (array $elements): bool => $this->finder->isSelected($elements, $label, false),
+                "[{$label}] was selected.",
+            );
 
-        Assert::assertTrue($this->finder->isSelected($elements, $label, false));
-
-        return $this;
+            Assert::assertTrue($this->finder->isSelected($elements, $label, false));
+        });
     }
 
     public function assertNavTitle(string $title): self
     {
-        $elements = $this->until(
-            fn (array $elements): bool => $this->finder->navTitle($elements, $title),
-            "The navigation title was not [{$title}].",
-        );
+        return $this->step('assertNavTitle', $title, function () use ($title): void {
+            $elements = $this->until(
+                fn (array $elements): bool => $this->finder->navTitle($elements, $title),
+                "The navigation title was not [{$title}].",
+            );
 
-        Assert::assertTrue($this->finder->navTitle($elements, $title));
-
-        return $this;
+            Assert::assertTrue($this->finder->navTitle($elements, $title));
+        });
     }
 
     public function assertTabActive(string $label): self
     {
-        $elements = $this->until(
-            fn (array $elements): bool => $this->finder->tabActive($elements, $label),
-            "[{$label}] was not the active tab.",
-        );
+        return $this->step('assertTabActive', $label, function () use ($label): void {
+            $elements = $this->until(
+                fn (array $elements): bool => $this->finder->tabActive($elements, $label),
+                "[{$label}] was not the active tab.",
+            );
 
-        Assert::assertTrue($this->finder->tabActive($elements, $label));
-
-        return $this;
+            Assert::assertTrue($this->finder->tabActive($elements, $label));
+        });
     }
 
     public function assertNavigatedTo(string $path): self
     {
-        $elements = $this->until(
-            fn (array $elements): bool => $this->finder->navigatedTo($elements, $path),
-            "Did not navigate to [{$path}].",
-        );
+        return $this->step('assertNavigatedTo', $path, function () use ($path): void {
+            $elements = $this->until(
+                fn (array $elements): bool => $this->finder->navigatedTo($elements, $path),
+                "Did not navigate to [{$path}].",
+            );
 
-        Assert::assertTrue($this->finder->navigatedTo($elements, $path));
-
-        return $this;
+            Assert::assertTrue($this->finder->navigatedTo($elements, $path));
+        });
     }
 
     /**
@@ -505,41 +528,51 @@ final class Screen
      */
     public function assertSee(string $text, string ...$others): self
     {
-        $texts = [$text, ...$others];
+        return $this->step('assertSee', implode(', ', [$text, ...$others]), function () use ($text, $others): void {
+            $texts = [$text, ...$others];
 
-        $elements = $this->until(
-            fn (array $elements): bool => $this->finder->seesAll($elements, $texts),
-            fn (array $elements): string => $this->didNotSee($this->finder->missing($elements, $texts) ?: $texts),
-        );
+            $elements = $this->until(
+                fn (array $elements): bool => $this->finder->seesAll($elements, $texts),
+                fn (array $elements): string => $this->didNotSee($this->finder->missing($elements, $texts) ?: $texts),
+            );
 
-        Assert::assertTrue($this->finder->seesAll($elements, $texts));
-
-        return $this;
+            Assert::assertTrue($this->finder->seesAll($elements, $texts));
+        });
     }
 
     public function assertDontSee(string $text): self
     {
-        $elements = $this->until(
-            fn (array $elements): bool => ! $this->finder->sees($elements, $text),
-            "Still seeing [{$text}].",
-        );
+        return $this->step('assertDontSee', $text, function () use ($text): void {
+            $elements = $this->until(
+                fn (array $elements): bool => ! $this->finder->sees($elements, $text),
+                "Still seeing [{$text}].",
+            );
 
-        Assert::assertFalse($this->finder->sees($elements, $text));
-
-        return $this;
+            Assert::assertFalse($this->finder->sees($elements, $text));
+        });
     }
 
     public function screenshot(string $path): self
     {
-        $directory = dirname($path);
+        return $this->step('screenshot', $path, function () use ($path): void {
+            $directory = dirname($path);
 
-        if ($directory !== '' && $directory !== '.' && ! is_dir($directory)) {
-            mkdir($directory, 0777, true);
-        }
+            if ($directory !== '' && $directory !== '.' && ! is_dir($directory)) {
+                mkdir($directory, 0777, true);
+            }
 
-        $this->driver->screenshot($path);
+            $this->driver->screenshot($path);
+        });
+    }
 
-        return $this;
+    /**
+     * Print the controls on screen, the way a failed assertion lists them.
+     */
+    public function dump(): self
+    {
+        return $this->step('dump', null, function (): void {
+            echo $this->listing($this->readRetrying())."\n\n";
+        });
     }
 
     public function record(?string $path = null): self
@@ -548,10 +581,10 @@ final class Screen
             throw new SimulatorException('record() only works inside a mobile() suite.');
         }
 
-        Recording::request($path === '' ? null : $path);
-        Recording::begin($this->driver, Run::device());
-
-        return $this;
+        return $this->step('record', $path, function () use ($path): void {
+            Recording::request($path === '' ? null : $path);
+            Recording::begin($this->driver, Run::device());
+        });
     }
 
     public function stopRecord(): self
@@ -560,9 +593,102 @@ final class Screen
             throw new SimulatorException('stopRecord() only works inside a mobile() suite.');
         }
 
-        Recording::stop($this->driver);
+        return $this->step('stopRecord', null, function (): void {
+            Recording::stop($this->driver);
+        });
+    }
+
+    /**
+     * Run one public call as a step of the test's trace. A call made inside another one
+     * is part of that step.
+     *
+     * @param  Closure(): void  $body
+     */
+    private function step(string $action, ?string $target, Closure $body): self
+    {
+        if ($this->step !== null) {
+            $body();
+
+            return $this;
+        }
+
+        $this->step = ['action' => $action, 'target' => $target, 'started' => microtime(true), 'reads' => 0, 'failedReads' => 0];
+
+        try {
+            $body();
+        } catch (Throwable $exception) {
+            $this->endStep($exception instanceof AssertionFailedError ? 'failed' : 'error', $exception->getMessage());
+
+            throw $exception;
+        }
+
+        $this->endStep('ok');
 
         return $this;
+    }
+
+    private function endStep(string $result, ?string $error = null): void
+    {
+        if ($this->step === null) {
+            return;
+        }
+
+        $step = $this->step;
+        $this->step = null;
+        $step['seconds'] = microtime(true) - (float) $step['started'];
+        $step['result'] = $result;
+
+        if ($error !== null) {
+            $step['error'] = $error;
+        }
+
+        Trace::add($step);
+    }
+
+    private function note(string $key, mixed $value): void
+    {
+        if ($this->step !== null) {
+            $this->step[$key] = $value;
+        }
+    }
+
+    private function tally(string $key, int|float $amount = 1): void
+    {
+        if ($this->step !== null) {
+            $this->step[$key] = ($this->step[$key] ?? 0) + $amount;
+        }
+    }
+
+    private function push(string $key, mixed $value): void
+    {
+        if ($this->step !== null) {
+            $this->step[$key][] = $value;
+        }
+    }
+
+    /**
+     * @param  list<string|int|float>  $action  what went to the device: `['tap', x, y]`, `['text', 'abc']`
+     */
+    private function sent(array $action): void
+    {
+        $this->push('sent', $action);
+    }
+
+    /**
+     * @param  array{center: array{0: float|int, 1: float|int}}  $element
+     */
+    private function touch(array $element): void
+    {
+        $x = (float) $element['center'][0];
+        $y = (float) $element['center'][1];
+        $this->sent(['tap', $x, $y]);
+        $this->driver->tap($x, $y);
+    }
+
+    private function erase(int $characters): void
+    {
+        $this->sent(['clear', $characters]);
+        $this->driver->clear($characters);
     }
 
     /**
@@ -668,11 +794,23 @@ final class Screen
      */
     private function fail(string $failure, array $elements): never
     {
+        $this->endStep('failed', $failure);
+
+        throw new AssertionFailedError($failure."\n\n".$this->listing($elements).$this->captureFailure());
+    }
+
+    /**
+     * The controls on screen, as a failure message and dump() list them.
+     *
+     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}}>  $elements
+     */
+    private function listing(array $elements): string
+    {
         $webview = $this->finder->hasWebView($elements)
             ? "\n\nA WebView is on screen. Blade and Livewire inside <webview> are outside the native accessibility tree."
             : '';
 
-        throw new AssertionFailedError($failure."\n\n".$this->finder->describe($elements).$webview.$this->captureFailure());
+        return $this->finder->describe($elements).$webview;
     }
 
     /**
@@ -680,7 +818,7 @@ final class Screen
      */
     private function read(): array
     {
-        $elements = $this->driver->describe();
+        $elements = $this->describe();
 
         for ($attempt = 0; $attempt < 2; $attempt++) {
             $button = $this->finder->openDialogButton($elements);
@@ -689,18 +827,34 @@ final class Screen
                 break;
             }
 
-            $this->driver->tap((float) $button['center'][0], (float) $button['center'][1]);
+            $this->touch($button);
 
             if ($this->timeoutSeconds > 0) {
                 usleep(800_000);
             }
 
-            $elements = $this->driver->describe();
+            $elements = $this->describe();
         }
 
         $this->sheetSeen = $this->finder->hasSheet($elements) ? ($this->sheetSeen ?? microtime(true)) : null;
 
         return $elements;
+    }
+
+    /**
+     * @return list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}}>
+     */
+    private function describe(): array
+    {
+        $this->tally('reads');
+
+        try {
+            return $this->driver->describe();
+        } catch (SimulatorException $exception) {
+            $this->tally('failedReads');
+
+            throw $exception;
+        }
     }
 
     /**
@@ -723,6 +877,7 @@ final class Screen
         $left = $this->sheetSeen + self::SHEET_SECONDS - microtime(true);
 
         if ($left > 0) {
+            $this->tally('sheetWait', $left);
             usleep((int) round($left * 1_000_000));
         }
     }
@@ -790,6 +945,7 @@ final class Screen
             }
 
             if ($scroll === null) {
+                $this->note('match', array_intersect_key($match, array_flip(['label', 'role', 'id', 'value', 'center'])));
                 $this->presented();
 
                 return $match;
@@ -809,6 +965,13 @@ final class Screen
                 );
             }
 
+            $this->push('scrolls', match ($where) {
+                'below' => 'down',
+                'above' => 'up',
+                'to the right of' => 'right',
+                'to the left of' => 'left',
+                default => (string) $search,
+            });
             $this->drag($gesture, self::SCROLL_SECONDS);
             $scrolls++;
         }
@@ -1002,6 +1165,8 @@ final class Screen
             }
         } catch (SimulatorException) {
         }
+
+        array_push($saved, ...Trace::write($root));
 
         if ($saved === []) {
             return "\n\nSaved {$root}";

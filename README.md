@@ -102,7 +102,7 @@ Configuration::configure([
 
 If the same value is set in more than one place, the plugin uses `Configuration::configure()` first, then the environment variable, then `config/nativephp.php`. A booted Laravel app already fills that config from `.env`, so the `.env` file is the one to edit.
 
-`timeout` and `permissions` are not `.env` variables. Set a timeout with `Configuration::configure(['timeout' => 15])`. Set permissions with `permissions()` inside a test, or with `Configuration::configure(['permissions' => ['location']])` for every test.
+`timeout`, `permissions`, and `record_failures` are not `.env` variables. Set a timeout with `Configuration::configure(['timeout' => 15])`. Set permissions with `permissions()` inside a test, or with `Configuration::configure(['permissions' => ['location']])` for every test. `record_failures` is under [Debug a flaky test](#debug-a-flaky-test).
 
 ## Write a test
 
@@ -268,6 +268,8 @@ A test that runs on an iPhone and a Pixel writes two files. If you never call `s
 
 iOS records with `xcrun simctl io recordVideo`. Android records with `adb shell screenrecord`. Android keeps at most 3 minutes. The emulator has no window. The video is still the screen.
 
+To record every test and keep only the ones that fail, see `--record-failures` under [Debug a flaky test](#debug-a-flaky-test).
+
 ## Grant permissions
 
 The first `screen()` in a test grants privacy access after the app is installed and before that screen opens. Later screens in the same test do not grant again. The next test can ask for a different list. Permissions it drops are revoked. Permissions it adds are granted.
@@ -328,7 +330,54 @@ The iOS "Open in…" dialog and Android's "Wait" button are closed automatically
 
 ## When an assertion fails
 
-A failed assertion writes `tree.json` and `screen.png`. A recording that is still running is stopped and kept. It also copies `laravel.log` out of the app: `Library/Application Support/storage/logs/laravel.log` on iOS, and `app_storage/persisted_data/storage/logs/laravel.log` on Android. Android also writes `logcat.txt` for that app id. The failure message lists each file it wrote, and it lists the controls on screen. A control with no label is named by its role, and by its accessibility id when it has one.
+A failed assertion writes `tree.json`, `screen.png`, `trace.json`, and `trace.txt`. A recording that is still running is stopped and kept. It also copies `laravel.log` out of the app: `Library/Application Support/storage/logs/laravel.log` on iOS, and `app_storage/persisted_data/storage/logs/laravel.log` on Android. Android also writes `logcat.txt` for that app id. The failure message lists each file it wrote, and it lists the controls on screen. A control with no label is named by its role, and by its accessibility id when it has one.
+
+`trace.json` has every step the test took, from its first `screen()`: the call and its label, what it matched, where it touched, how many times it read the screen, the scrolls that brought a control on screen, any wait for a sheet or for scrolling to stop, how long the step took, and how it ended. A test that opens two screens has one trace. `trace.txt` is the same steps, one line each:
+
+```text
+it saves the form with ('ios:1:iPhone 17 Pro')
+
+   +0.000s    2.314s  ok      open [demo://settings]
+   +2.314s    0.912s  ok      tap [Save]: matched Button "Save" at 200,700; 3 reads (1 failed); scrolled down
+   +3.226s   15.004s  failed  assertSee [Saved]: 38 reads; Did not see [Saved].
+```
+
+The first column is when the step started, from the start of the test. The second is how long it took.
+
+## Debug a flaky test
+
+`dump()` prints the controls on screen, in the list a failure shows. It returns the screen, so the chain keeps going. Pest prints it once the test ends, whether it passed or failed.
+
+```php
+screen('/settings')
+    ->tap('Edit')
+    ->dump()
+    ->tap('Save');
+```
+
+`--simulator-verbose` logs every `simctl`, `adb`, and other command, and every `idb_companion` call, with how long it took and how it ended. It logs each test and each step too. A line is written when its call ends.
+
+```bash
+vendor/bin/pest --ios --simulator-verbose
+vendor/bin/pest --ios --parallel --simulator-verbose=build/simulator.log
+```
+
+The log is `simulator-logs/verbose.log`, or the path after `=`. Each run starts the file again. It is a file, not the terminal, because a parallel worker's output is not shown. Every worker adds to the same file, and each line names its worker: `[w2]`, or `[main]` outside a worker.
+
+```text
+13:30:47.110 [w1]                         test it saves the form with ('ios:1:iPhone 17 Pro') on ios iPhone 17 Pro
+13:30:47.522 [w1]      0.412s  exit 0     xcrun simctl openurl 8C1F2A47-3D7E-4C0B-9E55-2F1B6A9D0C11 demo://settings
+13:30:47.605 [w1]      0.083s  grpc 0     companion accessibility_info
+13:30:48.010 [w1]      0.405s  grpc 0     companion hid (2 messages, 400ms apart)
+13:30:48.020 [w1]      0.912s  ok         step tap [Save]: matched Button "Save" at 200,700; 1 read
+13:31:18.024 [w2]     30.004s  timed out  companion accessibility_info: Companion [accessibility_info] did not answer in time
+```
+
+A command ends with its exit code, or `timed out` when it was stopped. A companion call ends with its gRPC status, `timed out`, or the curl error. A step ends `ok`, `failed` for an assertion, or `error` when the device call threw.
+
+`--record-failures` records every test and keeps the video only when the test fails. The clip starts at the test's first `screen()` and is written where `record()` writes it. `Configuration::configure(['record_failures' => true])` does the same for every run. A `record()` inside that test keeps the clip, and writes it to the path you passed. Recording every test makes each one slower.
+
+`--simulator-verbose` and `--record-failures` are removed before PHPUnit starts. A parallel worker gets them too.
 
 ## Choose a device from the CLI
 

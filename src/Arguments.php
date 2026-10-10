@@ -16,6 +16,10 @@ final class Arguments
 
     private const WIPE = 'NATIVEPHP_SIMULATOR_WIPE';
 
+    private const VERBOSE = 'NATIVEPHP_SIMULATOR_VERBOSE';
+
+    private const RECORD_FAILURES = 'NATIVEPHP_SIMULATOR_RECORD_FAILURES';
+
     /** @var list<'ios'|'android'>|null */
     private static ?array $platforms = null;
 
@@ -27,6 +31,10 @@ final class Arguments
     private static bool $rebuild = false;
 
     private static bool $wipe = false;
+
+    private static ?string $verbose = null;
+
+    private static bool $recordFailures = false;
 
     private static bool $parsed = false;
 
@@ -41,7 +49,7 @@ final class Arguments
         self::$parsed = true;
         $parsed = self::parse($arguments);
 
-        if ($parsed['platforms'] === [] && $parsed['devices'] === [] && ! $parsed['doctor'] && ! $parsed['rebuild'] && ! $parsed['wipe']) {
+        if ($parsed['platforms'] === [] && $parsed['devices'] === [] && ! $parsed['doctor'] && ! $parsed['rebuild'] && ! $parsed['wipe'] && $parsed['verbose'] === null && ! $parsed['recordFailures']) {
             self::hydrate();
 
             return $parsed['kept'];
@@ -52,6 +60,9 @@ final class Arguments
         self::$doctor = $parsed['doctor'];
         self::$rebuild = $parsed['rebuild'];
         self::$wipe = $parsed['wipe'];
+        self::$verbose = $parsed['verbose'];
+        self::$recordFailures = $parsed['recordFailures'];
+        self::log($arguments);
         self::publish();
 
         return $parsed['kept'];
@@ -70,6 +81,11 @@ final class Arguments
     public static function wantsWipe(): bool
     {
         return self::$wipe;
+    }
+
+    public static function wantsFailureRecordings(): bool
+    {
+        return self::$recordFailures;
     }
 
     /**
@@ -151,12 +167,17 @@ final class Arguments
         self::$doctor = false;
         self::$rebuild = false;
         self::$wipe = false;
+        self::$verbose = null;
+        self::$recordFailures = false;
         self::$parsed = false;
         self::$excludedByPin = false;
         self::expose(self::PLATFORMS, null);
         self::expose(self::DEVICES, null);
         self::expose(self::REBUILD, null);
         self::expose(self::WIPE, null);
+        self::expose(self::VERBOSE, null);
+        self::expose(self::RECORD_FAILURES, null);
+        VerboseLog::to(null);
         ParallelLanes::clearEnv();
     }
 
@@ -187,7 +208,7 @@ final class Arguments
 
     /**
      * @param  array<int, string>  $arguments
-     * @return array{platforms: list<'ios'|'android'>, devices: list<array{platform: 'ios'|'android'|null, name: string}>, doctor: bool, rebuild: bool, wipe: bool, kept: list<string>}
+     * @return array{platforms: list<'ios'|'android'>, devices: list<array{platform: 'ios'|'android'|null, name: string}>, doctor: bool, rebuild: bool, wipe: bool, verbose: ?string, recordFailures: bool, kept: list<string>}
      */
     private static function parse(array $arguments): array
     {
@@ -201,6 +222,8 @@ final class Arguments
         $doctor = false;
         $rebuild = false;
         $wipe = false;
+        $verbose = null;
+        $recordFailures = false;
         $kept = [];
         $count = count($arguments);
 
@@ -221,6 +244,18 @@ final class Arguments
 
             if ($argument === '--wipe') {
                 $wipe = true;
+
+                continue;
+            }
+
+            if ($argument === '--simulator-verbose' || str_starts_with($argument, '--simulator-verbose=')) {
+                $verbose = self::absolute(substr($argument, strlen('--simulator-verbose=')) ?: VerboseLog::DEFAULT);
+
+                continue;
+            }
+
+            if ($argument === '--record-failures') {
+                $recordFailures = true;
 
                 continue;
             }
@@ -265,6 +300,8 @@ final class Arguments
             'doctor' => $doctor,
             'rebuild' => $rebuild,
             'wipe' => $wipe,
+            'verbose' => $verbose,
+            'recordFailures' => $recordFailures,
             'kept' => $kept,
         ];
     }
@@ -347,6 +384,42 @@ final class Arguments
         self::expose(self::DEVICES, self::$devices === [] ? null : json_encode(self::$devices, JSON_THROW_ON_ERROR));
         self::expose(self::REBUILD, self::$rebuild ? '1' : null);
         self::expose(self::WIPE, self::$wipe ? '1' : null);
+        self::expose(self::VERBOSE, self::$verbose);
+        self::expose(self::RECORD_FAILURES, self::$recordFailures ? '1' : null);
+    }
+
+    /**
+     * The run's first process starts the log afresh. A lane or a worker gets the same path
+     * and adds to it.
+     *
+     * @param  array<int, string>  $arguments
+     */
+    private static function log(array $arguments): void
+    {
+        if (self::$verbose === null) {
+            VerboseLog::to(null);
+
+            return;
+        }
+
+        if (ParallelLanes::active() || Worker::parallel() || VerboseLog::path() === self::$verbose) {
+            VerboseLog::to(self::$verbose);
+
+            return;
+        }
+
+        VerboseLog::start(self::$verbose, implode(' ', array_filter($arguments, is_string(...))));
+    }
+
+    private static function absolute(string $path): string
+    {
+        if (str_starts_with($path, '/')) {
+            return $path;
+        }
+
+        $root = getcwd();
+
+        return ($root === false ? '.' : $root).'/'.$path;
     }
 
     private static function expose(string $key, ?string $value): void
@@ -358,6 +431,10 @@ final class Arguments
     {
         self::$rebuild = getenv(self::REBUILD) === '1';
         self::$wipe = getenv(self::WIPE) === '1';
+        self::$recordFailures = getenv(self::RECORD_FAILURES) === '1';
+        $verbose = getenv(self::VERBOSE);
+        self::$verbose = is_string($verbose) && $verbose !== '' ? $verbose : null;
+        VerboseLog::to(self::$verbose);
 
         $platforms = getenv(self::PLATFORMS);
 

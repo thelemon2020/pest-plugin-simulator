@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use NativePhp\Simulator\AccessibilityTree;
+use NativePhp\Simulator\ElementFinder;
 use NativePhp\Simulator\Screen;
 use Tests\Support\FakeDriver;
 
@@ -118,4 +119,34 @@ it('retries up to the attempt limit when the value never settles', function () {
     expect($driver->taps)->toBe([[200.0, 300.0], [200.0, 300.0], [200.0, 300.0]])
         ->and($driver->clears)->toBe(3)
         ->and($driver->texts)->toBe(['ada@example.com', 'ada@example.com', 'ada@example.com']);
+});
+
+it('dumps the controls on screen the way a failure lists them, and keeps going', function () {
+    $elements = [
+        ['label' => 'Save', 'role' => 'Button', 'id' => null, 'center' => [200, 700]],
+        ['label' => 'Name', 'role' => 'TextField', 'id' => null, 'center' => [200, 300], 'value' => 'Ada'],
+        ['label' => '', 'role' => 'Switch', 'id' => 'lights-toggle', 'center' => [300, 400]],
+    ];
+    $driver = new FakeDriver([$elements]);
+
+    ob_start();
+    $screen = (new Screen($driver, timeoutSeconds: 0))->dump()->tap('Save');
+    $printed = ob_get_clean();
+
+    expect($screen)->toBeInstanceOf(Screen::class)
+        ->and($printed)->toBe((new ElementFinder)->describe($elements)."\n\n")
+        ->and($printed)->toContain("Button: Save\nTextField: Name = Ada\nSwitch: [lights-toggle]")
+        ->and($driver->taps)->toBe([[200.0, 700.0]]);
+});
+
+it('says when the dump has a WebView in it', function () {
+    $driver = new FakeDriver([[
+        ['label' => 'Page', 'role' => 'WebView', 'id' => null, 'center' => [200, 400]],
+    ]]);
+
+    ob_start();
+    (new Screen($driver, timeoutSeconds: 0))->dump();
+    $printed = ob_get_clean();
+
+    expect($printed)->toContain('A WebView is on screen.');
 });

@@ -23,6 +23,7 @@ final class Plugin implements Bootable, HandlesArguments, Terminable
 
         self::$booted = true;
         TestSuite::getInstance()->tests->addTestCaseMethodFilter(new MobileTestFilter);
+        EventFacade::instance()->registerSubscribers(new Subscribers\TestPassed, new Subscribers\TestFinished);
         ParallelLanes::publish();
 
         if (! Parallel::isEnabled() || Parallel::isWorker()) {
