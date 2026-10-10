@@ -1154,52 +1154,8 @@ final class Screen
 
     private function captureFailure(): string
     {
-        $root = $this->failureDirectory !== ''
-            ? $this->failureDirectory
-            : getcwd().'/simulator-failures/'.date('Ymd-His');
+        $root = $this->failureDirectory !== '' ? $this->failureDirectory : FailureCapture::directory();
 
-        if (! is_dir($root)) {
-            mkdir($root, 0777, true);
-        }
-
-        $saved = [];
-
-        try {
-            $this->driver->describe($root.'/tree.json');
-        } catch (SimulatorException) {
-        }
-
-        if (is_file($root.'/tree.json')) {
-            $saved[] = $root.'/tree.json';
-        }
-
-        try {
-            $this->driver->screenshot($root.'/screen.png');
-        } catch (SimulatorException) {
-        }
-
-        if (is_file($root.'/screen.png')) {
-            $saved[] = $root.'/screen.png';
-        }
-
-        try {
-            foreach ($this->driver->captureLogs($root) as $path) {
-                if (is_file($path)) {
-                    $saved[] = $path;
-                }
-            }
-        } catch (SimulatorException) {
-        }
-
-        array_push($saved, ...Trace::write($root));
-
-        if ($saved === []) {
-            return "\n\nSaved {$root}";
-        }
-
-        return "\n\n".implode("\n", array_map(
-            fn (string $path): string => "Saved {$path}",
-            $saved,
-        ));
+        return FailureCapture::listing($root, FailureCapture::save($this->driver, $root));
     }
 }

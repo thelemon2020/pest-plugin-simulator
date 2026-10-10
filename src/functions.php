@@ -59,8 +59,17 @@ function screen(string $path): Screen
     TestDatabase::publish($driver);
     Permissions::apply($driver, $device->key());
     $url = $configuration->urlFor($path);
-    $driver->open($url);
-    Trace::add(['action' => 'open', 'target' => $url, 'started' => $started, 'seconds' => microtime(true) - $started, 'result' => 'ok']);
+    $step = ['action' => 'open', 'target' => $url, 'started' => $started];
+
+    try {
+        $driver->open($url);
+    } catch (Throwable $exception) {
+        Trace::add($step + ['seconds' => microtime(true) - $started, 'result' => 'error', 'error' => $exception->getMessage()]);
+
+        throw $exception;
+    }
+
+    Trace::add($step + ['seconds' => microtime(true) - $started, 'result' => 'ok']);
 
     return new Screen($driver, timeoutSeconds: $configuration->timeout());
 }

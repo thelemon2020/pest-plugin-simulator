@@ -344,6 +344,16 @@ it saves the form with ('ios:1:iPhone 17 Pro')
 
 The first column is when the step started, from the start of the test. The second is how long it took.
 
+A test can also end with an error from the device, such as a companion call or a command that ran out of time. Once the test has opened a screen, that error saves the trace too. The step that broke ends in `error`:
+
+```text
+   +3.226s   10.012s  error   tap [Save]: matched Button "Save" at 200,700; 1 read; Companion [hid] did not answer in time: Operation timed out after 10002 milliseconds with 0 bytes received
+```
+
+It saves `screen.png`, `tree.json`, and the logs as well, unless the device stopped answering. When the companion stopped, it skips `tree.json`, which comes from the companion on iOS. When a command ran out of time, it saves only the trace. The error lists each file it wrote. A test that expects the error, with `throws()`, saves nothing.
+
+Each failure gets its own directory under `simulator-failures/`, named for when it failed.
+
 ## Debug a flaky test
 
 `dump()` prints the controls on screen, in the list a failure shows. It returns the screen, so the chain keeps going. Pest prints it once the test ends, whether it passed or failed.

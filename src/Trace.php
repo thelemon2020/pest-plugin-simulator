@@ -8,8 +8,9 @@ use Pest\TestSuite;
 
 /**
  * The steps one test took on the device: each Screen call, what it matched, where it
- * touched, what it waited for, and how long it took. A failed assertion saves it next to
- * tree.json and screen.png.
+ * touched, what it waited for, and how long it took. A test that fails saves it next to
+ * tree.json and screen.png, whether an assertion failed or it ended with an error (see
+ * FailureCapture).
  *
  * A test can open more than one screen, so the steps belong to the test, not a Screen.
  */
