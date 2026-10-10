@@ -505,6 +505,25 @@ it('waits for a sheet that just opened before answering it without locate()', fu
     ],
 ]);
 
+it('says a step saw nothing because the screen could not be read', function () {
+    $driver = new FakeDriver([[control('Use this record')]]);
+    $driver->describeFailures = 99;
+
+    expect(fn () => (new Screen($driver, timeoutSeconds: 0))->tap('Use this record'))
+        ->toThrow(AssertionFailedError::class, "Could not find [Use this record] to tap.\n\nThe last read of the screen failed: window-server frontmost returned no application object");
+});
+
+it('does not blame a read that failed before a later one answered', function () {
+    $driver = new FakeDriver([[control('Save')]]);
+    $driver->describeFailures = 1;
+
+    expect(fn () => (new Screen($driver, timeoutSeconds: 1))->tap('Cancel'))
+        ->toThrow(function (AssertionFailedError $failure): void {
+            expect($failure->getMessage())->toStartWith("Could not find [Cancel] to tap.\n\nButton: Save")
+                ->not->toContain('The last read of the screen failed');
+        });
+});
+
 it('scrolls a control out from under the home indicator before tapping it', function () {
     // CollectShine's "Use this record", on a pushed screen with no tab bar: its centre is
     // inside the 874-point viewport, but in the home indicator's strip, where a tap lands on

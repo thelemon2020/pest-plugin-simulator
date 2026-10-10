@@ -730,6 +730,10 @@ final class Screen
     }
 
     /**
+     * A step whose last read failed says why, rather than only that it saw nothing: an app
+     * that has stopped answering (CollectShine's add-record form, spinning its main thread
+     * after a scroll) otherwise reads as a control that is not there.
+     *
      * @param  callable(list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}}): bool>  $predicate
      * @param  string|Closure(list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}}): string>  $failure
      * @return list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}}>
@@ -738,12 +742,15 @@ final class Screen
     {
         $deadline ??= microtime(true) + $this->timeoutSeconds;
         $last = [];
+        $unread = null;
 
         do {
             try {
                 $last = $this->read();
-            } catch (SimulatorException) {
+                $unread = null;
+            } catch (SimulatorException $exception) {
                 $last = [];
+                $unread = $exception;
 
                 if ($this->timeoutSeconds <= 0) {
                     break;
@@ -769,7 +776,13 @@ final class Screen
             usleep(400_000);
         } while (microtime(true) < $deadline);
 
-        $this->fail($failure instanceof Closure ? $failure($last) : $failure, $last);
+        $message = $failure instanceof Closure ? $failure($last) : $failure;
+
+        if ($unread !== null) {
+            $message .= "\n\nThe last read of the screen failed: ".$unread->getMessage();
+        }
+
+        $this->fail($message, $last);
     }
 
     /**
