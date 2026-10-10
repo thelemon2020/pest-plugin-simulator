@@ -6,7 +6,10 @@ use NativePhp\Simulator\AndroidDriver;
 use NativePhp\Simulator\Command;
 use NativePhp\Simulator\Configuration;
 use NativePhp\Simulator\Device;
+use NativePhp\Simulator\ElementFinder;
 use NativePhp\Simulator\Exceptions\SimulatorException;
+use NativePhp\Simulator\Screen;
+use Tests\Support\FakeDriver;
 use Tests\Support\RecordingCommand;
 
 afterEach(function () {
@@ -176,6 +179,49 @@ it('reads a stock hierarchy from node bounds', function () {
             @unlink($path);
         }
     }
+});
+
+it('confirms a typed password by its bullets, and by its text once it is shown', function () {
+    // Captured from CollectShine's sign-in screen on an android-36 emulator. Android marks
+    // the field password="true", reads it back as bullets, and keeps that mark once
+    // "Show password" reveals the text.
+    $read = function (string $fixture): array {
+        $command = new RecordingCommand;
+        $command->output = (string) file_get_contents(dirname(__DIR__).'/Fixtures/'.$fixture);
+
+        return androidDriver($command)->describe();
+    };
+    $empty = $read('android-secure-field-empty.xml');
+    $typed = $read('android-secure-field-typed.xml');
+    $revealed = $read('android-secure-field-revealed.xml');
+    $finder = new ElementFinder;
+
+    $field = $finder->match($empty, 'Password');
+
+    expect($field['secure'])->toBeTrue()
+        ->and($finder->match($empty, 'Email')['secure'])->toBeFalse()
+        ->and($finder->valueOf($typed, 'Password'))->toBe('••••••')
+        ->and($finder->holds($typed, 'Password', $field, 'secret'))->toBeTrue()
+        ->and($finder->holds($typed, 'Password', $field, 'secre'))->toBeFalse()
+        ->and($finder->holds($empty, 'Password', $field, 'secret'))->toBeFalse()
+        ->and($finder->holds($revealed, 'Password', $field, 'secret'))->toBeTrue()
+        ->and($finder->holds($revealed, 'Password', $field, 'secrets'))->toBeFalse();
+});
+
+it('settles typing into an Android password field on the first attempt', function () {
+    $read = function (string $fixture): array {
+        $command = new RecordingCommand;
+        $command->output = (string) file_get_contents(dirname(__DIR__).'/Fixtures/'.$fixture);
+
+        return androidDriver($command)->describe();
+    };
+    $driver = new FakeDriver([$read('android-secure-field-empty.xml'), $read('android-secure-field-typed.xml')]);
+    $driver->viewport = [1080.0, 2400.0];
+
+    (new Screen($driver, timeoutSeconds: 1))->type('Password', 'secret');
+
+    expect($driver->taps)->toHaveCount(1)
+        ->and($driver->texts)->toBe(['secret']);
 });
 
 it('quotes a deep link for the device shell', function () {

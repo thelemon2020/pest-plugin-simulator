@@ -150,12 +150,17 @@ final class AccessibilityTree
     }
 
     /**
-     * iOS reports the text of a secure field masked, one bullet per character.
+     * iOS reports the text of a secure field masked, one bullet per character. So does
+     * Android, which marks the field password="true" in the dump.
      *
      * @param  array<mixed>  $node
      */
     private static function secure(array $node): bool
     {
+        if (self::truthy($node['password'] ?? false)) {
+            return true;
+        }
+
         $type = $node['type'] ?? $node['role'] ?? $node['AXRole'] ?? null;
         $traits = $node['AXTraits'] ?? $node['traits'] ?? '';
 

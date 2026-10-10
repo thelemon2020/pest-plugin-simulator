@@ -228,18 +228,21 @@ final class ElementFinder
     }
 
     /**
-     * iOS reads a secure field back as one bullet per character until it is shown, so
-     * that is all a typed password can be checked against.
+     * A secure field reads back as one bullet per character until it is shown, so that is
+     * all a typed password can be checked against. Android keeps the field secure once it
+     * is shown, and then reads back the text itself.
      *
      * @param  array{label: string, role: ?string, value?: ?string, secure?: bool}  $field
      */
     private function shows(array $field, string $value): bool
     {
-        if (($field['secure'] ?? false) === true) {
-            $value = str_repeat("\u{2022}", mb_strlen($value));
+        $shown = $this->value($field);
+
+        if ($shown === $value) {
+            return true;
         }
 
-        return $this->value($field) === $value;
+        return ($field['secure'] ?? false) === true && $shown === str_repeat("\u{2022}", mb_strlen($value));
     }
 
     /**

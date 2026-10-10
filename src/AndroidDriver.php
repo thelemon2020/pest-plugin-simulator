@@ -808,6 +808,7 @@ final class AndroidDriver implements Driver
                 'checkable' => $child->getAttribute('checkable'),
                 'enabled' => $child->getAttribute('enabled'),
                 'selected' => $child->getAttribute('selected'),
+                'password' => $child->getAttribute('password'),
             ];
 
             if ($inherited !== null) {
