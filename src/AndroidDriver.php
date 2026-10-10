@@ -276,6 +276,23 @@ final class AndroidDriver implements Driver
             ]);
             $remaining -= $count;
         }
+
+        $this->hideKeyboard();
+    }
+
+    /**
+     * The iOS Simulator types through a hardware keyboard, so no software keyboard covers
+     * the screen there. Android's stays up after typing and covers the lower part of the
+     * screen, and what is under it is not in the dump at all, so the next tap() could not
+     * find a button below the field. The form also moves up while it is open. Back closes
+     * only the keyboard while it is up. The field keeps its focus and its text.
+     */
+    private function hideKeyboard(): void
+    {
+        $this->command->run($this->adb(), [
+            '-s', $this->serial(), 'shell',
+            'if dumpsys input_method | grep mInputShown=true >/dev/null; then input keyevent 4; fi',
+        ]);
     }
 
     public function text(string $text): void
@@ -314,6 +331,8 @@ final class AndroidDriver implements Driver
                 $this->pasteOrFail("\n");
             }
         }
+
+        $this->hideKeyboard();
     }
 
     /**
