@@ -635,7 +635,9 @@ final class AndroidDriver implements Driver
             return false;
         }
 
-        if ($this->property($serial, 'init.svc.bootanim') !== 'stopped') {
+        // EmulatorBoot passes -no-boot-anim, and then the bootanim service never starts,
+        // so its property is never set.
+        if (! in_array($this->property($serial, 'init.svc.bootanim'), ['', 'stopped'], true)) {
             return false;
         }
 
