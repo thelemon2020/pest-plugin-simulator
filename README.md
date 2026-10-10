@@ -330,7 +330,7 @@ The iOS "Open in…" dialog and Android's "Wait" button are closed automatically
 
 ## When an assertion fails
 
-A failed assertion writes `tree.json`, `screen.png`, `trace.json`, and `trace.txt`. A recording that is still running is stopped and kept. It also copies `laravel.log` out of the app: `Library/Application Support/storage/logs/laravel.log` on iOS, and `app_storage/persisted_data/storage/logs/laravel.log` on Android. Android also writes `logcat.txt` for that app id. The failure message lists each file it wrote, and it lists the controls on screen. A control with no label is named by its role, and by its accessibility id when it has one.
+A failed assertion writes `tree.json`, `screen.png`, `trace.json`, and `trace.txt`. A recording that is still running is stopped and kept. It also copies `laravel.log` out of the app: `Library/Application Support/storage/logs/laravel.log` on iOS, and `app_storage/persisted_data/storage/logs/laravel.log` on Android. Android also writes `logcat.txt` for that app id. The failure message lists each file it wrote, and it lists the controls on screen. When the last read of the screen failed, for example because the app stopped answering, the message says so. A control with no label is named by its role, and by its accessibility id when it has one.
 
 `trace.json` has every step the test took, from its first `screen()`: the call and its label, what it matched, where it touched, how many times it read the screen, the scrolls that brought a control on screen, any wait for a sheet or for scrolling to stop, how long the step took, and how it ended. A test that opens two screens has one trace. `trace.txt` is the same steps, one line each:
 
