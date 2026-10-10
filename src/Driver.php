@@ -32,6 +32,12 @@ interface Driver
      */
     public function viewport(): array;
 
+    /**
+     * How tall the strip along the bottom of the viewport is where a tap goes to the system
+     * rather than the app, or 0 when there is none.
+     */
+    public function homeIndicator(): float;
+
     public function screenshot(string $path): void;
 
     public function startRecording(string $path): void;

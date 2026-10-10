@@ -622,6 +622,23 @@ final class IosDriver implements Driver
         return $this->viewport;
     }
 
+    /**
+     * The bottom 34 points of an iPhone with no home button belong to the home indicator. A
+     * scroll view draws under it, and a tap there does not reach the app: on an iPhone 17
+     * Pro Simulator, CollectShine's "Use this record" button (centre 863.5 of 874) did
+     * nothing 2 times out of 2, and the same tap landed once the row was scrolled up.
+     *
+     * Those iPhones are the ones more than twice as tall as they are wide (402x874), and
+     * an iPhone with a home button is not (375x667). iPads and landscape keep the whole
+     * viewport: nothing has been measured there.
+     */
+    public function homeIndicator(): float
+    {
+        [$width, $height] = $this->viewport;
+
+        return $height > $width * 2 ? 34.0 : 0.0;
+    }
+
     public function screenshot(string $path): void
     {
         $this->command->run('xcrun', ['simctl', 'io', $this->udid(), 'screenshot', $path]);

@@ -1105,8 +1105,10 @@ final class Screen
 
     /**
      * The part of the viewport no bar covers: from just under the nav bar to just over the
-     * tab bar. A row scrolled under a bar is inside the glass, but a tap there lands on the
-     * bar. With no bar in the tree, it is the whole viewport.
+     * tab bar, or the home indicator when there is no tab bar. A row scrolled under a bar
+     * is inside the glass, but a tap there lands on the bar, and one under the home
+     * indicator lands on nothing. With no bar in the tree, it is the viewport above the
+     * home indicator.
      *
      * The tree has a bar's controls, not the bar's frame. Their centers sit about half a bar
      * from its edge, which is the inset.
@@ -1118,7 +1120,7 @@ final class Screen
     {
         $inset = $height * 0.03;
         $top = 0.0;
-        $bottom = $height;
+        $bottom = $height - $this->driver->homeIndicator();
 
         foreach ($elements as $element) {
             if (! in_array($element['chrome'] ?? null, ['navigation', 'tab'], true) || ! is_array($element['center'] ?? null)) {

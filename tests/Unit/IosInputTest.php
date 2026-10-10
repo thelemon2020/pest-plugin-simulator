@@ -112,6 +112,24 @@ it('allows a back gesture its own duration on top of the call timeout', function
     expect($client->calls[0][3] ?? null)->toBe(0.6);
 });
 
+it('keeps the home indicator clear only on an iPhone with no home button', function (float $width, float $height, float $strip) {
+    $client = new RecordingClient;
+    $client->trees = [(string) json_encode(['elements' => [
+        ['type' => 'Application', 'label' => 'App', 'frame' => ['x' => 0, 'y' => 0, 'width' => $width, 'height' => $height]],
+    ]])];
+    $driver = iosInputDriver($client);
+
+    $driver->describe();
+
+    expect($driver->viewport())->toBe([$width, $height])
+        ->and($driver->homeIndicator())->toBe($strip);
+})->with([
+    'iPhone 17 Pro' => [402.0, 874.0, 34.0],
+    'iPhone SE' => [375.0, 667.0, 0.0],
+    'iPhone 17 Pro on its side' => [874.0, 402.0, 0.0],
+    'iPad Air' => [820.0, 1180.0, 0.0],
+]);
+
 it('gives a companion call as long as a screen step, within bounds', function (float $step, float $call) {
     Configuration::configure(['timeout' => $step]);
     $driver = new IosDriver(new Device('ios', 'iPhone', true), Configuration::resolve());

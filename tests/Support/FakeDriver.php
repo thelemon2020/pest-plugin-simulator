@@ -60,6 +60,8 @@ final class FakeDriver implements Driver
     /** @var array{0: float, 1: float} */
     public array $viewport = [390.0, 844.0];
 
+    public float $homeIndicator = 0.0;
+
     private int $reads = 0;
 
     /**
@@ -131,6 +133,11 @@ final class FakeDriver implements Driver
     public function viewport(): array
     {
         return $this->viewport;
+    }
+
+    public function homeIndicator(): float
+    {
+        return $this->homeIndicator;
     }
 
     public function screenshot(string $path): void
