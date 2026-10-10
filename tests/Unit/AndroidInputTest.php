@@ -178,6 +178,21 @@ it('reads a stock hierarchy from node bounds', function () {
     }
 });
 
+it('quotes a deep link for the device shell', function () {
+    Configuration::configure(['bundle_id' => 'com.example.app']);
+    $command = new RecordingCommand;
+    $driver = androidDriver($command);
+
+    $driver->open("example://deep-link/discogs?oauth_token=tok-1&oauth_verifier=ver-1&note=it's");
+
+    expect($command->calls[0][1])->toBe([
+        '-s', 'emulator-5554', 'shell', 'am', 'start',
+        '-a', 'android.intent.action.VIEW',
+        '-d', "'example://deep-link/discogs?oauth_token=tok-1&oauth_verifier=ver-1&note=it'\\''s'",
+        'com.example.app',
+    ]);
+});
+
 it('waits out an app that is not responding by the button id, in any language', function () {
     $command = new RecordingCommand;
     $dialog = <<<'XML'
