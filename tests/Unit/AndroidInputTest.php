@@ -105,6 +105,30 @@ it('taps the at key when the keyboard shows it', function () {
     expect($taps[0][1])->toBe(['-s', 'emulator-5554', 'shell', 'input', 'tap', '150', '1650']);
 });
 
+it('presses the At key when the emulator has no clipboard command', function () {
+    $command = new RecordingCommand;
+    $command->outputs['set-text'] = "No shell command implementation.\n";
+    $driver = androidDriver($command);
+
+    $driver->text('A@b');
+
+    $sent = array_map(fn (array $call): string => implode(' ', array_slice($call[1], 2)), $command->calls);
+
+    expect($sent)->toContain('shell input keyevent 77')
+        ->and($sent)->not->toContain('shell input keyevent 279')
+        ->and(array_search('shell input keyevent 77', $sent, true))->toBeGreaterThan(array_search("shell input text 'A'", $sent, true))
+        ->and(array_search('shell input keyevent 77', $sent, true))->toBeLessThan(array_search("shell input text 'b'", $sent, true));
+});
+
+it('says it cannot type a character the emulator has no way to paste', function () {
+    $command = new RecordingCommand;
+    $command->outputs['set-text'] = "No shell command implementation.\n";
+    $driver = androidDriver($command);
+
+    expect(fn () => $driver->text('café'))->toThrow(SimulatorException::class, 'Cannot type [é] on this emulator.')
+        ->and(fn () => $driver->text("a\nb"))->toThrow(SimulatorException::class, 'Cannot type a new line on this emulator.');
+});
+
 it('swipes for a given duration and holds a press', function () {
     $command = new RecordingCommand;
     $driver = androidDriver($command);
