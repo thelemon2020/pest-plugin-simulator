@@ -8,6 +8,7 @@ use NativePhp\Simulator\Permissions;
 use NativePhp\Simulator\Platforms;
 use NativePhp\Simulator\Recording;
 use NativePhp\Simulator\SuiteRegistration;
+use NativePhp\Simulator\Trace;
 use Tests\Support\FakeMachine;
 
 DeviceCatalog::fake('iPhone Latest', 'Pixel Default');
@@ -16,6 +17,7 @@ Platforms::use(new FakeMachine);
 uses()->afterEach(function () {
     Permissions::reset();
     Recording::reset();
+    Trace::reset();
     Platforms::use(new FakeMachine);
     SuiteRegistration::forgetRegisteredDevices();
     ParallelLanes::reset();

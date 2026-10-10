@@ -7,6 +7,7 @@ namespace NativePhp\Simulator\Grpc;
 use CurlHandle;
 use NativePhp\Simulator\Exceptions\CompanionUnresponsive;
 use NativePhp\Simulator\Exceptions\SimulatorException;
+use NativePhp\Simulator\VerboseLog;
 
 /**
  * Speaks to idb_companion over HTTP/2 through PHP's own curl extension, on one handle per
@@ -58,6 +59,9 @@ class Client
     ];
 
     private ?CurlHandle $handle = null;
+
+    /** How the last exchange ended, for --simulator-verbose: `grpc 0`, `http 503`, `curl 28`. */
+    private string $outcome = '';
 
     public function __construct(
         private readonly string $baseUrl,
@@ -135,9 +139,45 @@ class Client
      */
     private function call(string $method, array $strokes, int $gapMicroseconds, float $durationSeconds, bool $idempotent): string
     {
-        return $this->exchange($method, $strokes, $gapMicroseconds, $durationSeconds, $idempotent, retry: true)
-            ?? $this->exchange($method, $strokes, $gapMicroseconds, $durationSeconds, $idempotent, retry: false)
-            ?? throw new SimulatorException("Companion [{$method}] failed.");
+        $started = hrtime(true);
+        $retried = false;
+        $this->outcome = '';
+
+        try {
+            $response = $this->exchange($method, $strokes, $gapMicroseconds, $durationSeconds, $idempotent, retry: true);
+            $retried = $response === null;
+            $response ??= $this->exchange($method, $strokes, $gapMicroseconds, $durationSeconds, $idempotent, retry: false)
+                ?? throw new SimulatorException("Companion [{$method}] failed.");
+        } catch (SimulatorException $exception) {
+            $this->log($method, $strokes, $gapMicroseconds, $started, $retried, $exception->getMessage());
+
+            throw $exception;
+        }
+
+        $this->log($method, $strokes, $gapMicroseconds, $started, $retried, null);
+
+        return $response;
+    }
+
+    /**
+     * @param  list<list<string>>  $strokes
+     */
+    private function log(string $method, array $strokes, int $gapMicroseconds, int $started, bool $retried, ?string $error): void
+    {
+        if (! VerboseLog::enabled()) {
+            return;
+        }
+
+        $chunks = count(array_merge(...$strokes));
+
+        VerboseLog::write(
+            (hrtime(true) - $started) / 1e9,
+            $this->outcome ?: 'failed',
+            "companion {$method}"
+                .($gapMicroseconds > 0 && $chunks > 1 ? " ({$chunks} messages, ".round($gapMicroseconds / 1000).'ms apart)' : '')
+                .($retried ? ', sent again on a new connection' : '')
+                .($error === null ? '' : ': '.$error),
+        );
     }
 
     /**
@@ -217,6 +257,7 @@ class Client
 
         if (! is_string($response)) {
             $errno = curl_errno($handle);
+            $this->outcome = $errno === CURLE_OPERATION_TIMEDOUT ? 'timed out' : 'curl '.$errno;
             $reused = curl_getinfo($handle, CURLINFO_NUM_CONNECTS) === 0;
             $replayable = $headers === ''
                 && ($idempotent || $next === 0)
@@ -334,6 +375,8 @@ class Client
     private function guardStatus(string $method, string $headers, int $httpStatus): void
     {
         if (preg_match('/^grpc-status:\s*(\d+)/mi', $headers, $status) === 1) {
+            $this->outcome = 'grpc '.$status[1];
+
             if ($status[1] === '0') {
                 return;
             }
@@ -348,7 +391,11 @@ class Client
         }
 
         if ($httpStatus !== 200) {
+            $this->outcome = 'http '.$httpStatus;
+
             throw new SimulatorException("Companion [{$method}] failed: HTTP {$httpStatus}.");
         }
+
+        $this->outcome = 'ok';
     }
 }

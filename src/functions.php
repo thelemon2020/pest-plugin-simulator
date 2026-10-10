@@ -11,6 +11,7 @@ use NativePhp\Simulator\Run;
 use NativePhp\Simulator\Screen;
 use NativePhp\Simulator\Sessions;
 use NativePhp\Simulator\TestDatabase;
+use NativePhp\Simulator\Trace;
 
 function mobile(Closure $tests): MobileSuite
 {
@@ -49,13 +50,17 @@ function stopRecord(): void
 
 function screen(string $path): Screen
 {
+    $started = microtime(true);
     $device = Run::device();
     $configuration = Configuration::resolve();
     $driver = Sessions::get($device);
     $driver->ensureReady();
+    Recording::begin($driver, $device);
     TestDatabase::publish($driver);
     Permissions::apply($driver, $device->key());
-    $driver->open($configuration->urlFor($path));
+    $url = $configuration->urlFor($path);
+    $driver->open($url);
+    Trace::add(['action' => 'open', 'target' => $url, 'started' => $started, 'seconds' => microtime(true) - $started, 'result' => 'ok']);
 
     return new Screen($driver, timeoutSeconds: $configuration->timeout());
 }

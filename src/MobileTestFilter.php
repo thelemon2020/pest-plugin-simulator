@@ -49,9 +49,16 @@ final class MobileTestFilter implements TestCaseMethodFilter
         ));
 
         $method->closure = function (string $key, mixed ...$args) use ($original) {
-            Run::useDevice(Device::fromKey($key));
+            $device = Device::fromKey($key);
+            Run::useDevice($device);
+            Trace::begin();
+            VerboseLog::note('test '.Trace::test()." on {$device->platform} {$device->name}");
             TestDatabase::begin();
             Permissions::beginTest();
+
+            if (Configuration::resolve()->recordFailures()) {
+                Recording::everyTest();
+            }
 
             try {
                 return $original instanceof \Closure ? $original->call($this, ...$args) : null;
@@ -61,6 +68,7 @@ final class MobileTestFilter implements TestCaseMethodFilter
                 } finally {
                     Permissions::forgetRequest();
                     TestDatabase::end();
+                    Trace::reset();
                     Run::clear();
                 }
             }

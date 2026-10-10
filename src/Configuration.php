@@ -21,8 +21,10 @@ final class Configuration
     /** @var list<string>|null */
     private static ?array $permissions = null;
 
+    private static bool $recordFailures = false;
+
     /**
-     * @param  array{scheme?: string, host?: string, bundle_id?: string, timeout?: float, app_directory?: string, permissions?: list<string>|null}  $values
+     * @param  array{scheme?: string, host?: string, bundle_id?: string, timeout?: float, app_directory?: string, permissions?: list<string>|null, record_failures?: bool}  $values
      */
     public static function configure(array $values): void
     {
@@ -49,6 +51,10 @@ final class Configuration
         if (array_key_exists('permissions', $values)) {
             self::$permissions = $values['permissions'];
         }
+
+        if (isset($values['record_failures'])) {
+            self::$recordFailures = $values['record_failures'];
+        }
     }
 
     public static function reset(): void
@@ -59,6 +65,7 @@ final class Configuration
         self::$timeout = 15.0;
         self::$appDirectory = null;
         self::$permissions = null;
+        self::$recordFailures = false;
     }
 
     public static function resolve(): self
@@ -70,6 +77,7 @@ final class Configuration
             resolvedTimeout: self::$timeout,
             resolvedAppDirectory: self::$appDirectory ?? getcwd(),
             resolvedPermissions: self::$permissions,
+            resolvedRecordFailures: self::$recordFailures,
         );
     }
 
@@ -83,6 +91,7 @@ final class Configuration
         private readonly float $resolvedTimeout,
         private readonly string $resolvedAppDirectory,
         private readonly ?array $resolvedPermissions,
+        private readonly bool $resolvedRecordFailures,
     ) {}
 
     public function scheme(): string
@@ -130,6 +139,15 @@ final class Configuration
     public function permissions(): ?array
     {
         return $this->resolvedPermissions;
+    }
+
+    /**
+     * Record every test and keep the clip only when it fails. `--record-failures` turns
+     * this on for one run.
+     */
+    public function recordFailures(): bool
+    {
+        return $this->resolvedRecordFailures || Arguments::wantsFailureRecordings();
     }
 
     public function urlFor(string $path): string

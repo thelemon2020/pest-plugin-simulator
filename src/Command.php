@@ -77,27 +77,33 @@ class Command
             $descriptor[0] = ['pipe', 'r'];
         }
 
+        $started = self::now();
         $process = proc_open($command, $descriptor, $pipes, $cwd);
 
         if (! is_resource($process)) {
+            VerboseLog::write(self::now() - $started, 'not run', VerboseLog::command($command));
+
             throw new SimulatorException('Could not run '.implode(' ', $command));
         }
 
-        $deadline = self::now() + $timeout;
+        $deadline = $started + $timeout;
         $output = $this->exchange($process, $pipes, $stdin, $deadline);
         $exit = $output === null ? null : $this->exitCode($process, $deadline);
 
         if ($output === null || $exit === null) {
             $this->kill($process, $pipes);
+            VerboseLog::write(self::now() - $started, 'timed out', VerboseLog::command($command));
 
             throw new SimulatorException(sprintf('%s did not finish within %s seconds, so it was stopped.', implode(' ', $command), $timeout));
         }
 
         proc_close($process);
         [$stdout, $stderr] = $output;
+        $failure = trim($stderr !== '' ? $stderr : $stdout);
+        VerboseLog::write(self::now() - $started, 'exit '.$exit, VerboseLog::command($command).($exit !== 0 && $failure !== '' ? ': '.$failure : ''));
 
         if ($exit !== 0) {
-            throw new SimulatorException(trim($stderr !== '' ? $stderr : $stdout) ?: 'Command failed: '.implode(' ', $command));
+            throw new SimulatorException($failure ?: 'Command failed: '.implode(' ', $command));
         }
 
         return $stdout;
@@ -306,8 +312,12 @@ class Command
         $pid = trim($output[0] ?? '');
 
         if ($pid === '' || ! ctype_digit($pid)) {
+            VerboseLog::write(0.0, 'not run', VerboseLog::command($command));
+
             throw new SimulatorException('Could not start '.$binary);
         }
+
+        VerboseLog::write(0.0, 'started', VerboseLog::command($command).' (pid '.$pid.')');
 
         return (int) $pid;
     }
@@ -319,8 +329,10 @@ class Command
 
     public function interrupt(int $pid): void
     {
+        $started = self::now();
         $this->signal($pid, SIGINT, 'kill -INT ');
-        $this->wait($pid);
+        $stopped = $this->wait($pid);
+        VerboseLog::write(self::now() - $started, $stopped ? 'stopped' : 'running', 'interrupt pid '.$pid);
     }
 
     public function wait(int $pid, float $seconds = 10): bool
