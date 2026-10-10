@@ -236,3 +236,59 @@ it('does not look for a field where a control that is not one was tapped', funct
         $button('Talk', null, [200, 300], 'TextField'),
     ], 'Search', $control, 'Talk'))->toBeFalse();
 });
+
+it('reads a Compose chip that is on as selected and checked, by its text', function () {
+    // Captured from CollectShine's mood sheet on an android-36 emulator, with "😌 Chill"
+    // on. Compose puts the chip's state on an unlabeled container and its text on a
+    // TextView inside it, and reports a selected chip as checked.
+    $elements = AccessibilityTree::summarize((string) file_get_contents(dirname(__DIR__).'/Fixtures/android-mood-chips.json'));
+    $finder = new ElementFinder;
+
+    expect($finder->isSelected($elements, '😌 Chill', true))->toBeTrue()
+        ->and($finder->isChecked($elements, '😌 Chill', true))->toBeTrue()
+        ->and($finder->isSelected($elements, '🔥 Hyped', false))->toBeTrue()
+        ->and($finder->isSelected($elements, 'How was it?', false))->toBeTrue();
+});
+
+it('reads a Compose switch by the label beside it in its row', function () {
+    // Captured from CollectShine's schedule screen on an android-36 emulator, with "Run
+    // this schedule" on. The switch is an unlabeled checkable view, level with its label
+    // and subtitle in the same row.
+    $elements = AccessibilityTree::summarize((string) file_get_contents(dirname(__DIR__).'/Fixtures/android-schedule-switch.json'));
+    $finder = new ElementFinder;
+
+    expect($finder->isChecked($elements, 'Run this schedule', true))->toBeTrue()
+        ->and($finder->isChecked($elements, 'Your base station follows it', true))->toBeTrue()
+        ->and($finder->isChecked($elements, 'Mon', false))->toBeTrue()
+        ->and($finder->isChecked($elements, "All times are America/New_York, your base station's clock.", false))->toBeTrue();
+});
+
+it('does not share a switch with a label in a row that has another checkable control', function () {
+    $node = fn (string $class, string $bounds, string $text = '', bool $checkable = false, bool $checked = false): array => [
+        'text' => $text, 'content-desc' => '', 'resource-id' => '', 'class' => $class, 'package' => 'com.example',
+        'bounds' => $bounds, 'checked' => $checked ? 'true' : 'false', 'checkable' => $checkable ? 'true' : 'false',
+        'enabled' => 'true', 'selected' => 'false',
+    ];
+    $elements = AccessibilityTree::summarize((string) json_encode([
+        $node('android.view.View', '[0,0][1080,2400]'),
+        $node('android.view.View', '[42,346][1038,700]'),
+        $node('android.widget.TextView', '[84,383][448,446]', 'Wi-Fi'),
+        $node('android.view.View', '[859,378][996,504]', checkable: true, checked: true),
+        $node('android.view.View', '[859,560][996,686]', checkable: true),
+    ]));
+
+    expect((new ElementFinder)->isChecked($elements, 'Wi-Fi', false))->toBeTrue();
+});
+
+it('names a Compose button by the text drawn inside it', function () {
+    // Captured from CollectShine's Identify screen on an android-36 emulator. The button
+    // is an unlabeled Button with its text on a TextView of its own, and the screen title
+    // in the top bar says "Identify" too.
+    $elements = AccessibilityTree::summarize((string) file_get_contents(dirname(__DIR__).'/Fixtures/android-identify-button.json'));
+
+    $match = (new ElementFinder)->match($elements, 'Identify');
+
+    expect($match['role'])->toBe('Button')
+        ->and($match['center'])->toBe([540.0, 1443.5])
+        ->and((new ElementFinder)->match($elements, 'arrow_back')['role'])->toBe('Button');
+});

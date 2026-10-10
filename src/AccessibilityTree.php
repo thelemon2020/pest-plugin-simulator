@@ -250,8 +250,10 @@ final class AccessibilityTree
     /**
      * Compose draws an outlined field as an EditText whose text is the value
      * and a TextView inside it whose text is the label. A checkbox is a
-     * checkable view with the label on a child. The dump is flat, so containment
-     * is how those belong together.
+     * checkable view with the label on a child, and a switch can sit beside its
+     * label in the same row. A button is an unlabeled Button with its text on a
+     * node of its own. The dump is flat, so containment is how those belong
+     * together.
      *
      * @param  list<array<mixed>>  $nodes
      * @return list<array<mixed>>
@@ -301,29 +303,33 @@ final class AccessibilityTree
                 continue;
             }
 
-            if (trim((string) ($node['text'] ?? '')) !== '' || trim((string) ($node['content-desc'] ?? '')) !== '') {
+            if (self::flatLabel($node) !== '' || $frames[$index] === null) {
                 continue;
             }
 
-            $outer = $frames[$index];
+            $labels = self::labelsInside($nodes, $frames, $drop, $index);
 
-            if ($outer === null) {
+            if ($labels === []) {
+                $labels = self::labelsBeside($nodes, $frames, $drop, $index);
+            }
+
+            // Compose reports a selected chip the way it reports a checked box, as
+            // checkable and checked. Only a tab is reported as selected.
+            foreach ($labels as $labelIndex) {
+                $nodes[$labelIndex]['checked'] = 'true';
+                $nodes[$labelIndex]['selected'] = 'true';
+            }
+        }
+
+        foreach ($nodes as $index => $node) {
+            if (! is_array($node) || ! str_contains((string) ($node['class'] ?? ''), 'Button') || self::flatLabel($node) !== '' || $frames[$index] === null) {
                 continue;
             }
 
-            foreach ($nodes as $otherIndex => $other) {
-                if ($otherIndex === $index || isset($drop[$otherIndex]) || ! is_array($other)) {
-                    continue;
-                }
+            $labels = self::labelsInside($nodes, $frames, $drop, $index);
 
-                $inner = $frames[$otherIndex];
-                $label = trim((string) ($other['content-desc'] ?? $other['text'] ?? ''));
-
-                if ($label === '' || $inner === null || ! self::frameInside($inner, $outer)) {
-                    continue;
-                }
-
-                $nodes[$otherIndex]['checked'] = 'true';
+            if (count($labels) === 1) {
+                $nodes[$index]['content-desc'] = self::flatLabel($nodes[$labels[0]]);
             }
         }
 
@@ -338,6 +344,101 @@ final class AccessibilityTree
         }
 
         return $kept;
+    }
+
+    /**
+     * @param  array<mixed>  $node
+     */
+    private static function flatLabel(array $node): string
+    {
+        $description = trim((string) ($node['content-desc'] ?? ''));
+
+        return $description !== '' ? $description : trim((string) ($node['text'] ?? ''));
+    }
+
+    /**
+     * The labeled nodes inside a node's frame.
+     *
+     * @param  list<array<mixed>>  $nodes
+     * @param  array<int, array{0: float, 1: float, 2: float, 3: float}|null>  $frames
+     * @param  array<int, true>  $drop
+     * @return list<int>
+     */
+    private static function labelsInside(array $nodes, array $frames, array $drop, int $index): array
+    {
+        $outer = $frames[$index];
+        $labels = [];
+
+        foreach ($nodes as $otherIndex => $other) {
+            $inner = $frames[$otherIndex] ?? null;
+
+            if ($otherIndex === $index || isset($drop[$otherIndex]) || ! is_array($other) || $inner === null || $outer === null) {
+                continue;
+            }
+
+            if (self::flatLabel($other) !== '' && self::frameInside($inner, $outer)) {
+                $labels[] = $otherIndex;
+            }
+        }
+
+        return $labels;
+    }
+
+    /**
+     * The labels in the same row as a switch that has none inside it: level with the
+     * switch, inside the smallest frame around it that has any. A frame that holds another
+     * checkable control is past the row.
+     *
+     * @param  list<array<mixed>>  $nodes
+     * @param  array<int, array{0: float, 1: float, 2: float, 3: float}|null>  $frames
+     * @param  array<int, true>  $drop
+     * @return list<int>
+     */
+    private static function labelsBeside(array $nodes, array $frames, array $drop, int $index): array
+    {
+        $control = $frames[$index];
+
+        if ($control === null) {
+            return [];
+        }
+
+        $rows = [];
+
+        foreach ($frames as $otherIndex => $frame) {
+            if ($otherIndex !== $index && $frame !== null && $frame !== $control && self::frameInside($control, $frame)) {
+                $rows[] = $frame;
+            }
+        }
+
+        usort($rows, fn (array $left, array $right): int => $left[2] * $left[3] <=> $right[2] * $right[3]);
+
+        foreach ($rows as $row) {
+            $labels = [];
+
+            foreach ($nodes as $otherIndex => $other) {
+                $inner = $frames[$otherIndex] ?? null;
+
+                if ($otherIndex === $index || ! is_array($other) || $inner === null || ! self::frameInside($inner, $row)) {
+                    continue;
+                }
+
+                if (self::truthy($other['checkable'] ?? false)) {
+                    return [];
+                }
+
+                $middle = $inner[1] + $inner[3] / 2;
+
+                if (! isset($drop[$otherIndex]) && self::flatLabel($other) !== '' && $middle >= $control[1] && $middle <= $control[1] + $control[3]) {
+                    $labels[] = $otherIndex;
+                }
+            }
+
+            if ($labels !== []) {
+                return $labels;
+            }
+        }
+
+        return [];
     }
 
     /**

@@ -244,7 +244,11 @@ it('confirms a typed password by its bullets, and by its text once it is shown',
         ->and($finder->holds($typed, 'Password', $field, 'secre'))->toBeFalse()
         ->and($finder->holds($empty, 'Password', $field, 'secret'))->toBeFalse()
         ->and($finder->holds($revealed, 'Password', $field, 'secret'))->toBeTrue()
-        ->and($finder->holds($revealed, 'Password', $field, 'secrets'))->toBeFalse();
+        ->and($finder->holds($revealed, 'Password', $field, 'secrets'))->toBeFalse()
+        ->and($finder->isChecked($typed, 'Show the password you typed', false))->toBeTrue()
+        ->and($finder->isChecked($revealed, 'Show the password you typed', true))->toBeTrue()
+        ->and($finder->isChecked($revealed, 'Show password', true))->toBeTrue()
+        ->and($finder->match($empty, 'Sign in')['role'])->toBe('Button');
 });
 
 it('settles typing into an Android password field on the first attempt', function () {
