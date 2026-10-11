@@ -4,6 +4,15 @@ declare(strict_types=1);
 
 namespace NativePhp\Simulator;
 
+/**
+ * An element is one thing describe() read off the screen. The first four keys are always
+ * there. Both drivers fill in the rest through AccessibilityTree::summarize(), but a driver
+ * that builds elements another way, like the tests' fakes, can leave them out, so read
+ * them with a default. A Tappable is an element with a center, which is what a match is.
+ *
+ * @phpstan-type Element array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}, value?: ?string, enabled?: bool, selected?: bool, checked?: bool, chrome?: ?string, webview?: bool, carousel?: ?array{0: float, 1: float, 2: float, 3: float}, secure?: bool}
+ * @phpstan-type Tappable array{label: string, role: ?string, id: ?string, center: array{0: float|int, 1: float|int}, value?: ?string, enabled?: bool, selected?: bool, checked?: bool, chrome?: ?string, webview?: bool, carousel?: ?array{0: float, 1: float, 2: float, 3: float}, secure?: bool}
+ */
 interface Driver
 {
     public function ensureReady(): void;
@@ -11,7 +20,7 @@ interface Driver
     public function open(string $url): void;
 
     /**
-     * @return list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}}>
+     * @return list<Element>
      */
     public function describe(?string $treePath = null): array;
 

@@ -12,6 +12,10 @@ use PHPUnit\Framework\Assert;
 use PHPUnit\Framework\AssertionFailedError;
 use Throwable;
 
+/**
+ * @phpstan-import-type Element from Driver
+ * @phpstan-import-type Tappable from Driver
+ */
 final class Screen
 {
     public function __construct(
@@ -139,7 +143,7 @@ final class Screen
      * field's read occasionally matched once and then changed again right after, consistent
      * with a render still catching up even after the text first looked right.
      *
-     * @param  array{label: string, role: ?string, id: ?string, center: array{0: float, 1: float}, value?: ?string}  $field
+     * @param  Tappable  $field
      */
     private function settled(string $label, array $field, string $text): bool
     {
@@ -710,7 +714,7 @@ final class Screen
      * calling scroll() as the very first action after screen() opens, with no assertion in
      * between to let until()'s retry ride it out first.
      *
-     * @return list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}}>
+     * @return list<Element>
      */
     private function readRetrying(): array
     {
@@ -734,9 +738,9 @@ final class Screen
      * that has stopped answering (CollectShine's add-record form, spinning its main thread
      * after a scroll) otherwise reads as a control that is not there.
      *
-     * @param  callable(list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}}): bool>  $predicate
-     * @param  string|Closure(list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}}): string>  $failure
-     * @return list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}}>
+     * @param  callable(list<Element>): bool  $predicate
+     * @param  string|Closure(list<Element>): string  $failure
+     * @return list<Element>
      */
     private function until(callable $predicate, string|Closure $failure, ?float $deadline = null): array
     {
@@ -809,7 +813,7 @@ final class Screen
     }
 
     /**
-     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}}>  $elements
+     * @param  list<Element>  $elements
      */
     private function fail(string $failure, array $elements, ?SimulatorException $unread = null): never
     {
@@ -821,7 +825,7 @@ final class Screen
     /**
      * The controls on screen, as a failure message and dump() list them.
      *
-     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}}>  $elements
+     * @param  list<Element>  $elements
      */
     private function listing(array $elements): string
     {
@@ -833,7 +837,7 @@ final class Screen
     }
 
     /**
-     * @return list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}}>
+     * @return list<Element>
      */
     private function read(): array
     {
@@ -861,7 +865,7 @@ final class Screen
     }
 
     /**
-     * @return list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}}>
+     * @return list<Element>
      */
     private function describe(): array
     {
@@ -906,7 +910,7 @@ final class Screen
     }
 
     /**
-     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}}>  $elements
+     * @param  list<Element>  $elements
      */
     private function canMatch(array $elements, string $label): bool
     {
@@ -932,7 +936,7 @@ final class Screen
      * edge, right edge, and height on screen). Every read and scroll shares one timeout.
      *
      * @param  array{0: float, 1: float, 2: float}|null  $row
-     * @return array{label: string, role: ?string, id: ?string, center: array{0: float|int, 1: float|int}}
+     * @return Tappable
      */
     private function locate(string $label, string $action, ?string $search = null, ?array $row = null): array
     {
@@ -1010,8 +1014,8 @@ final class Screen
      * nothing that scrolls sideways gets no drag (a null gesture): a sideways drag on a
      * list row can open its swipe actions.
      *
-     * @param  array{label: string, role: ?string, id: ?string, center: array{0: float|int, 1: float|int}, chrome?: ?string, carousel?: ?array{0: float, 1: float, 2: float, 3: float}}  $match
-     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}}>  $elements
+     * @param  Tappable  $match
+     * @param  list<Element>  $elements
      * @return array{0: string, 1: array{0: float, 1: float, 2: float, 3: float}|null}|null
      */
     private function toward(array $match, array $elements): ?array
@@ -1076,7 +1080,7 @@ final class Screen
      * The one row on screen that scrolls sideways, for scrollTo() left or right with no
      * control named to drag from.
      *
-     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}, carousel?: ?array{0: float, 1: float, 2: float, 3: float}}>  $elements
+     * @param  list<Element>  $elements
      * @return array{0: float, 1: float, 2: float}
      */
     private function onlyCarousel(string $label, string $direction, array $elements): array
@@ -1126,7 +1130,7 @@ final class Screen
      * The tree has a bar's controls, not the bar's frame. Their centers sit about half a bar
      * from its edge, which is the inset.
      *
-     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}}>  $elements
+     * @param  list<Element>  $elements
      * @return array{0: float, 1: float}
      */
     private function visibleBand(array $elements, float $height): array

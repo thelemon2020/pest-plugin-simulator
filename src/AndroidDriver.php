@@ -6,6 +6,9 @@ namespace NativePhp\Simulator;
 
 use NativePhp\Simulator\Exceptions\SimulatorException;
 
+/**
+ * @phpstan-import-type Element from Driver
+ */
 final class AndroidDriver implements Driver
 {
     use RemembersReadiness;
@@ -176,8 +179,8 @@ final class AndroidDriver implements Driver
     }
 
     /**
-     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}}>  $elements
-     * @return list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}}>
+     * @param  list<Element>  $elements
+     * @return list<Element>
      */
     private function dismissSystemDialog(array $elements, int $attempt): array
     {
@@ -201,7 +204,7 @@ final class AndroidDriver implements Driver
      * The Wait button of an "isn't responding" dialog. Its resource id is the same in
      * every language. The English label covers a dump that leaves the id out.
      *
-     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}}>  $elements
+     * @param  list<Element>  $elements
      * @return ?array{0: float, 1: float}
      */
     private function notRespondingWait(array $elements): ?array
@@ -915,7 +918,7 @@ final class AndroidDriver implements Driver
     }
 
     /**
-     * @return list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}, value: ?string, enabled: bool, selected: bool, checked: bool, chrome: ?string, webview: bool}>
+     * @return list<Element>
      */
     private function elementsFrom(string $dump, ?string $treePath = null): array
     {
