@@ -8,7 +8,8 @@ permissions:
   contents: read
 
 # No device runs here. The suite fakes simctl, idb_companion, and adb, and the reader jobs
-# only build android/reader.jar.
+# only build android/reader.jar. PHPStan and Pint run on both PHP versions, since each
+# installs its own Pest and PHPUnit.
 jobs:
   tests:
     name: PHP ${{ matrix.php }} / Pest ${{ matrix.name }}
@@ -35,10 +36,20 @@ jobs:
           tools: composer
 
       - name: Install dependencies
+        id: install
         run: composer update --no-interaction --prefer-dist --no-progress --with="pestphp/pest:${{ matrix.pest }}" --with="phpunit/phpunit:${{ matrix.phpunit }}" --with-all-dependencies
 
+      # Each check runs once the install has, whatever the others found.
       - name: Run tests
         run: vendor/bin/pest
+
+      - name: Check types
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: vendor/bin/phpstan analyse --no-progress
+
+      - name: Check style
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: vendor/bin/pint --test
 
   # android/reader.jar ships in the package and runs on users' emulators, so a PR must not
   # change android/src without the jar. This is the check .githooks/pre-push makes: the git
