@@ -10,6 +10,7 @@ use NativePhp\Simulator\Exceptions\SimulatorException;
 use NativePhp\Simulator\MobileTestFilter;
 use NativePhp\Simulator\ParallelLanes;
 use NativePhp\Simulator\Platforms;
+use NativePhp\Simulator\Run;
 use NativePhp\Simulator\SuitePlan;
 use NativePhp\Simulator\SuiteRegistration;
 use Pest\Factories\Attribute;
@@ -172,7 +173,7 @@ it('skips a platform when its devices cannot be listed', function () {
 it('gives a dataset value to the test after the device key', function () {
     $seen = null;
     $method = new TestCaseMethodFactory(__FILE__, function (string $name) use (&$seen): void {
-        $seen = [$name, \NativePhp\Simulator\Run::device()->name];
+        $seen = [$name, Run::device()->name];
     });
     $method->datasets[] = [['Ada']];
 

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace NativePhp\Simulator;
 
 use Closure;
+use Illuminate\Support\Facades\DB;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 
 final class TestDatabase
@@ -107,11 +108,11 @@ final class TestDatabase
             return is_object($connection) ? $connection : null;
         }
 
-        if (! class_exists(\Illuminate\Support\Facades\DB::class)) {
+        if (! class_exists(DB::class)) {
             return null;
         }
 
-        return \Illuminate\Support\Facades\DB::connection();
+        return DB::connection();
     }
 
     private static function requireFile(string $database): void

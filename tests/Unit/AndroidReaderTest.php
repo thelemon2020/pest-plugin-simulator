@@ -153,4 +153,3 @@ it('reads with uiautomator dump when the reader cannot start', function () {
     expect(array_column($elements, 'label'))->toBe(['Home'])
         ->and($dumps)->toHaveCount(1);
 });
-

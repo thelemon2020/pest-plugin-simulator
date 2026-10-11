@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use NativePhp\Simulator\AccessibilityTree;
 use NativePhp\Simulator\ElementFinder;
+use NativePhp\Simulator\Exceptions\AmbiguousMatch;
 
 $button = fn (string $label, ?string $id = null, array $center = [10, 10], string $role = 'Button'): array => [
     'label' => $label,
@@ -127,7 +128,7 @@ it('does not let a nav title EXACT match beat real content that only CONTAINS th
         ->and($match['role'])->toBe('Button');
 });
 
-it('still matches a real Button or interactive control living in nav/tab chrome', function () use ($button) {
+it('still matches a real Button or interactive control living in nav/tab chrome', function () {
     // The chrome exclusion in match() must not blind it to a REAL interactive control
     // just because that control happens to live inside a nav bar or tab bar — a Back
     // button, a toolbar action, or a tab item are all legitimate tap() targets.
@@ -143,7 +144,7 @@ it('refuses to guess between two buttons with the same label', function () use (
         $button('Shelf'),
         $button('Shelf', null, [20, 20]),
     ], 'Shelf');
-})->throws(NativePhp\Simulator\Exceptions\AmbiguousMatch::class);
+})->throws(AmbiguousMatch::class);
 
 it('finds the Open button only while the system dialog is up', function () use ($button) {
     $finder = new ElementFinder;
