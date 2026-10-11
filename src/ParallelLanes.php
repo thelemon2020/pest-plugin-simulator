@@ -183,13 +183,13 @@ final class ParallelLanes implements LoadedSubscriber
     private static function environment(Device $device, bool $onlyMobileTests): array
     {
         $env = [];
-        $current = getenv();
 
-        if (is_array($current)) {
-            foreach ($current as $key => $value) {
-                if (is_string($key) && is_string($value)) {
-                    $env[$key] = $value;
-                }
+        foreach (getenv() as $key => $value) {
+            // PHP gives a variable whose name is all digits an int key, though PHPStan's
+            // stub for getenv() says every key is a string. Such a variable is left out.
+            // @phpstan-ignore function.alreadyNarrowedType
+            if (is_string($key)) {
+                $env[$key] = $value;
             }
         }
 
