@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Builds android/reader.jar, the screen reader AndroidDriver runs on the device, from
+# android/src. Needs a JDK (javac, Java 17 or newer for d8) and the Android SDK's newest
+# platform and build-tools. The jar is committed, so nothing builds it during a test run.
+set -euo pipefail
+
+cd "$(dirname "$0")"
+
+sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"
+platform="$(ls -d "$sdk"/platforms/android-* | sort -V | tail -n 1)/android.jar"
+build_tools="$(ls -d "$sdk"/build-tools/* | sort -V | tail -n 1)"
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+
+javac --release 8 -nowarn -classpath "$platform" -d "$work/classes" $(find src -name '*.java')
+"$build_tools/d8" --release --min-api 26 --lib "$platform" --output "$work" $(find "$work/classes" -name '*.class')
+
+# A fixed timestamp, so the same source builds the same jar.
+TZ=UTC touch -t 198001010000 "$work/classes.dex"
+(cd "$work" && zip -X -q reader.jar classes.dex)
+mv "$work/reader.jar" reader.jar
+echo "Built $(pwd)/reader.jar"

@@ -32,6 +32,10 @@ final class AndroidDriver implements Driver
 
     private ?int $emulatorPid = null;
 
+    private ?AndroidReader $reader = null;
+
+    private ?string $readerSerial = null;
+
     public function __construct(
         private readonly Device $device,
         private readonly Configuration $configuration,
@@ -219,6 +223,12 @@ final class AndroidDriver implements Driver
 
     private function dumpHierarchy(): string
     {
+        $dump = $this->reader()->dump();
+
+        if ($dump !== null) {
+            return $dump;
+        }
+
         try {
             $dump = $this->command->run($this->adb(), ['-s', $this->serial(), 'exec-out', 'uiautomator', 'dump', '/dev/tty']);
         } catch (SimulatorException) {
@@ -231,6 +241,33 @@ final class AndroidDriver implements Driver
         }
 
         return $dump;
+    }
+
+    /**
+     * The reader for the emulator this driver is on. A new serial gets a new reader.
+     */
+    private function reader(): AndroidReader
+    {
+        $serial = $this->serial();
+
+        if ($this->reader === null || $this->readerSerial !== $serial) {
+            $this->reader?->stop();
+            $this->readerSerial = $serial;
+            $this->reader = new AndroidReader(fn (): ?RunningCommand => $this->startReader($serial));
+        }
+
+        return $this->reader;
+    }
+
+    private function startReader(string $serial): ?RunningCommand
+    {
+        try {
+            $this->command->run($this->adb(), ['-s', $serial, 'push', AndroidReader::jar(), AndroidReader::REMOTE]);
+        } catch (SimulatorException) {
+            return null;
+        }
+
+        return $this->command->open($this->adb(), ['-s', $serial, 'shell', AndroidReader::launch()]);
     }
 
     public function tap(float $x, float $y): void
