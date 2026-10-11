@@ -26,8 +26,7 @@ final class AccessibilityTree
             foreach ($parsed as $node) {
                 if (is_array($node)) {
                     $inherited = $node['__inherited'] ?? null;
-                    $carousel = $node['__carousel'] ?? null;
-                    self::walk($node, $nodes, is_string($inherited) ? $inherited : null, is_array($carousel) ? $carousel : null);
+                    self::walk($node, $nodes, is_string($inherited) ? $inherited : null, self::carousel($node));
                     self::selectionFrames($node, $selections);
                 }
             }
@@ -83,7 +82,7 @@ final class AccessibilityTree
                 'checked' => self::checked($node, $role),
                 'chrome' => $chrome,
                 'webview' => $role === 'WebView',
-                'carousel' => is_array($node['__carousel'] ?? null) ? $node['__carousel'] : null,
+                'carousel' => self::carousel($node),
                 'secure' => self::secure($node),
             ];
         }
@@ -1010,6 +1009,20 @@ final class AccessibilityTree
         }
 
         return ! in_array(strtolower($value), ['', 'false', '0', 'no'], true);
+    }
+
+    /**
+     * The frame of the sideways row a node is in, which markCarousels() or walk() put on it.
+     *
+     * @param  array<mixed>  $node
+     * @return array{0: float, 1: float, 2: float, 3: float}|null
+     */
+    private static function carousel(array $node): ?array
+    {
+        /** @var array{0: float, 1: float, 2: float, 3: float}|null $carousel a frame() */
+        $carousel = is_array($node['__carousel'] ?? null) ? $node['__carousel'] : null;
+
+        return $carousel;
     }
 
     /**
