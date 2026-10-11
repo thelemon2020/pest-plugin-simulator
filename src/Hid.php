@@ -9,7 +9,7 @@ use NativePhp\Simulator\Grpc\Protobuf;
 
 final class Hid
 {
-    /** @var array<string, array{0: int, 1: bool}> */
+    /** @var array<int|string, array{0: int, 1: bool}> PHP stores the digits as int keys */
     private const KEYS = [
         'a' => [4, false], 'b' => [5, false], 'c' => [6, false], 'd' => [7, false],
         'e' => [8, false], 'f' => [9, false], 'g' => [10, false], 'h' => [11, false],
