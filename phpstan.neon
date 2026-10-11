@@ -1,0 +1,26 @@
+includes:
+    # Two calls that can return false: getcwd() in Configuration::resolve() and getmypid()
+    # in Shutdown. Handling false changes what happens when they fail, so that is left for
+    # a change of its own.
+    - phpstan-baseline.neon
+
+parameters:
+    level: 8
+    paths:
+        - src
+        - tests/Support
+    excludePaths:
+        # Laravel is not a dependency, so the classes these two extend are not there to
+        # check them against.
+        - src/Laravel
+        # Scripts the tests run as processes of their own, which read $argv.
+        - tests/Support/descriptors.php
+        - tests/Support/shutdown.php
+        - tests/Support/stub-companion.php
+        - tests/Support/stub-reader.php
+    ignoreErrors:
+        # The app's database connection: Laravel's, or a test's stand-in for it. Laravel is
+        # not a dependency, so there is no class to give it.
+        -
+            identifier: method.notFound
+            path: src/TestDatabase.php

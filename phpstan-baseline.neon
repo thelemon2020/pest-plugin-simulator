@@ -1,0 +1,13 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Parameter \$resolvedAppDirectory of class NativePhp\\Simulator\\Configuration constructor expects string, string\|false given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Configuration.php
+
+		-
+			message: '#^Parameter \#1 \$process_id of function posix_kill expects int, int\|false given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Shutdown.php
