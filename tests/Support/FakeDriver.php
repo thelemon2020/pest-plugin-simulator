@@ -53,7 +53,7 @@ final class FakeDriver implements Driver
 
     public string $databaseContents = '';
 
-    /** @var list<array{0: string, 1: string}> */
+    /** @var list<array{0: string, 1?: string}> */
     public array $events = [];
 
     /** @var list<list<string>> */
@@ -176,12 +176,12 @@ final class FakeDriver implements Driver
 
     public function grant(array $services): void
     {
-        $this->grants[] = array_values($services);
+        $this->grants[] = $services;
     }
 
     public function revoke(array $services): void
     {
-        $this->revokes[] = array_values($services);
+        $this->revokes[] = $services;
     }
 
     public function captureLogs(string $directory): array
