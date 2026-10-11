@@ -322,6 +322,8 @@ class Client
 
     /**
      * @param  array<int>|null  $mask
+     *
+     * @param-out null  $mask
      */
     private static function releaseSignals(?array &$mask): void
     {
