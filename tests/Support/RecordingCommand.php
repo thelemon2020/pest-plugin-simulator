@@ -7,6 +7,7 @@ namespace Tests\Support;
 use Closure;
 use NativePhp\Simulator\Command;
 use NativePhp\Simulator\Exceptions\SimulatorException;
+use NativePhp\Simulator\RunningCommand;
 
 final class RecordingCommand extends Command
 {
@@ -71,6 +72,19 @@ final class RecordingCommand extends Command
         }
 
         return '';
+    }
+
+    /**
+     * What open() hands back. Null, the default, is a command that could not start, so an
+     * AndroidDriver reads with `uiautomator dump`.
+     */
+    public ?RunningCommand $opened = null;
+
+    public function open(string $binary, array $arguments): ?RunningCommand
+    {
+        $this->calls[] = [$binary, $arguments];
+
+        return $this->opened;
     }
 
     public function start(string $binary, array $arguments, string $log): int

@@ -333,6 +333,29 @@ class Command
         return (int) $pid;
     }
 
+    /**
+     * Start a command and leave it running, to write to its stdin and read its stdout. Its
+     * stderr is thrown away. Null when it could not be started.
+     *
+     * @param  list<string>  $arguments
+     */
+    public function open(string $binary, array $arguments): ?RunningCommand
+    {
+        $command = array_merge([$binary], $arguments);
+        $process = proc_open($command, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes);
+
+        if (! is_resource($process)) {
+            $this->log(self::now(), 'not run', $command);
+
+            return null;
+        }
+
+        stream_set_blocking($pipes[1], false);
+        $this->log(self::now(), 'opened', $command);
+
+        return new RunningCommand($process, $pipes);
+    }
+
     public function stop(int $pid): void
     {
         $this->signal($pid, SIGTERM, 'kill ');
