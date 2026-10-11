@@ -1,10 +1,46 @@
 #!/usr/bin/env bash
 # Builds android/reader.jar, the screen reader AndroidDriver runs on the device, from
-# android/src. Needs a JDK (javac, Java 17 or newer for d8) and the Android SDK's newest
+# android/src. Needs a JDK 17 or newer (d8 runs on it) and the Android SDK's newest
 # platform and build-tools. The jar is committed, so nothing builds it during a test run.
+# .githooks/pre-commit runs this when a commit changes android/src.
 set -euo pipefail
 
 cd "$(dirname "$0")"
+
+# The first JDK 17+ of: JAVA_HOME, what macOS knows of, and the one Android Studio ships.
+jdk() {
+    local candidates=("${JAVA_HOME:-}")
+
+    if [ -x /usr/libexec/java_home ]; then
+        candidates+=("$(/usr/libexec/java_home -v 17+ 2>/dev/null || true)")
+    fi
+
+    candidates+=(
+        "/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+        "$HOME/android-studio/jbr"
+        "/opt/android-studio/jbr"
+    )
+
+    for home in "${candidates[@]}"; do
+        if [ -n "$home" ] && [ -x "$home/bin/javac" ]; then
+            local major
+            major="$("$home/bin/javac" -version 2>&1 | sed -E 's/^javac ([0-9]+).*/\1/')"
+
+            if [ "$major" -ge 17 ] 2>/dev/null; then
+                echo "$home"
+                return
+            fi
+        fi
+    done
+
+    echo "No JDK 17 or newer found. Set JAVA_HOME to one." >&2
+    exit 1
+}
+
+# Assigned on its own line: `export X="$(jdk)"` would hide jdk's failure from set -e.
+java_home="$(jdk)"
+export JAVA_HOME="$java_home"
+export PATH="$JAVA_HOME/bin:$PATH"
 
 sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"
 platform="$(ls -d "$sdk"/platforms/android-* | sort -V | tail -n 1)/android.jar"

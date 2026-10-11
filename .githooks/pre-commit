@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Rebuilds android/reader.jar when what is staged in android/src or android/build is not
+# what the jar was built from, and adds the jar to the commit. It builds what is staged,
+# not the working tree, so a commit of part of the source gets the jar for that part.
+#
+# android/reader.source records what the jar was built from: the git ids of android/src
+# and android/build. A source change that leaves the jar's bytes alone (a comment) still
+# changes the record, so .githooks/pre-push can tell a stale jar from an unchanged one.
+#
+# Turned on by `composer install` (core.hooksPath). `git commit --no-verify` skips it.
+set -euo pipefail
+
+if ! git cat-file -e :android/build 2>/dev/null; then
+    exit 0
+fi
+
+source="$(printf 'src %s\nbuild %s\n' "$(git write-tree --prefix=android/src/)" "$(git rev-parse :android/build)")"
+recorded="$(git show :android/reader.source 2>/dev/null | grep -v '^#' || true)"
+
+if [ "$source" = "$recorded" ]; then
+    exit 0
+fi
+
+root="$(git rev-parse --show-toplevel)"
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+
+git ls-files -z -- android/src android/build | xargs -0 git checkout-index --prefix="$work/" --
+
+if ! "$work/android/build" >"$work/build.log" 2>&1; then
+    cat "$work/build.log" >&2
+    echo "pre-commit: could not build android/reader.jar. Fix the build, or commit with --no-verify and build it later." >&2
+    exit 1
+fi
+
+cp "$work/android/reader.jar" "$root/android/reader.jar"
+printf '# What android/reader.jar was built from. .githooks/pre-commit writes this.\n%s\n' "$source" >"$root/android/reader.source"
+git add -- "$root/android/reader.jar" "$root/android/reader.source"
+echo "pre-commit: rebuilt android/reader.jar"
