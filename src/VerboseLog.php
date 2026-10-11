@@ -81,16 +81,18 @@ final class VerboseLog
 
     private static function line(string $text): void
     {
-        if (self::$path === null) {
+        $path = self::$path;
+
+        if ($path === null) {
             return;
         }
 
         $now = microtime(true);
         $worker = Worker::parallel() ? 'w'.Worker::index() : 'main';
-        self::ensureDirectory(self::$path);
+        self::ensureDirectory($path);
         // One write per line, appended under a lock, so workers never split each other's lines.
         @file_put_contents(
-            self::$path,
+            $path,
             sprintf("%s.%03d %-6s %s\n", date('H:i:s', (int) $now), (int) (($now - floor($now)) * 1000), "[{$worker}]", $text),
             FILE_APPEND | LOCK_EX,
         );

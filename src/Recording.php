@@ -134,19 +134,23 @@ final class Recording
 
     private static function file(): void
     {
-        if (self::$path === null) {
+        $path = self::$path;
+
+        if ($path === null) {
             return;
         }
 
         if (self::$automatic) {
-            self::$pending[] = self::$path;
+            self::$pending[] = $path;
 
             return;
         }
 
-        if (self::$moveTo !== null && self::$moveTo !== self::$path && is_file(self::$path)) {
-            self::ensureDirectory(self::$moveTo);
-            rename(self::$path, self::$moveTo);
+        $moveTo = self::$moveTo;
+
+        if ($moveTo !== null && $moveTo !== $path && is_file($path)) {
+            self::ensureDirectory($moveTo);
+            rename($path, $moveTo);
         }
     }
 
