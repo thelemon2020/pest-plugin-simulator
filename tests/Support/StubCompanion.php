@@ -106,10 +106,10 @@ final class StubCompanion
 
         foreach (file($this->log, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
             $request = json_decode($line, true);
-            $frames = array_map(fn (array $frame): array => [
+            $frames = array_values(array_map(fn (array $frame): array => [
                 'at' => (float) $frame['at'],
                 'bytes' => (string) base64_decode($frame['bytes']),
-            ], $request['data']);
+            ], $request['data']));
 
             $requests[] = [
                 'connection' => (int) $request['connection'],
