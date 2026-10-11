@@ -544,7 +544,7 @@ final class Screen
     public function assertSee(string $text, string ...$others): self
     {
         return $this->step('assertSee', implode(', ', [$text, ...$others]), function () use ($text, $others): void {
-            $texts = [$text, ...$others];
+            $texts = [$text, ...array_values($others)];
 
             $elements = $this->until(
                 fn (array $elements): bool => $this->finder->seesAll($elements, $texts),
