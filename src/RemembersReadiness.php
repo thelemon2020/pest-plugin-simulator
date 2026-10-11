@@ -36,7 +36,7 @@ trait RemembersReadiness
      * other failure, such as a timeout or an app that is not installed, goes straight
      * through rather than paying for the boot path and a second attempt.
      *
-     * @param  Closure(): void  $command
+     * @param  Closure(): mixed  $command  what it returns is not used
      */
     private function recovering(Closure $command): void
     {
