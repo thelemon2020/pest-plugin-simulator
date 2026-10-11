@@ -256,8 +256,8 @@ final class AccessibilityTree
      * node of its own. The dump is flat, so containment is how those belong
      * together.
      *
-     * @param  list<array<mixed>>  $nodes
-     * @return list<array<mixed>>
+     * @param  list<mixed>  $nodes
+     * @return list<mixed>
      */
     private static function prepareFlatNodes(array $nodes): array
     {
@@ -361,7 +361,7 @@ final class AccessibilityTree
     /**
      * The labeled nodes inside a node's frame.
      *
-     * @param  list<array<mixed>>  $nodes
+     * @param  array<int, mixed>  $nodes
      * @param  array<int, array{0: float, 1: float, 2: float, 3: float}|null>  $frames
      * @param  array<int, true>  $drop
      * @return list<int>
@@ -391,7 +391,7 @@ final class AccessibilityTree
      * switch, inside the smallest frame around it that has any. A frame that holds another
      * checkable control is past the row.
      *
-     * @param  list<array<mixed>>  $nodes
+     * @param  array<int, mixed>  $nodes
      * @param  array<int, array{0: float, 1: float, 2: float, 3: float}|null>  $frames
      * @param  array<int, true>  $drop
      * @return list<int>
@@ -451,7 +451,7 @@ final class AccessibilityTree
      * `uiautomator dump` only says a node is scrollable, and Compose calls every scrolling
      * node a View, so there only a platform HorizontalScrollView counts.
      *
-     * @param  list<array<mixed>>  $nodes
+     * @param  array<int, mixed>  $nodes
      * @param  array<int, array{0: float, 1: float, 2: float, 3: float}|null>  $frames
      */
     private static function markCarousels(array &$nodes, array $frames): void
@@ -501,7 +501,7 @@ final class AccessibilityTree
      * A tab label sits in the gesture-navigation strip. Tapping the text
      * itself is swallowed, so the press goes to the tab cell above it.
      *
-     * @param  list<array<mixed>>  $nodes
+     * @param  array<int, mixed>  $nodes
      * @param  array<int, array{0: float, 1: float, 2: float, 3: float}|null>  $frames
      */
     private static function liftBottomLabels(array &$nodes, array $frames): void
