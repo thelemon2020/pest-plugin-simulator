@@ -86,6 +86,7 @@ final class SqliteSnapshot
         $fetched = [];
 
         while (($object = $statement->fetch(PDO::FETCH_ASSOC)) !== false) {
+            /** @var array{type: string, name: string, sql: string} $object the three text columns selected, sql not null */
             $fetched[] = $object;
         }
 
