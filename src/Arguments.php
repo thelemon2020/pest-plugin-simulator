@@ -103,11 +103,12 @@ final class Arguments
         }
 
         $pool = $devices;
+        $platforms = self::$platforms;
 
-        if (self::$platforms !== null) {
+        if ($platforms !== null) {
             $pool = array_values(array_filter(
                 $pool,
-                fn (Device $device): bool => in_array($device->platform, self::$platforms, true),
+                fn (Device $device): bool => in_array($device->platform, $platforms, true),
             ));
         }
 
