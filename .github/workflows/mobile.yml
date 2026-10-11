@@ -7,7 +7,8 @@ on:
 permissions:
   contents: read
 
-# Unit tests only. The suite fakes simctl, idb_companion, and adb.
+# No device runs here. The suite fakes simctl, idb_companion, and adb, and the reader jobs
+# only build android/reader.jar.
 jobs:
   tests:
     name: PHP ${{ matrix.php }} / Pest ${{ matrix.name }}
@@ -38,3 +39,62 @@ jobs:
 
       - name: Run tests
         run: vendor/bin/pest
+
+  # android/reader.jar ships in the package and runs on users' emulators, so a PR must not
+  # change android/src without the jar. This is the check .githooks/pre-push makes: the git
+  # ids android/reader.source records against android/src and android/build. It needs no SDK.
+  reader-source:
+    name: Android reader is recorded as built from android/src
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare android/reader.source with android/src and android/build
+        run: |
+          zero=0000000000000000000000000000000000000000
+          echo "$GITHUB_REF $(git rev-parse HEAD) $GITHUB_REF $zero" | .githooks/pre-push
+
+  # reader.source only says what the jar was meant to be built from, so this builds it again
+  # and compares the bytes. android/build pins the zip's timestamp, and the jar comes out the
+  # same on macOS and Linux and with JDK 17, 21 and 25. What does change it is the
+  # build-tools: d8 writes its own version into classes.dex (the ~~D8 marker), so the jar
+  # only matches when it is rebuilt with the build-tools it was built with. When a commit
+  # rebuilds the jar with newer build-tools, change BUILD_TOOLS to match; a failure prints
+  # both markers.
+  reader-jar:
+    name: Android reader rebuilds byte for byte
+    runs-on: ubuntu-latest
+    env:
+      BUILD_TOOLS: "37.0.0"
+      PLATFORM: android-36.1
+    steps:
+      - uses: actions/checkout@v4
+
+      # android/build takes the newest platform and build-tools it finds, so it gets an SDK
+      # that has only the pinned ones.
+      - name: Install the pinned Android build-tools and platform
+        run: |
+          yes 2>/dev/null | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "build-tools;$BUILD_TOOLS" "platforms;$PLATFORM" >/dev/null
+          sdk="$RUNNER_TEMP/android-sdk"
+          mkdir -p "$sdk/build-tools" "$sdk/platforms"
+          ln -s "$ANDROID_HOME/build-tools/$BUILD_TOOLS" "$sdk/build-tools/$BUILD_TOOLS"
+          ln -s "$ANDROID_HOME/platforms/$PLATFORM" "$sdk/platforms/$PLATFORM"
+          echo "ANDROID_HOME=$sdk" >>"$GITHUB_ENV"
+
+      - name: Rebuild android/reader.jar
+        run: android/build
+
+      - name: Compare with the committed jar
+        run: |
+          if git diff --quiet -- android/reader.jar; then
+            exit 0
+          fi
+
+          marker() { unzip -p "$1" classes.dex | strings -a | grep '^~~D8' || echo '(no ~~D8 marker)'; }
+          git show HEAD:android/reader.jar >"$RUNNER_TEMP/committed.jar"
+          echo "::error::android/reader.jar is not what android/src builds. Rebuild it with android/build and commit it."
+          echo "Committed: $(marker "$RUNNER_TEMP/committed.jar")"
+          echo "Rebuilt:   $(marker android/reader.jar)"
+          echo "If only the d8 versions differ, the jar was built with other build-tools: change BUILD_TOOLS in this workflow to match."
+          exit 1
+
