@@ -104,11 +104,11 @@ final class RunningCommand
         $this->pipes = [];
         $deadline = microtime(true) + 2.0;
 
-        while (microtime(true) < $deadline && (proc_get_status($this->process)['running'] ?? false)) {
+        while (microtime(true) < $deadline && proc_get_status($this->process)['running']) {
             usleep(20_000);
         }
 
-        if (proc_get_status($this->process)['running'] ?? false) {
+        if (proc_get_status($this->process)['running']) {
             proc_terminate($this->process);
         }
 

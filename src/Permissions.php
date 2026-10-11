@@ -91,7 +91,7 @@ final class Permissions
             return;
         }
 
-        $services = array_values(self::$only ?? Configuration::resolve()->permissions() ?? array_keys(self::IOS));
+        $services = self::$only ?? Configuration::resolve()->permissions() ?? array_keys(self::IOS);
         self::assertKnown($services);
         $previous = self::$held[$deviceKey] ?? [];
         self::$applied[$deviceKey] = true;
