@@ -27,7 +27,7 @@ it('keeps an installed ios debug app without building or launching', function ()
     $command = new RecordingCommand;
     $command->outputs = [
         'get_app_container' => "/tmp/NativePHP-simulator.app\n",
-        '--entitlements' => "<key>get-task-allow</key><true/>",
+        '--entitlements' => '<key>get-task-allow</key><true/>',
     ];
     $driver = iosBuildDriver($command);
 
@@ -47,7 +47,7 @@ it('checks the ios debug app again in a new process without launching it', funct
     $command = new RecordingCommand;
     $command->outputs = [
         'get_app_container' => "/tmp/NativePHP-simulator.app\n",
-        '--entitlements' => "<key>get-task-allow</key><true/>",
+        '--entitlements' => '<key>get-task-allow</key><true/>',
     ];
     $driver = iosBuildDriver($command);
 
@@ -62,7 +62,7 @@ it('builds ios when the installed app is not a debug binary', function () {
     $command = new RecordingCommand;
     $command->outputs = [
         'get_app_container' => "/tmp/NativePHP.app\n",
-        '--entitlements' => "<key>get-task-allow</key><false/>",
+        '--entitlements' => '<key>get-task-allow</key><false/>',
     ];
     $driver = iosBuildDriver($command);
 
