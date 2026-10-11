@@ -61,7 +61,7 @@ final class ElementFinder
             }
         }
 
-        throw new NoMatch($target, $elements);
+        throw new NoMatch($target);
     }
 
     /**
@@ -640,7 +640,7 @@ final class ElementFinder
         }
 
         if (count($pool) > 1) {
-            throw new AmbiguousMatch($target, $pool);
+            throw new AmbiguousMatch($target);
         }
 
         return $pool[0];
