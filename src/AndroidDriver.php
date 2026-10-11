@@ -15,6 +15,7 @@ final class AndroidDriver implements Driver
 
     private const RECORDING = '/sdcard/pest-simulator-recording.mp4';
 
+    /** @var array<string, true> */
     private static array $built = [];
 
     private static ?string $privateSerial = null;
