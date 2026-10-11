@@ -207,7 +207,7 @@ final class Arguments
     }
 
     /**
-     * @param  array<int, string>  $arguments
+     * @param  array<int, mixed>  $arguments  argv, where anything but a string is skipped
      * @return array{platforms: list<'ios'|'android'>, devices: list<array{platform: 'ios'|'android'|null, name: string}>, doctor: bool, rebuild: bool, wipe: bool, verbose: ?string, recordFailures: bool, kept: list<string>}
      */
     private static function parse(array $arguments): array
