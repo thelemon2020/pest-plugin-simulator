@@ -422,6 +422,7 @@ final class ElementFinder
      */
     public function firstPhoto(array $elements): ?array
     {
+        /** @var list<Tappable> $photos isPhoto() keeps only elements with a center */
         $photos = array_values(array_filter(
             $elements,
             fn (array $element): bool => $this->isPhoto($element),

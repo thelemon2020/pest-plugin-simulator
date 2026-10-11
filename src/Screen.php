@@ -332,7 +332,9 @@ final class Screen
                 fn (array $elements): bool => $this->finder->alertButton($elements, $label) !== null,
                 "The alert did not offer [{$label}].",
             );
-            $this->touch($this->finder->alertButton($elements, $label));
+            /** @var Tappable $button until() waited for it */
+            $button = $this->finder->alertButton($elements, $label);
+            $this->touch($button);
         });
     }
 
@@ -363,7 +365,9 @@ final class Screen
                 fn (array $elements): bool => $this->finder->shareButton($elements, $target) !== null,
                 "The share sheet did not offer [{$target}].",
             );
-            $this->touch($this->finder->shareButton($elements, $target));
+            /** @var Tappable $button until() waited for it */
+            $button = $this->finder->shareButton($elements, $target);
+            $this->touch($button);
         });
     }
 
@@ -374,7 +378,9 @@ final class Screen
                 fn (array $elements): bool => $this->finder->firstPhoto($elements) !== null,
                 'The photo picker had no image.',
             );
-            $this->touch($this->finder->firstPhoto($elements));
+            /** @var Tappable $photo until() waited for it */
+            $photo = $this->finder->firstPhoto($elements);
+            $this->touch($photo);
             $confirm = $this->finder->photoConfirm($elements);
 
             if ($confirm === null) {
@@ -394,7 +400,9 @@ final class Screen
                 fn (array $elements): bool => $this->finder->photoButton($elements, 'Cancel') !== null,
                 'The photo picker had no [Cancel] button.',
             );
-            $this->touch($this->finder->photoButton($elements, 'Cancel'));
+            /** @var Tappable $cancel until() waited for it */
+            $cancel = $this->finder->photoButton($elements, 'Cancel');
+            $this->touch($cancel);
         });
     }
 
@@ -959,6 +967,8 @@ final class Screen
             }
 
             if ($match === null) {
+                // until() lets a read without the label through only when $search says which way to scroll.
+                /** @var string $search */
                 if (($search === 'left' || $search === 'right') && $row === null) {
                     $row = $this->onlyCarousel($label, $search, $elements);
                 }
