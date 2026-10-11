@@ -56,6 +56,7 @@ final class MobileTestFilter implements TestCaseMethodFilter
             VerboseLog::note('test '.Trace::test()." on {$device->platform} {$device->name}");
             TestDatabase::begin();
             Permissions::beginTest();
+            DeviceState::beginTest();
 
             if (Configuration::resolve()->recordFailures()) {
                 Recording::everyTest();
@@ -74,6 +75,7 @@ final class MobileTestFilter implements TestCaseMethodFilter
                     Recording::finish();
                 } finally {
                     Permissions::forgetRequest();
+                    DeviceState::forgetRequest();
                     TestDatabase::end();
                     Trace::reset();
                     Run::clear();

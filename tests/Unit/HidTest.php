@@ -11,3 +11,12 @@ it('asks accessibility_info for the COMPLETE format from the AXBRIDGE backend', 
     // idb_companion 1.6.3+ — see Companion::supportsAxBridge() and the note in Hid.php.
     expect(Hid::accessibilityInfo())->toBe("\x18\x02\x40\x02");
 });
+
+it('presses and lets go of the home button', function () {
+    // HIDEvent.press (1) > HIDPress.action (1) > HIDPressAction.button (2) >
+    // HIDButton.button (1) = HOME (1). The release adds HIDPress.direction (2) = UP (1).
+    expect(array_map(bin2hex(...), Hid::home()))->toBe([
+        '0a060a0412020801',
+        '0a080a04120208011001',
+    ]);
+});

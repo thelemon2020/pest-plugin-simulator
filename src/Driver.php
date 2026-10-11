@@ -69,4 +69,35 @@ interface Driver
     public function captureLogs(string $directory): array;
 
     public function installDatabase(string $sqlitePath): void;
+
+    /**
+     * `light` or `dark`. Null puts back what the device had before the first change.
+     */
+    public function appearance(?string $mode): void;
+
+    /**
+     * A size DeviceState knows, such as `large`. Null puts back what the device had before
+     * the first change.
+     */
+    public function textSize(?string $size): void;
+
+    /**
+     * @param  array{0: float, 1: float}|null  $coordinates  latitude and longitude, or null to stop simulating one
+     */
+    public function location(?array $coordinates): void;
+
+    /**
+     * Fixes the status bar at 9:41 with full signal and battery, or lets it go.
+     */
+    public function statusBar(bool $fixed): void;
+
+    /**
+     * Goes to the home screen, waits, and brings the app back.
+     */
+    public function background(float $seconds): void;
+
+    /**
+     * Stops the app and starts it again.
+     */
+    public function relaunch(): void;
 }
