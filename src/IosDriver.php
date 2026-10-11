@@ -14,6 +14,7 @@ final class IosDriver implements Driver
 {
     use RemembersReadiness;
 
+    /** @var array<string, true> */
     private static array $built = [];
 
     private static ?int $companionPid = null;

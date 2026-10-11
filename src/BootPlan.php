@@ -30,6 +30,9 @@ final class BootPlan
         ));
     }
 
+    /**
+     * @param  list<string>  $bootedNames
+     */
     public static function shouldBoot(bool $named, string $target, array $bootedNames): bool
     {
         self::shutdowns($named, $target, $bootedNames);
