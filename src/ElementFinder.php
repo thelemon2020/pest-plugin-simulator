@@ -7,11 +7,15 @@ namespace NativePhp\Simulator;
 use NativePhp\Simulator\Exceptions\AmbiguousMatch;
 use NativePhp\Simulator\Exceptions\NoMatch;
 
+/**
+ * @phpstan-import-type Element from Driver
+ * @phpstan-import-type Tappable from Driver
+ */
 final class ElementFinder
 {
     /**
-     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}}>  $elements
-     * @return array{label: string, role: ?string, id: ?string, center: array{0: float, 1: float}}
+     * @param  list<Element>  $elements
+     * @return Tappable
      */
     public function match(array $elements, string $target): array
     {
@@ -61,8 +65,8 @@ final class ElementFinder
     }
 
     /**
-     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}}>  $elements
-     * @return array{label: string, role: ?string, id: ?string, center: array{0: float, 1: float}}|null
+     * @param  list<Element>  $elements
+     * @return Tappable|null
      */
     public function openDialogButton(array $elements): ?array
     {
@@ -92,8 +96,8 @@ final class ElementFinder
      * The system chevron. A pushed screen has one Back button; a screen that
      * also has its own control named Back is left for the edge swipe.
      *
-     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}, chrome?: ?string}>  $elements
-     * @return array{label: string, role: ?string, id: ?string, center: array{0: float, 1: float}}|null
+     * @param  list<Element>  $elements
+     * @return Tappable|null
      */
     public function navigationBack(array $elements): ?array
     {
@@ -111,7 +115,7 @@ final class ElementFinder
         ));
 
         if (count($buttons) === 1) {
-            /** @var array{label: string, role: ?string, id: ?string, center: array{0: float, 1: float}} $button */
+            /** @var Tappable $button */
             $button = $buttons[0];
 
             return $button;
@@ -131,14 +135,14 @@ final class ElementFinder
             return null;
         }
 
-        /** @var array{label: string, role: ?string, id: ?string, center: array{0: float, 1: float}} $icon */
+        /** @var Tappable $icon */
         $icon = $icons[0];
 
         return $icon;
     }
 
     /**
-     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}}>  $elements
+     * @param  list<Element>  $elements
      */
     public function sees(array $elements, string $text): bool
     {
@@ -152,6 +156,7 @@ final class ElementFinder
     }
 
     /**
+     * @param  list<Element>  $elements
      * @param  list<string>  $texts
      */
     public function seesAll(array $elements, array $texts): bool
@@ -160,7 +165,7 @@ final class ElementFinder
     }
 
     /**
-     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}}>  $elements
+     * @param  list<Element>  $elements
      * @param  list<string>  $texts
      * @return list<string>
      */
@@ -173,7 +178,7 @@ final class ElementFinder
     }
 
     /**
-     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}, value?: ?string}>  $elements
+     * @param  list<Element>  $elements
      */
     public function hasValue(array $elements, string $target, string $value): bool
     {
@@ -190,8 +195,8 @@ final class ElementFinder
      * while it is empty. Once text goes in, nothing in the tree carries that name, so the
      * field is found again as the text field nearest where it was tapped.
      *
-     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}, value?: ?string, secure?: bool}>  $elements
-     * @param  array{label: string, role: ?string, id: ?string, center: array{0: float, 1: float}, value?: ?string}  $field
+     * @param  list<Element>  $elements
+     * @param  Tappable  $field
      */
     public function holds(array $elements, string $target, array $field, string $value): bool
     {
@@ -232,7 +237,7 @@ final class ElementFinder
      * all a typed password can be checked against. Android keeps the field secure once it
      * is shown, and then reads back the text itself.
      *
-     * @param  array{label: string, role: ?string, value?: ?string, secure?: bool}  $field
+     * @param  Element  $field
      */
     private function shows(array $field, string $value): bool
     {
@@ -246,7 +251,7 @@ final class ElementFinder
     }
 
     /**
-     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}, value?: ?string}>  $elements
+     * @param  list<Element>  $elements
      */
     public function valueOf(array $elements, string $target): string
     {
@@ -254,7 +259,7 @@ final class ElementFinder
     }
 
     /**
-     * @param  list<array{label: string, role: ?string, id: ?string, enabled?: bool}>  $elements
+     * @param  list<Element>  $elements
      */
     public function isEnabled(array $elements, string $target, bool $enabled): bool
     {
@@ -268,7 +273,7 @@ final class ElementFinder
     }
 
     /**
-     * @param  list<array{label: string, role: ?string, id: ?string, checked?: bool}>  $elements
+     * @param  list<Element>  $elements
      */
     public function isChecked(array $elements, string $target, bool $checked): bool
     {
@@ -287,7 +292,7 @@ final class ElementFinder
      * recognizes role `Switch`, which a chip is not; it's a `Button`). Distinct from
      * `isChecked()`, which answers a different question for a different kind of control.
      *
-     * @param  list<array{label: string, role: ?string, id: ?string, selected?: bool}>  $elements
+     * @param  list<Element>  $elements
      */
     public function isSelected(array $elements, string $target, bool $selected): bool
     {
@@ -301,7 +306,7 @@ final class ElementFinder
     }
 
     /**
-     * @param  list<array{label: string, role: ?string, id: ?string, chrome?: ?string}>  $elements
+     * @param  list<Element>  $elements
      */
     public function navTitle(array $elements, string $title): bool
     {
@@ -315,7 +320,7 @@ final class ElementFinder
     }
 
     /**
-     * @param  list<array{label: string, role: ?string, id: ?string, selected?: bool}>  $elements
+     * @param  list<Element>  $elements
      */
     public function tabActive(array $elements, string $label): bool
     {
@@ -333,7 +338,7 @@ final class ElementFinder
     }
 
     /**
-     * @param  list<array{label: string, role: ?string, id: ?string, chrome?: ?string}>  $elements
+     * @param  list<Element>  $elements
      */
     public function navigatedTo(array $elements, string $path): bool
     {
@@ -360,8 +365,8 @@ final class ElementFinder
     }
 
     /**
-     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}, chrome?: ?string}>  $elements
-     * @return array{label: string, role: ?string, id: ?string, center: array{0: float, 1: float}}|null
+     * @param  list<Element>  $elements
+     * @return Tappable|null
      */
     public function alertButton(array $elements, string $label): ?array
     {
@@ -369,7 +374,7 @@ final class ElementFinder
     }
 
     /**
-     * @param  list<array{label: string, role: ?string, chrome?: ?string}>  $elements
+     * @param  list<Element>  $elements
      */
     public function sharing(array $elements): bool
     {
@@ -377,8 +382,8 @@ final class ElementFinder
     }
 
     /**
-     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}, chrome?: ?string}>  $elements
-     * @return array{label: string, role: ?string, id: ?string, center: array{0: float, 1: float}}|null
+     * @param  list<Element>  $elements
+     * @return Tappable|null
      */
     public function shareButton(array $elements, string $label): ?array
     {
@@ -386,8 +391,8 @@ final class ElementFinder
     }
 
     /**
-     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}, chrome?: ?string}>  $elements
-     * @return array{label: string, role: ?string, id: ?string, center: array{0: float, 1: float}}|null
+     * @param  list<Element>  $elements
+     * @return Tappable|null
      */
     public function shareDismiss(array $elements): ?array
     {
@@ -403,8 +408,8 @@ final class ElementFinder
     }
 
     /**
-     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}, chrome?: ?string}>  $elements
-     * @return array{label: string, role: ?string, id: ?string, center: array{0: float, 1: float}}|null
+     * @param  list<Element>  $elements
+     * @return Tappable|null
      */
     public function photoButton(array $elements, string $label): ?array
     {
@@ -412,8 +417,8 @@ final class ElementFinder
     }
 
     /**
-     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}, chrome?: ?string}>  $elements
-     * @return array{label: string, role: ?string, id: ?string, center: array{0: float|int, 1: float|int}}|null
+     * @param  list<Element>  $elements
+     * @return Tappable|null
      */
     public function firstPhoto(array $elements): ?array
     {
@@ -436,8 +441,8 @@ final class ElementFinder
     }
 
     /**
-     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}, chrome?: ?string}>  $elements
-     * @return array{label: string, role: ?string, id: ?string, center: array{0: float, 1: float}}|null
+     * @param  list<Element>  $elements
+     * @return Tappable|null
      */
     public function photoConfirm(array $elements): ?array
     {
@@ -453,7 +458,7 @@ final class ElementFinder
     }
 
     /**
-     * @param  list<array{label: string, role: ?string, webview?: bool}>  $elements
+     * @param  list<Element>  $elements
      */
     public function hasWebView(array $elements): bool
     {
@@ -470,7 +475,7 @@ final class ElementFinder
      * An iOS sheet is up: the dimming view it lays over the screen behind it. iOS names that
      * view by its class and gives it an identifier, neither of them translated.
      *
-     * @param  list<array{label: string, role: ?string, id: ?string}>  $elements
+     * @param  list<Element>  $elements
      */
     public function hasSheet(array $elements): bool
     {
@@ -484,7 +489,7 @@ final class ElementFinder
     }
 
     /**
-     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}}>  $elements
+     * @param  list<Element>  $elements
      */
     public function describe(array $elements): string
     {
@@ -526,8 +531,8 @@ final class ElementFinder
     }
 
     /**
-     * @param  list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}, chrome?: ?string}>  $elements
-     * @return array{label: string, role: ?string, id: ?string, center: array{0: float, 1: float}}|null
+     * @param  list<Element>  $elements
+     * @return Tappable|null
      */
     private function labeled(array $elements, string $chrome, string $label): ?array
     {
@@ -539,8 +544,8 @@ final class ElementFinder
     }
 
     /**
-     * @param  list<array{chrome?: ?string}>  $elements
-     * @return list<array{chrome?: ?string}>
+     * @param  list<Element>  $elements
+     * @return list<Element>
      */
     private function within(array $elements, string $chrome): array
     {
@@ -551,7 +556,7 @@ final class ElementFinder
     }
 
     /**
-     * @param  array{label: string, role: ?string, value?: ?string}  $element
+     * @param  Element  $element
      */
     private function value(array $element): string
     {
@@ -565,7 +570,7 @@ final class ElementFinder
     }
 
     /**
-     * @param  array{label: string, role: ?string, center?: ?array{0: float|int, 1: float|int}, chrome?: ?string}  $element
+     * @param  Element  $element
      */
     private function isPhoto(array $element): bool
     {
@@ -591,8 +596,8 @@ final class ElementFinder
     private const TEXT_ROLES = ['TextField', 'TextView'];
 
     /**
-     * @param  list<array{label: string, role: ?string, id: ?string, center: array{0: float, 1: float}}>  $matches
-     * @return array{label: string, role: ?string, id: ?string, center: array{0: float, 1: float}}
+     * @param  list<Tappable>  $matches
+     * @return Tappable
      */
     private function choose(array $matches, string $target): array
     {
