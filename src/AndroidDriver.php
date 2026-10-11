@@ -901,6 +901,8 @@ final class AndroidDriver implements Driver
                 'enabled' => $child->getAttribute('enabled'),
                 'selected' => $child->getAttribute('selected'),
                 'password' => $child->getAttribute('password'),
+                'scrollable' => $child->getAttribute('scrollable'),
+                'scroll-axis' => $child->getAttribute('scroll-axis'),
             ];
 
             if ($inherited !== null) {
