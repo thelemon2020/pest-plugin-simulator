@@ -26,7 +26,8 @@ final class AccessibilityTree
             foreach ($parsed as $node) {
                 if (is_array($node)) {
                     $inherited = $node['__inherited'] ?? null;
-                    self::walk($node, $nodes, is_string($inherited) ? $inherited : null);
+                    $carousel = $node['__carousel'] ?? null;
+                    self::walk($node, $nodes, is_string($inherited) ? $inherited : null, is_array($carousel) ? $carousel : null);
                     self::selectionFrames($node, $selections);
                 }
             }
@@ -333,6 +334,7 @@ final class AccessibilityTree
             }
         }
 
+        self::markCarousels($nodes, $frames);
         self::liftBottomLabels($nodes, $frames);
 
         $kept = [];
@@ -439,6 +441,60 @@ final class AccessibilityTree
         }
 
         return [];
+    }
+
+    /**
+     * Each node inside a row that scrolls sideways is tagged with that row's frame, the
+     * innermost one when rows nest. The flat dump has no hierarchy, so inside is by frame.
+     *
+     * Android's reader names the direction a node scrolls (scroll-axis). A plain
+     * `uiautomator dump` only says a node is scrollable, and Compose calls every scrolling
+     * node a View, so there only a platform HorizontalScrollView counts.
+     *
+     * @param  list<array<mixed>>  $nodes
+     * @param  array<int, array{0: float, 1: float, 2: float, 3: float}|null>  $frames
+     */
+    private static function markCarousels(array &$nodes, array $frames): void
+    {
+        $rows = [];
+
+        foreach ($nodes as $index => $node) {
+            if (! is_array($node) || $frames[$index] === null || ! self::truthy($node['scrollable'] ?? false)) {
+                continue;
+            }
+
+            $axis = $node['scroll-axis'] ?? null;
+            $sideways = is_string($axis) && $axis !== ''
+                ? $axis === 'horizontal'
+                : str_contains((string) ($node['class'] ?? ''), 'HorizontalScrollView');
+
+            if ($sideways) {
+                $rows[$index] = $frames[$index];
+            }
+        }
+
+        if ($rows === []) {
+            return;
+        }
+
+        foreach ($nodes as $index => $node) {
+            $frame = $frames[$index];
+            $carousel = null;
+
+            foreach ($rows as $rowIndex => $row) {
+                if ($rowIndex === $index || $frame === null || ! self::frameInside($frame, $row)) {
+                    continue;
+                }
+
+                if ($carousel === null || $row[2] * $row[3] < $carousel[2] * $carousel[3]) {
+                    $carousel = $row;
+                }
+            }
+
+            if ($carousel !== null && is_array($node)) {
+                $nodes[$index]['__carousel'] = $carousel;
+            }
+        }
     }
 
     /**
@@ -635,8 +691,7 @@ final class AccessibilityTree
      * scrolls sideways when its content reaches past its own left or right edge. A
      * nested scroll view clips its own content, so only its frame counts.
      *
-     * Android's dump has no hierarchy here and leaves out what is off screen, so nothing
-     * on Android is a carousel.
+     * Android's dump is flat, so markCarousels() finds its rows by frame instead.
      *
      * @param  array<mixed>  $node
      */
