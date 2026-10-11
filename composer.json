@@ -9,6 +9,10 @@
         "pestphp/pest": "^4.0 || ^5.0",
         "phpunit/phpunit": "^12.0 || ^13.0"
     },
+    "require-dev": {
+        "laravel/pint": "^1.24",
+        "phpstan/phpstan": "^2.1"
+    },
     "autoload": {
         "psr-4": {
             "NativePhp\\Simulator\\": "src/"
@@ -42,6 +46,9 @@
     },
     "scripts": {
         "test": "@php vendor/bin/pest",
+        "lint": "@php vendor/bin/pint",
+        "test:lint": "@php vendor/bin/pint --test",
+        "test:types": "@php vendor/bin/phpstan analyse --no-progress",
         "hooks": "git config core.hooksPath .githooks || exit 0",
         "post-install-cmd": "@hooks",
         "post-update-cmd": "@hooks"
