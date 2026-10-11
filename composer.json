@@ -41,7 +41,10 @@
         "sort-packages": true
     },
     "scripts": {
-        "test": "@php vendor/bin/pest"
+        "test": "@php vendor/bin/pest",
+        "hooks": "git config core.hooksPath .githooks || exit 0",
+        "post-install-cmd": "@hooks",
+        "post-update-cmd": "@hooks"
     },
     "minimum-stability": "stable"
 }

@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Refuses to push a commit whose android/reader.jar was not built from that commit's
+# android/src and android/build: one made with --no-verify, or before the hooks were
+# turned on. It compares the git ids in android/reader.source, so it needs no SDK.
+set -euo pipefail
+
+zero='0000000000000000000000000000000000000000'
+stale=0
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+    if [ "$local_sha" = "$zero" ] || ! git cat-file -e "$local_sha:android/build" 2>/dev/null; then
+        continue
+    fi
+
+    source="$(printf 'src %s\nbuild %s\n' "$(git rev-parse "$local_sha:android/src")" "$(git rev-parse "$local_sha:android/build")")"
+    recorded="$(git show "$local_sha:android/reader.source" 2>/dev/null | grep -v '^#' || true)"
+
+    if [ "$source" != "$recorded" ]; then
+        echo "pre-push: ${local_ref#refs/heads/} has an android/reader.jar that was not built from its android/src." >&2
+        stale=1
+    fi
+done
+
+if [ "$stale" -ne 0 ]; then
+    echo "pre-push: run .githooks/pre-commit, which builds the jar from what is staged and stages it with android/reader.source, then commit and push again." >&2
+fi
+
+exit "$stale"
