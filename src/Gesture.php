@@ -66,10 +66,10 @@ final class Gesture
             ];
         }
 
-        $span = self::axis($direction, $width, $height) * ($distance ?? match ($direction) {
+        $axis = self::axis($direction, $width, $height);
+        $span = $axis * ($distance ?? match ($direction) {
             'down', 'up' => 0.55,
             'left', 'right' => 0.6,
-            default => throw new SimulatorException("Swipe [{$direction}] is not up, down, left, or right."),
         });
         [$dx, $dy] = self::delta($direction, $span);
 
@@ -115,6 +115,11 @@ final class Gesture
         };
     }
 
+    /**
+     * Throws for a direction that is not one of the four, so a caller can match on it.
+     *
+     * @phpstan-assert 'up'|'down'|'left'|'right' $direction
+     */
     private static function axis(string $direction, float $width, float $height): float
     {
         return match ($direction) {
