@@ -12,8 +12,20 @@ use NativePhp\Simulator\Exceptions\SimulatorException;
 final class AndroidDriver implements Driver
 {
     use RemembersReadiness;
+    use RestoresSettings;
 
     private const RECORDING = '/sdcard/pest-simulator-recording.mp4';
+
+    /**
+     * Google's Mountain View campus, the emulator's usual starting point, for a device that
+     * has no GPS fix to put back.
+     */
+    private const START_LOCATION = '37.4219983,-122.084';
+
+    private const DEMO = 'am broadcast -a com.android.systemui.demo -e command';
+
+    /** How long System UI is given to rebuild the status bar (see enterDemoMode()). */
+    private static float $redrawSeconds = 2.0;
 
     /** @var array<string, true> */
     private static array $built = [];
@@ -39,6 +51,9 @@ final class AndroidDriver implements Driver
     private ?AndroidReader $reader = null;
 
     private ?string $readerSerial = null;
+
+    /** When a night mode or font scale change last made System UI rebuild the status bar. */
+    private ?float $redrawnAt = null;
 
     public function __construct(
         private readonly Device $device,
@@ -579,6 +594,190 @@ final class AndroidDriver implements Driver
         }
 
         return $saved;
+    }
+
+    public function appearance(?string $mode): void
+    {
+        $night = match ($mode === null ? null : DeviceState::appearance($mode)) {
+            null => null,
+            'dark' => 'yes',
+            'light' => 'no',
+        };
+
+        $this->recovering(fn () => $this->setting(
+            'appearance',
+            $night,
+            function (): string {
+                $current = $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'cmd', 'uimode', 'night']);
+
+                return preg_match('/night mode:\s*(yes|no|auto)\b/i', $current, $matches) === 1 ? strtolower($matches[1]) : 'no';
+            },
+            function (string $night): void {
+                $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'cmd', 'uimode', 'night', $night]);
+                $this->redrawn();
+            },
+        ));
+    }
+
+    /**
+     * A font scale that was never set is deleted again rather than written as 1.0.
+     */
+    public function textSize(?string $size): void
+    {
+        $scale = $size === null ? null : DeviceState::textSize('android', $size);
+
+        $this->recovering(fn () => $this->setting(
+            'font_scale',
+            $scale,
+            fn (): string => $this->settingValue('system', 'font_scale'),
+            function (string $scale): void {
+                $this->command->run($this->adb(), $scale === 'null'
+                    ? ['-s', $this->serial(), 'shell', 'settings', 'delete', 'system', 'font_scale']
+                    : ['-s', $this->serial(), 'shell', 'settings', 'put', 'system', 'font_scale', $scale]);
+                $this->redrawn();
+            },
+        ));
+    }
+
+    /**
+     * The emulator console takes longitude first, and cannot report a location back. So
+     * what is put back is the device's last GPS fix, which `dumpsys location` keeps once an
+     * app has asked for one, and the emulator's starting point when none has.
+     */
+    public function location(?array $coordinates): void
+    {
+        $point = $coordinates === null ? null : DeviceState::number($coordinates[0]).','.DeviceState::number($coordinates[1]);
+
+        $this->recovering(fn () => $this->setting(
+            'location',
+            $point,
+            function (): string {
+                $dump = $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'dumpsys', 'location']);
+
+                return preg_match('/last location=Location\[gps (-?[\d.]+),(-?[\d.]+)/', $dump, $matches) === 1
+                    ? $matches[1].','.$matches[2]
+                    : self::START_LOCATION;
+            },
+            function (string $point): void {
+                [$latitude, $longitude] = explode(',', $point);
+                $this->command->run($this->adb(), ['-s', $this->serial(), 'emu', 'geo', 'fix', $longitude, $latitude]);
+            },
+        ));
+    }
+
+    /**
+     * System UI's demo mode. Letting it go also puts back whether demo mode was allowed.
+     */
+    public function statusBar(bool $fixed): void
+    {
+        $this->recovering(fn () => $this->setting(
+            'sysui_demo_allowed',
+            $fixed ? '1' : null,
+            fn (): string => $this->settingValue('global', 'sysui_demo_allowed'),
+            function (string $allowed) use ($fixed): void {
+                if ($fixed) {
+                    $this->enterDemoMode();
+
+                    return;
+                }
+
+                $this->shellScript([
+                    self::DEMO.' exit',
+                    $allowed === 'null'
+                        ? 'settings delete global sysui_demo_allowed'
+                        : 'settings put global sysui_demo_allowed '.escapeshellarg($allowed),
+                ]);
+            },
+        ));
+    }
+
+    /**
+     * Demo mode adds to the icons already shown, so it starts from a clean bar each time.
+     * After a night mode or font scale change, System UI rebuilds the status bar: that
+     * drops demo mode, and demo commands sent while it rebuilds showed the Wi-Fi icon twice
+     * on android-36. One second after the change was enough there.
+     */
+    private function enterDemoMode(): void
+    {
+        if ($this->redrawnAt !== null) {
+            $wait = $this->redrawnAt + self::$redrawSeconds - microtime(true);
+
+            if ($wait > 0) {
+                usleep((int) round($wait * 1_000_000));
+            }
+        }
+
+        $this->shellScript([
+            'settings put global sysui_demo_allowed 1',
+            self::DEMO.' exit',
+            self::DEMO.' enter',
+            self::DEMO.' clock -e hhmm 0941',
+            self::DEMO.' battery -e level 100 -e plugged false',
+            self::DEMO.' network -e wifi show -e level 4 -e fully true',
+            self::DEMO.' network -e mobile hide',
+            self::DEMO.' notifications -e visible false',
+        ]);
+    }
+
+    /**
+     * The status bar is being rebuilt. A fixed one is fixed again once that is done.
+     */
+    private function redrawn(): void
+    {
+        $this->redrawnAt = microtime(true);
+
+        if (array_key_exists('sysui_demo_allowed', $this->own)) {
+            $this->enterDemoMode();
+        }
+    }
+
+    /**
+     * @param  list<string>  $commands  run in one device shell, their output dropped
+     */
+    private function shellScript(array $commands): void
+    {
+        $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', implode(' >/dev/null; ', $commands).' >/dev/null']);
+    }
+
+    /**
+     * A value from `settings get`, which says `null` for one that was never set.
+     */
+    private function settingValue(string $namespace, string $key): string
+    {
+        $value = trim($this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'settings', 'get', $namespace, $key]));
+
+        return $value === '' ? 'null' : $value;
+    }
+
+    public function background(float $seconds): void
+    {
+        $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'input', 'keyevent', '3']);
+        usleep((int) round(max(0.0, $seconds) * 1_000_000));
+        $this->launchApp();
+    }
+
+    public function relaunch(): void
+    {
+        $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'am', 'force-stop', $this->configuration->bundleId()]);
+        $this->launchApp();
+    }
+
+    /**
+     * Starts the app as its launcher icon does, which brings a running one back as it was.
+     * monkey exits before it starts anything on an image with no hardware keys (android-36),
+     * and the launcher intent alone does not resolve, so this names the launcher activity.
+     */
+    private function launchApp(): void
+    {
+        $bundle = $this->configuration->bundleId();
+        $output = $this->command->run($this->adb(), [
+            '-s', $this->serial(), 'shell',
+            'am start -f 0x10200000 -n "$(cmd package resolve-activity --brief -c android.intent.category.LAUNCHER '.escapeshellarg($bundle).' | tail -n 1)"',
+        ]);
+
+        if (str_contains($output, 'Error')) {
+            throw new SimulatorException("Could not start [{$bundle}]. ".trim($output));
+        }
     }
 
     /**

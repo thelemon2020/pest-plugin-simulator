@@ -67,6 +67,21 @@ final class FakeDriver implements Driver
 
     public ?string $recording = null;
 
+    /**
+     * Device settings in the order they were sent. A null value puts the device's own back.
+     *
+     * @var list<array{0: string, 1: mixed}>
+     */
+    public array $settings = [];
+
+    /** A setting that throws when it is put back. */
+    public ?string $failsRestoring = null;
+
+    /** @var list<float> */
+    public array $backgrounds = [];
+
+    public int $relaunches = 0;
+
     public int $descriptions = 0;
 
     /** @var array{0: float, 1: float} */
@@ -203,5 +218,47 @@ final class FakeDriver implements Driver
         $this->databaseContents = is_string($contents) ? $contents : '';
         $this->databases[] = $sqlitePath;
         $this->events[] = ['install', $sqlitePath];
+    }
+
+    public function appearance(?string $mode): void
+    {
+        $this->setting('appearance', $mode);
+    }
+
+    public function textSize(?string $size): void
+    {
+        $this->setting('textSize', $size);
+    }
+
+    public function location(?array $coordinates): void
+    {
+        $this->setting('location', $coordinates);
+    }
+
+    public function statusBar(bool $fixed): void
+    {
+        $this->setting('statusBar', $fixed);
+    }
+
+    public function background(float $seconds): void
+    {
+        $this->backgrounds[] = $seconds;
+        $this->events[] = ['background'];
+    }
+
+    public function relaunch(): void
+    {
+        $this->relaunches++;
+        $this->events[] = ['relaunch'];
+    }
+
+    private function setting(string $name, mixed $value): void
+    {
+        if (($value === null || $value === false) && $name === $this->failsRestoring) {
+            throw new SimulatorException('device offline');
+        }
+
+        $this->settings[] = [$name, $value];
+        $this->events[] = ['setting', $name];
     }
 }

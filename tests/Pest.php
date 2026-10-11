@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use NativePhp\Simulator\DeviceCatalog;
+use NativePhp\Simulator\DeviceState;
 use NativePhp\Simulator\ParallelLanes;
 use NativePhp\Simulator\Permissions;
 use NativePhp\Simulator\Platforms;
@@ -16,6 +17,7 @@ Platforms::use(new FakeMachine);
 
 uses()->afterEach(function () {
     Permissions::reset();
+    DeviceState::reset();
     Recording::reset();
     Trace::reset();
     Platforms::use(new FakeMachine);

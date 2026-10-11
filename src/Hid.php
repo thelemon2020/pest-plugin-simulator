@@ -145,6 +145,18 @@ final class Hid
     }
 
     /**
+     * The Home button's press and release. idb's HIDButtonType numbers Home 1.
+     *
+     * @return list<string>
+     */
+    public static function home(): array
+    {
+        $press = Protobuf::messageField(1, Protobuf::messageField(2, Protobuf::varintField(1, 1)));
+
+        return [Protobuf::messageField(1, $press), Protobuf::messageField(1, $press.Protobuf::varintField(2, 1))];
+    }
+
+    /**
      * @return list<string>
      */
     private static function key(int $keycode, bool $shift): array

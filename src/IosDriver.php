@@ -13,6 +13,7 @@ use NativePhp\Simulator\Grpc\Protobuf;
 final class IosDriver implements Driver
 {
     use RemembersReadiness;
+    use RestoresSettings;
 
     /** @var array<string, true> */
     private static array $built = [];
@@ -706,6 +707,87 @@ final class IosDriver implements Driver
         }
 
         return [$directory.'/laravel.log'];
+    }
+
+    public function appearance(?string $mode): void
+    {
+        $mode = $mode === null ? null : DeviceState::appearance($mode);
+        $this->recovering(fn () => $this->ui('appearance', $mode, 'light'));
+    }
+
+    public function textSize(?string $size): void
+    {
+        $category = $size === null ? null : DeviceState::textSize('ios', $size);
+        $this->recovering(fn () => $this->ui('content_size', $category, 'large'));
+    }
+
+    /**
+     * One `simctl ui` option. Read back, it can say `unknown` or `unsupported`, which
+     * cannot be written back, so the platform default stands in for those.
+     */
+    private function ui(string $option, ?string $value, string $default): void
+    {
+        $this->setting(
+            $option,
+            $value,
+            function () use ($option, $default): string {
+                $current = trim($this->command->run('xcrun', ['simctl', 'ui', $this->udid(), $option]));
+
+                return preg_match('/^[a-z-]+$/', $current) === 1 && ! in_array($current, ['unknown', 'unsupported'], true)
+                    ? $current
+                    : $default;
+            },
+            function (string $value) use ($option): void {
+                $this->command->run('xcrun', ['simctl', 'ui', $this->udid(), $option, $value]);
+            },
+        );
+    }
+
+    /**
+     * simctl cannot read a location back, so letting one go clears it, as the Simulator's
+     * Features > Location > None does.
+     */
+    public function location(?array $coordinates): void
+    {
+        $this->recovering(fn () => $this->command->run('xcrun', $coordinates === null
+            ? ['simctl', 'location', $this->udid(), 'clear']
+            : ['simctl', 'location', $this->udid(), 'set', DeviceState::number($coordinates[0]).','.DeviceState::number($coordinates[1])]));
+    }
+
+    public function statusBar(bool $fixed): void
+    {
+        $this->recovering(fn () => $this->command->run('xcrun', $fixed
+            ? [
+                'simctl', 'status_bar', $this->udid(), 'override',
+                '--time', '9:41',
+                '--dataNetwork', 'wifi',
+                '--wifiMode', 'active',
+                '--wifiBars', '3',
+                '--cellularMode', 'active',
+                '--cellularBars', '4',
+                '--operatorName', '',
+                '--batteryState', 'charged',
+                '--batteryLevel', '100',
+            ]
+            : ['simctl', 'status_bar', $this->udid(), 'clear']));
+    }
+
+    /**
+     * simctl has no Home button, so the companion presses it. `simctl launch` brings the
+     * app that is still running back as it was.
+     */
+    public function background(float $seconds): void
+    {
+        $this->client()->stream('hid', Hid::home());
+        usleep((int) round(max(0.0, $seconds) * 1_000_000));
+        $this->command->run('xcrun', ['simctl', 'launch', $this->udid(), $this->configuration->bundleId()]);
+    }
+
+    public function relaunch(): void
+    {
+        $this->command->run('xcrun', [
+            'simctl', 'launch', '--terminate-running-process', $this->udid(), $this->configuration->bundleId(),
+        ]);
     }
 
     private function buildOnce(): void

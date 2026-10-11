@@ -325,6 +325,41 @@ final class Screen
         });
     }
 
+    /**
+     * Opens another route in the app that is already running, as screen() does, without
+     * copying the database again.
+     */
+    public function openUrl(string $path): self
+    {
+        return $this->step('openUrl', $path, function () use ($path): void {
+            $url = Configuration::resolve()->urlFor($path);
+            $this->sent(['open', $url]);
+            $this->driver->open($url);
+        });
+    }
+
+    /**
+     * Goes to the home screen, waits, and brings the app back as it was.
+     */
+    public function background(float $seconds = 1.0): self
+    {
+        return $this->step('background', (string) $seconds, function () use ($seconds): void {
+            $this->sent(['background', $seconds]);
+            $this->driver->background($seconds);
+        });
+    }
+
+    /**
+     * Stops the app and starts it again. The database keeps what the app wrote.
+     */
+    public function relaunch(): self
+    {
+        return $this->step('relaunch', null, function (): void {
+            $this->sent(['relaunch']);
+            $this->driver->relaunch();
+        });
+    }
+
     public function alert(string $label): self
     {
         return $this->step('alert', $label, function () use ($label): void {
@@ -610,6 +645,49 @@ final class Screen
 
         return $this->step('stopRecord', null, function (): void {
             Recording::stop($this->driver);
+        });
+    }
+
+    /**
+     * `light` or `dark` until the test ends. The next test starts from the device's own.
+     */
+    public function appearance(string $mode): self
+    {
+        return $this->deviceSetting('appearance', $mode, fn (): string => DeviceState::appearance($mode));
+    }
+
+    /**
+     * One of DeviceState's text sizes, such as `large`, until the test ends.
+     */
+    public function textSize(string $size): self
+    {
+        return $this->deviceSetting('textSize', $size, fn (): string => DeviceState::size($size));
+    }
+
+    public function location(float $latitude, float $longitude): self
+    {
+        return $this->deviceSetting('location', "{$latitude}, {$longitude}", fn (): array => DeviceState::coordinates($latitude, $longitude));
+    }
+
+    /**
+     * A status bar that reads 9:41 with full signal and battery, for screenshots that match.
+     */
+    public function fixStatusBar(): self
+    {
+        return $this->deviceSetting('fixStatusBar', null, fn (): bool => true, 'statusBar');
+    }
+
+    /**
+     * @param  Closure(): mixed  $value  the setting's value, checked inside the step
+     */
+    private function deviceSetting(string $action, ?string $target, Closure $value, ?string $setting = null): self
+    {
+        if (! Run::inside()) {
+            throw new SimulatorException("{$action}() only works inside a mobile() suite.");
+        }
+
+        return $this->step($action, $target, function () use ($action, $value, $setting): void {
+            DeviceState::change($this->driver, Run::device()->key(), $setting ?? $action, $value());
         });
     }
 

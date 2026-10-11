@@ -300,6 +300,72 @@ screen('/settings')->tap('Add photo');
 
 An iOS camera prompt or notification prompt cannot be granted ahead of time. When the test expects that prompt, answer it with `alert('Allow')`.
 
+## Change the device
+
+These calls go inside a test that is wrapped in `mobile()`.
+
+```php
+appearance('dark');
+textSize('large');
+location(51.5072, -0.1276);
+fixStatusBar();
+
+screen('/settings')->screenshot('build/settings-dark.png');
+```
+
+Called before `screen()`, they wait for it. They change the device after the app's database is copied and before the route opens. Called after `screen()`, they change the device at once. The screen has the same calls, in the middle of a chain:
+
+```php
+screen('/settings')
+    ->appearance('dark')
+    ->textSize('largest')
+    ->location(48.8566, 2.3522)
+    ->fixStatusBar()
+    ->screenshot('build/settings-large.png');
+```
+
+A setting lasts until the test ends. The next test starts from the device's own setting. As with permissions, the plugin only changes what differs: a setting the next test asks for again is left alone, and one it does not ask for is put back. When the run ends, everything still changed is put back. A run that switches to another device of the same platform puts the first one back before that device is shut down. To ask for a setting in every test in a file, call it in `beforeEach()`: `beforeEach(fn () => fixStatusBar());`.
+
+`appearance()` takes `light` or `dark`. iOS runs `xcrun simctl ui <udid> appearance`. Android runs `adb shell cmd uimode night yes` or `no`.
+
+`textSize()` takes one of five sizes. Each one is about the same scale on both platforms.
+
+| Size | iOS content size | Android font scale |
+| --- | --- | --- |
+| `small` | `extra-small` | `0.85` |
+| `default` | `large` | `1.0` |
+| `large` | `extra-large` | `1.15` |
+| `larger` | `extra-extra-extra-large` | `1.3` |
+| `largest` | `accessibility-large` | `2.0` |
+
+iOS runs `xcrun simctl ui <udid> content_size`. Android runs `adb shell settings put system font_scale`.
+
+`location(51.5072, -0.1276)` takes a latitude, then a longitude. iOS runs `xcrun simctl location <udid> set 51.5072,-0.1276`. Android runs `adb emu geo fix -0.1276 51.5072`, longitude first. iOS cannot read a location back, so putting it back clears the simulated location. On Android, putting it back moves the emulator to the device's last GPS fix, from `adb shell dumpsys location`. A device has a fix only once an app has asked for one. With none, it moves to Google's Mountain View campus, the emulator's usual starting point.
+
+`fixStatusBar()` shows 9:41, full Wi-Fi, and a full battery, so screenshots match from run to run. iOS runs `xcrun simctl status_bar <udid> override`, which also shows full cellular bars. Android uses System UI's demo mode, with no cellular icon and no notification icons. On Android, an appearance or text size change redraws the status bar, and the redraw drops demo mode. So a fixed status bar is fixed again 2 seconds after that change, and each such change takes those 2 seconds longer.
+
+Appearance and text size are put back to what the device had before the run changed them, so a Simulator you keep in dark mode stays dark.
+
+## Restart the app
+
+These calls go on the screen.
+
+```php
+screen('/settings')
+    ->type('Name', 'Sam')
+    ->background(3)
+    ->assertValue('Name', 'Sam')
+    ->relaunch()
+    ->openUrl('/settings/profile')
+    ->assertSee('Profile');
+```
+
+`background(3)` goes to the home screen, waits 3 seconds, and brings the app back as it was. The app keeps running in the background. iOS presses Home through `idb_companion`, then runs `xcrun simctl launch`. Android presses Home, then starts the app's launcher activity, which brings its task back. Leave the seconds off to wait 1.
+
+`relaunch()` stops the app and starts it again. The database is not copied again, so rows the app wrote stay. The app opens on its first screen. iOS runs `xcrun simctl launch --terminate-running-process`. Android runs `am force-stop`, then starts the launcher activity.
+
+`openUrl('/settings/profile')` opens another route in the app that is already running, the way `screen()` does. It does not copy the database again. A link sent while the app is still starting can be lost: on iOS, an `openUrl()` straight after `screen()` stayed on the first route. Check the first screen before opening another one.
+
 ## Answer system sheets
 
 An alert, action sheet, share sheet, or photo picker stays up until the test taps something. If the app did not open that sheet, the call fails.
@@ -461,7 +527,7 @@ A test limited to a platform the suite does not run is skipped. A machine withou
 
 ## Cleanup
 
-When Pest finishes, it shuts down the Simulator, Emulator, and `idb_companion` that this run started. A device that was already booted stays up. An `idb_companion` already listening for this simulator is reused. One listening for a different simulator is left alone, and the plugin starts its own on the next port.
+When Pest finishes, it puts back the appearance, text size, location, and status bar the tests changed. Then it shuts down the Simulator, Emulator, and `idb_companion` that this run started. A device that was already booted stays up. An `idb_companion` already listening for this simulator is reused. One listening for a different simulator is left alone, and the plugin starts its own on the next port.
 
 A run stopped with Ctrl+C or `SIGTERM`, or one that dies of a fatal error, shuts them down too. Catching the signal needs PHP's `pcntl` extension.
 

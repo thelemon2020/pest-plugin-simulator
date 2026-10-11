@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use NativePhp\Simulator\Configuration;
+use NativePhp\Simulator\DeviceState;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 use NativePhp\Simulator\MobileSuite;
 use NativePhp\Simulator\Permissions;
@@ -26,6 +27,38 @@ function permissions(array $services): void
     Permissions::only($services);
 }
 
+/**
+ * `light` or `dark` for this test, from its first screen(), or from now after that.
+ */
+function appearance(string $mode): void
+{
+    DeviceState::request('appearance', DeviceState::appearance($mode));
+}
+
+/**
+ * small, default, large, larger, or largest for this test.
+ */
+function textSize(string $size): void
+{
+    DeviceState::request('textSize', DeviceState::size($size));
+}
+
+/**
+ * A simulated location for this test: latitude, then longitude.
+ */
+function location(float $latitude, float $longitude): void
+{
+    DeviceState::request('location', DeviceState::coordinates($latitude, $longitude));
+}
+
+/**
+ * A status bar that reads 9:41 with full signal and battery for this test.
+ */
+function fixStatusBar(): void
+{
+    DeviceState::request('statusBar', true);
+}
+
 function record(?string $path = null): void
 {
     if (! Run::inside()) {
@@ -35,6 +68,7 @@ function record(?string $path = null): void
     $device = Run::device();
     Recording::request($path === '' ? null : $path);
     $driver = Sessions::get($device);
+    DeviceState::arrive($device);
     $driver->ensureReady();
     Recording::begin($driver, $device);
 }
@@ -54,10 +88,12 @@ function screen(string $path): Screen
     $device = Run::device();
     $configuration = Configuration::resolve();
     $driver = Sessions::get($device);
+    DeviceState::arrive($device);
     $driver->ensureReady();
     Recording::begin($driver, $device);
     TestDatabase::publish($driver);
     Permissions::apply($driver, $device->key());
+    DeviceState::apply($driver, $device->key());
     $url = $configuration->urlFor($path);
     $step = ['action' => 'open', 'target' => $url, 'started' => $started];
 
