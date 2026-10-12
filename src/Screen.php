@@ -185,7 +185,10 @@ final class Screen
                 // A password stays out of the trace, as it stays masked in tree.json.
                 $this->sent(['text', ($match['secure'] ?? false) === true ? str_repeat('•', mb_strlen($text)) : $text]);
 
-                if ($this->pending !== null) {
+                // A burst first, as fields take it best. Only a retry, for an app that says how
+                // far behind PHP is, goes a key at a time: the burst lost keys to a late answer.
+                if ($attempt > 1 && $this->pending !== null) {
+                    $this->note('paced', true);
                     $this->paced($label, $match, $text);
                 } else {
                     $this->driver->text($text);
@@ -204,7 +207,9 @@ final class Screen
 
     /**
      * Types one character at a time, each once the field shows the one before and PHP has
-     * taken every event the app sent it, for an app that shows the IdleMarker.
+     * taken every event the app sent it, for an app that shows the IdleMarker. type() does
+     * this only after a burst lost keys: an ordinary field took about two seconds to show
+     * each key typed one at a time on iOS, where a burst settled at once.
      *
      * A `native:model` field sends PHP an event for each keystroke and writes back what PHP
      * answers. Typed in one burst, an answer that comes back after the next keystroke writes

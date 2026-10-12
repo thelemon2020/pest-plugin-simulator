@@ -71,18 +71,29 @@ it('leaves the marker out of what a failure lists', function () {
     }
 });
 
-it('types a key at a time, each once the field shows the last and the app has answered', function () {
+it('types in one burst first, even for an app that shows the marker', function () {
     $field = fn (string $value): array => ['label' => 'Echo', 'role' => 'TextField', 'id' => null, 'center' => [200.0, 175.0], 'value' => $value];
+    $driver = new FakeDriver([[$field('hey'), marker(0)]]);
+
+    (new Screen($driver, timeoutSeconds: 1))->type('Echo', 'hey');
+
+    expect($driver->texts)->toBe(['hey']);
+});
+
+it('retries a key at a time when the burst lost keys, each once the field shows the last and the app has answered', function () {
+    $field = fn (string $value): array => ['label' => 'Echo', 'role' => 'TextField', 'id' => null, 'center' => [200.0, 175.0], 'value' => $value];
+    $lost = array_fill(0, 12, [$field('h'), marker(0)]);
     $driver = new FakeDriver([
         [$field(''), marker(0)],
+        ...$lost,
         [$field('h'), marker(0)],
         [$field('he'), marker(0)],
         [$field('hey'), marker(0)],
     ]);
 
-    (new Screen($driver, timeoutSeconds: 1))->type('Echo', 'hey');
+    (new Screen($driver, timeoutSeconds: 0.5))->type('Echo', 'hey');
 
-    expect($driver->texts)->toBe(['h', 'e', 'y']);
+    expect($driver->texts)->toBe(['hey', 'h', 'e', 'y']);
 });
 
 it('types in one go for an app that shows no marker', function () {
