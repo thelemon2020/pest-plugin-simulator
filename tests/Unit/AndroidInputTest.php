@@ -374,6 +374,35 @@ it('quotes a deep link for the device shell', function () {
     ]);
 });
 
+it('starts the app from its launcher activity when it does not handle a deep link', function () {
+    Configuration::configure(['bundle_id' => 'com.example.app']);
+    $command = new RecordingCommand;
+    $command->failures = [
+        'android.intent.action.VIEW' => 'Error: Activity not started, unable to resolve Intent { act=android.intent.action.VIEW dat=example://nowhere/... flg=0x10000000 xflg=0x4 pkg=com.example.app }',
+    ];
+    $driver = androidDriver($command);
+
+    $driver->open('example://nowhere');
+
+    expect($command->calls)->toHaveCount(2)
+        ->and($command->calls[1][1])->toBe([
+            '-s', 'emulator-5554', 'shell',
+            'am start -f 0x10200000 -n "$(cmd package resolve-activity --brief -c android.intent.category.LAUNCHER \'com.example.app\' | tail -n 1)"',
+        ]);
+});
+
+it('fails a deep link the device will not start for another reason', function () {
+    Configuration::configure(['bundle_id' => 'com.example.app']);
+    $command = new RecordingCommand;
+    $command->failures = [
+        'android.intent.action.VIEW' => 'Security exception: Permission Denial: starting Intent { act=android.intent.action.VIEW dat=example://deep-link/... cmp=com.example.app/.LinkActivity }',
+    ];
+    $driver = androidDriver($command);
+
+    expect(fn () => $driver->open('example://deep-link'))->toThrow(SimulatorException::class, 'Permission Denial')
+        ->and($command->calls)->toHaveCount(1);
+});
+
 it('waits out an app that is not responding by the button id, in any language', function () {
     $command = new RecordingCommand;
     $dialog = <<<'XML'
