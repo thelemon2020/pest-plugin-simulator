@@ -28,6 +28,15 @@ function permissions(array $services): void
 }
 
 /**
+ * This test does not copy the test database into the app. The app keeps the database it
+ * has and is not stopped, so the first screen() skips a cold launch.
+ */
+function keepDatabase(): void
+{
+    TestDatabase::keep();
+}
+
+/**
  * `light` or `dark` for this test, from its first screen(), or from now after that.
  */
 function appearance(string $mode): void

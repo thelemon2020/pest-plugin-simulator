@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use NativePhp\Simulator\Configuration;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 use NativePhp\Simulator\TestDatabase;
 use Tests\Support\FakeDriver;
@@ -109,4 +110,59 @@ it('copies a file-backed host database on publish', function () {
             unlink($copy);
         }
     }
+});
+
+it('leaves the app database alone in a test that keeps it', function () {
+    $snapshot = tempnam(sys_get_temp_dir(), 'snapshot-');
+    TestDatabase::fake(fn (): string => $snapshot);
+    TestDatabase::begin();
+    TestDatabase::keep();
+    $driver = new FakeDriver([]);
+
+    TestDatabase::publish($driver);
+
+    expect($driver->databases)->toBe([])
+        ->and(is_file($snapshot))->toBeTrue();
+
+    unlink($snapshot);
+});
+
+it('copies again in the next test after one that kept the database', function () {
+    $snapshot = tempnam(sys_get_temp_dir(), 'snapshot-');
+    TestDatabase::fake(fn (): string => $snapshot);
+    TestDatabase::begin();
+    TestDatabase::keep();
+    TestDatabase::end();
+    TestDatabase::begin();
+    $driver = new FakeDriver([]);
+
+    TestDatabase::publish($driver);
+
+    expect($driver->databases)->toHaveCount(1);
+});
+
+it('copies no database when the suite turns copying off', function () {
+    Configuration::configure(['copy_database' => false]);
+    $snapshot = tempnam(sys_get_temp_dir(), 'snapshot-');
+    TestDatabase::fake(fn (): string => $snapshot);
+    TestDatabase::begin();
+    $driver = new FakeDriver([]);
+
+    try {
+        TestDatabase::publish($driver);
+
+        expect($driver->databases)->toBe([]);
+    } finally {
+        Configuration::reset();
+        unlink($snapshot);
+    }
+});
+
+it('refuses keepDatabase() after the database was already copied', function () {
+    TestDatabase::fake(fn (): string => tempnam(sys_get_temp_dir(), 'snapshot-'));
+    TestDatabase::begin();
+    TestDatabase::publish(new FakeDriver([]));
+
+    expect(fn () => TestDatabase::keep())
+        ->toThrow(SimulatorException::class, 'keepDatabase() has to come before the first screen()');
 });

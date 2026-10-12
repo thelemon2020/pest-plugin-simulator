@@ -176,6 +176,18 @@ On iOS the file is `Library/Application Support/database/database.sqlite`. On An
 
 Another `screen()` in the same test keeps rows the app has written. The next test copies the database again.
 
+A test that only reads can skip the copy. Call `keepDatabase()` before its first `screen()`. The app keeps the database it has, and it is not stopped, so the screen opens without a cold launch. The next test copies again.
+
+```php
+it('shows the settings title', function () {
+    keepDatabase();
+
+    screen('/settings')->assertNavTitle('Settings');
+});
+```
+
+`Configuration::configure(['copy_database' => false])` skips the copy in every test.
+
 The database must be a file. Set `DB_CONNECTION=sqlite`. An in-memory database cannot be copied, so the test stops.
 
 ## Drive the screen
