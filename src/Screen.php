@@ -44,7 +44,8 @@ final class Screen
     private const SHEET_SECONDS = 0.8;
 
     /**
-     * When a read first had the sheet that is up now, or null when the last read had none.
+     * When a read first had the sheet or alert that is up now, or null when the last read
+     * had neither.
      */
     private ?float $sheetSeen = null;
 
@@ -945,7 +946,8 @@ final class Screen
             $elements = $this->describe();
         }
 
-        $this->sheetSeen = $this->finder->hasSheet($elements) ? ($this->sheetSeen ?? microtime(true)) : null;
+        $presenting = $this->finder->hasSheet($elements) || $this->finder->hasAlert($elements);
+        $this->sheetSeen = $presenting ? ($this->sheetSeen ?? microtime(true)) : null;
 
         return $elements;
     }
@@ -976,6 +978,9 @@ final class Screen
      *
      * Closing a sheet needs no wait: the tree keeps the sheet until it has slid away, and a
      * tap sent the moment it left the tree landed.
+     *
+     * An alert drops touches the same way while it fades in: a tap on an alert's button sent
+     * on the first read that had the alert did nothing, and the alert stayed up.
      *
      * Every touch waits, not only one at a control locate() found: goBack(), alert(),
      * share(), and the photo picker find their control their own way, and the system

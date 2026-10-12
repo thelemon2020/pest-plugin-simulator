@@ -413,7 +413,30 @@ final class ElementFinder
      */
     public function photoButton(array $elements, string $label): ?array
     {
-        return $this->labeled($elements, 'photos', $label);
+        $button = $this->labeled($elements, 'photos', $label);
+
+        if ($button !== null || ! $this->showsPhotos($elements)) {
+            return $button;
+        }
+
+        // iOS 26 puts the picker's Cancel in a bar outside its photo grid. Its id is
+        // Cancel in every language.
+        foreach ($elements as $element) {
+            if (($element['role'] ?? null) === 'Button' && ($element['id'] ?? null) === $label && is_array($element['center'] ?? null)) {
+                /** @var Tappable $element */
+                return $element;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  list<Element>  $elements
+     */
+    private function showsPhotos(array $elements): bool
+    {
+        return $this->within($elements, 'photos') !== [];
     }
 
     /**
@@ -470,6 +493,16 @@ final class ElementFinder
         }
 
         return false;
+    }
+
+    /**
+     * An alert or action sheet is up.
+     *
+     * @param  list<Element>  $elements
+     */
+    public function hasAlert(array $elements): bool
+    {
+        return $this->within($elements, 'alert') !== [];
     }
 
     /**

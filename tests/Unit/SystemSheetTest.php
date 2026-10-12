@@ -6,6 +6,7 @@ use NativePhp\Simulator\AccessibilityTree;
 use NativePhp\Simulator\AndroidDriver;
 use NativePhp\Simulator\Configuration;
 use NativePhp\Simulator\Device;
+use NativePhp\Simulator\ElementFinder;
 use NativePhp\Simulator\Screen;
 use PHPUnit\Framework\AssertionFailedError;
 use Tests\Support\FakeDriver;
@@ -220,4 +221,35 @@ it('marks an android alert button from the hierarchy', function () {
 
     expect($elements[0]['chrome'])->toBe('alert')
         ->and($elements[1]['chrome'])->toBeNull();
+});
+
+it('waits for an alert to finish appearing before tapping its button', function () {
+    $alert = [
+        ['label' => 'Delete everything?', 'role' => 'Group', 'id' => null, 'center' => [201.0, 400.0], 'chrome' => 'alert'],
+        ['label' => 'Delete', 'role' => 'Button', 'id' => null, 'center' => [250.0, 450.0], 'chrome' => 'alert'],
+    ];
+    $driver = new FakeDriver([$alert]);
+    $started = microtime(true);
+
+    (new Screen($driver, timeoutSeconds: 1))->alert('Delete');
+
+    expect(microtime(true) - $started)->toBeGreaterThan(0.7)
+        ->and($driver->taps)->toBe([[250.0, 450.0]]);
+});
+
+it('finds the photos in the iOS 26 picker grid, and its Cancel outside the grid', function () {
+    $tree = json_encode(['type' => 'Application', 'children' => [
+        ['type' => 'NavigationBar', 'identifier' => 'Photos', 'frame' => ['x' => 0, 'y' => 88, 'width' => 402, 'height' => 62], 'children' => [
+            ['type' => 'Button', 'label' => 'Cancel', 'identifier' => 'Cancel', 'frame' => ['x' => 20, 'y' => 92, 'width' => 36, 'height' => 36]],
+        ]],
+        ['type' => '_PXPhotosGridContainerUIView', 'label' => 'Photos', 'frame' => ['x' => 0, 'y' => 72, 'width' => 402, 'height' => 802], 'children' => [
+            ['type' => 'Image', 'label' => 'Screenshot', 'identifier' => 'PXGGridLayout-Info', 'frame' => ['x' => 134, 'y' => 312, 'width' => 133, 'height' => 133]],
+            ['type' => 'Image', 'label' => 'Photo', 'identifier' => 'PXGGridLayout-Info', 'frame' => ['x' => 0, 'y' => 312, 'width' => 133, 'height' => 133]],
+        ]],
+    ]]);
+    $elements = AccessibilityTree::summarize((string) $tree);
+    $finder = new ElementFinder;
+
+    expect($finder->firstPhoto($elements)['center'] ?? null)->toBe([66.5, 378.5])
+        ->and($finder->photoButton($elements, 'Cancel')['center'] ?? null)->toBe([38.0, 110.0]);
 });
