@@ -249,11 +249,12 @@ final class AccessibilityTree
 
     /**
      * Compose draws an outlined field as an EditText whose text is the value
-     * and a TextView inside it whose text is the label. A checkbox is a
-     * checkable view with the label on a child, and a switch can sit beside its
-     * label in the same row. A button is an unlabeled Button with its text on a
-     * node of its own. The dump is flat, so containment is how those belong
-     * together.
+     * and a TextView inside it whose text is the label, or the placeholder when
+     * it has none. An icon in the field is a TextView inside it too, and is not
+     * its name. A checkbox is a checkable view with the label on a child, and a
+     * switch can sit beside its label in the same row. A button is an unlabeled
+     * Button with its text on a node of its own. The dump is flat, so
+     * containment is how those belong together.
      *
      * @param  list<mixed>  $nodes
      * @return list<mixed>
@@ -287,7 +288,7 @@ final class AccessibilityTree
                 $label = trim((string) ($other['text'] ?? ''));
                 $inner = $frames[$otherIndex];
 
-                if ($label === '' || $label === trim((string) ($node['text'] ?? '')) || $inner === null || ! self::frameInside($inner, $outer)) {
+                if ($label === '' || $label === trim((string) ($node['text'] ?? '')) || $inner === null || ! self::frameInside($inner, $outer) || self::isIcon($label, $inner)) {
                     continue;
                 }
 
@@ -587,6 +588,18 @@ final class AccessibilityTree
         $class = strtolower((string) ($node['class'] ?? $node['type'] ?? ''));
 
         return str_contains($class, 'textview') || str_contains($class, 'statictext');
+    }
+
+    /**
+     * NativePHP draws an icon on Android as text in the Material Icons font, whose
+     * ligatures turn the icon's name, like "search" or "qr_code_2", into its glyph, in a
+     * square box. The dump reads back the name.
+     *
+     * @param  array{0: float, 1: float, 2: float, 3: float}  $frame
+     */
+    private static function isIcon(string $text, array $frame): bool
+    {
+        return preg_match('/^[a-z0-9]+(_[a-z0-9]+)*$/', $text) === 1 && abs($frame[2] - $frame[3]) <= 2;
     }
 
     /**
