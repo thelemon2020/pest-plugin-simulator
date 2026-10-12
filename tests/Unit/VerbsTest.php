@@ -191,16 +191,41 @@ it('drags a slider from where its thumb is to where the value sits', function ()
 
 it('aims the next drag by how far the last one moved the value', function () {
     $slider = fn (string $value): array => [
-        verb('Volume', 'Slider', 200.0, 120.0, ['value' => $value, 'frame' => [0.0, 100.0, 400.0, 40.0], 'range' => [0.0, 100.0]]),
+        verb('Volume', 'Slider', 200.0, 105.0, ['value' => $value, 'frame' => [0.0, 100.0, 400.0, 10.0], 'range' => [0.0, 100.0]]),
     ];
     $driver = new FakeDriver([$slider('20'), $slider('70'), $slider('75')]);
 
     (new Screen($driver, timeoutSeconds: 0))->slide('Volume', 75);
 
-    // 198 points moved the value 50, so 5 more is 19.8 points on from where it let go.
+    // From 83 to 297.5 moved the value 50, so 5 more is 21.45 points on from where it let go.
     expect($driver->swipes)->toHaveCount(2)
-        ->and($driver->swipes[1][0])->toBe(290.0)
-        ->and($driver->swipes[1][2])->toEqualWithDelta(309.8, 0.001);
+        ->and($driver->swipes[1][0])->toBe(297.5)
+        ->and($driver->swipes[1][2])->toEqualWithDelta(318.95, 0.001);
+});
+
+it('backs away before a correction too short to count as a drag', function () {
+    $slider = fn (string $value): array => [
+        verb('Volume', 'Slider', 200.0, 120.0, ['value' => $value, 'frame' => [0.0, 100.0, 400.0, 40.0], 'range' => [0.0, 100.0]]),
+    ];
+    // 74 after the first drag, 61 after backing away 48 points, then 75.
+    $driver = new FakeDriver([$slider('20'), $slider('74'), $slider('61'), $slider('75')]);
+
+    (new Screen($driver, timeoutSeconds: 0))->slide('Volume', 75);
+
+    expect($driver->swipes)->toHaveCount(3)
+        ->and(array_slice($driver->swipes[1], 0, 3))->toBe([290.0, 120.0, 242.0])
+        ->and($driver->swipes[2][0])->toBe(242.0)
+        ->and($driver->swipes[2][2] - $driver->swipes[2][0])->toBeGreaterThan(24.0);
+});
+
+it('does not stop a step short of the value', function () {
+    $slider = fn (string $value): array => [
+        verb('Volume', 'Slider', 200.0, 120.0, ['value' => $value, 'frame' => [0.0, 100.0, 400.0, 40.0], 'range' => [0.0, 100.0]]),
+    ];
+    $driver = new FakeDriver([$slider('20'), $slider('76')]);
+
+    expect(fn () => (new Screen($driver, timeoutSeconds: 0, failureDirectory: $this->failures))->slide('Volume', 75))
+        ->toThrow(AssertionFailedError::class, '[Volume] stopped at 76, not 75.');
 });
 
 it('asks for the range of a slider that does not report one', function () {

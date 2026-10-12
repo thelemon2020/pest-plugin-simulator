@@ -711,13 +711,26 @@ final class Screen
             $x = $left + $inset + ($current - $low) * $perUnit;
             $y = (float) $slider['center'][1];
             $close = ($high - $low) / 200;
+            // A drag shorter than this can read as a tap, which leaves the thumb where it is:
+            // a slider in SwiftUI stayed one step short of the value on a correction of 3pt.
+            $shortest = $frame[3] * 0.6;
+            $along = fn (float $to): float => max($left, min($left + $width, $to));
 
-            for ($attempt = 1; $attempt <= self::SLIDE_ATTEMPTS && abs($current - $value) > $close; $attempt++) {
-                $target = max($left, min($left + $width, $x + ($value - $current) * $perUnit));
+            for ($drag = 1; $drag <= self::SLIDE_ATTEMPTS && abs($current - $value) > $close; $drag++) {
+                $target = $along($x + ($value - $current) * $perUnit);
+
+                if (abs($target - $x) < $shortest) {
+                    // Back away first, so the drag onto the value is long enough to count.
+                    $away = $along($target >= $x ? $x - 2 * $shortest : $x + 2 * $shortest);
+                    $this->drag([$x, $y, $away, $y], 0.4);
+                    $x = $away;
+                    $current = $this->sliderValue($label, $nth) ?? $current;
+                    $target = $along($x + ($value - $current) * $perUnit);
+                }
+
                 $this->drag([$x, $y, $target, $y], 0.5);
-                $this->note('attempts', $attempt);
-                $elements = $this->until(fn (array $elements): bool => $this->canMatch($elements, $label), "Could not find [{$label}] after sliding it.");
-                $moved = $this->number($this->finder->match($elements, $label, $nth)['value'] ?? null) ?? $current;
+                $this->note('drags', $drag);
+                $moved = $this->sliderValue($label, $nth) ?? $current;
 
                 if (abs($moved - $current) > $close && abs($target - $x) > 1) {
                     $perUnit = abs($target - $x) / abs($moved - $current);
@@ -728,10 +741,17 @@ final class Screen
             }
 
             $this->until(
-                fn (array $elements): bool => abs(($this->number($this->finder->match($elements, $label, $nth)['value'] ?? null) ?? INF) - $value) <= ($high - $low) / 100,
+                fn (array $elements): bool => abs(($this->number($this->finder->match($elements, $label, $nth)['value'] ?? null) ?? INF) - $value) <= $close,
                 "[{$label}] stopped at {$current}, not {$value}.",
             );
         });
+    }
+
+    private function sliderValue(string $label, ?int $nth): ?float
+    {
+        $elements = $this->until(fn (array $elements): bool => $this->canMatch($elements, $label), "Could not find [{$label}] after sliding it.");
+
+        return $this->number($this->finder->match($elements, $label, $nth)['value'] ?? null);
     }
 
     /**
