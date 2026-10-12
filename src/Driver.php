@@ -105,4 +105,22 @@ interface Driver
      * Stops the app and starts it again.
      */
     public function relaunch(): void;
+
+    /**
+     * Adds an image or video file to the device's photo library.
+     */
+    public function addMedia(string $path): void;
+
+    /**
+     * Answers the Face ID or fingerprint prompt on screen: `match` or `fail`. `enroll` makes
+     * sure the device has a face or finger enrolled, which an app checks before it asks.
+     */
+    public function biometric(string $action): void;
+
+    /**
+     * Delivers a push notification to the app.
+     *
+     * @param  array<string, mixed>  $payload  an APNs payload, with its `aps` key
+     */
+    public function push(array $payload): void;
 }

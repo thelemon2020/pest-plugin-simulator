@@ -795,6 +795,62 @@ final class IosDriver implements Driver
         ]);
     }
 
+    public function addMedia(string $path): void
+    {
+        $this->recovering(fn () => $this->command->run('xcrun', ['simctl', 'addmedia', $this->udid(), $path]));
+    }
+
+    /**
+     * The Simulator answers biometric prompts through Darwin notifications, posted inside
+     * the device with notifyutil. A match or a failure is posted for both a finger (Touch
+     * ID) and a face (Face ID): the device only listens for its own sensor, so the other
+     * one is ignored. Enrolling first is safe to repeat, and an app that finds nothing
+     * enrolled never shows the prompt at all.
+     */
+    private const BIOMETRIC_ENROLLMENT = 'com.apple.BiometricKit.enrollmentChanged';
+
+    private const BIOMETRIC_SENSORS = ['com.apple.BiometricKit_Sim.fingerTouch', 'com.apple.BiometricKit_Sim.pearl'];
+
+    public function biometric(string $action): void
+    {
+        $this->recovering(function () use ($action): void {
+            $this->notify(['-s', self::BIOMETRIC_ENROLLMENT, '1']);
+            $this->notify(['-p', self::BIOMETRIC_ENROLLMENT]);
+
+            if ($action === 'enroll') {
+                return;
+            }
+
+            foreach (self::BIOMETRIC_SENSORS as $sensor) {
+                $this->notify(['-p', $sensor.($action === 'match' ? '.match' : '.nomatch')]);
+            }
+        });
+    }
+
+    /**
+     * @param  list<string>  $arguments
+     */
+    private function notify(array $arguments): void
+    {
+        $this->command->run('xcrun', ['simctl', 'spawn', $this->udid(), 'notifyutil', ...$arguments]);
+    }
+
+    public function push(array $payload): void
+    {
+        $file = tempnam(sys_get_temp_dir(), 'pest-simulator-push-');
+
+        if ($file === false) {
+            throw new SimulatorException('Could not write the push notification.');
+        }
+
+        try {
+            file_put_contents($file, json_encode($payload, JSON_THROW_ON_ERROR));
+            $this->recovering(fn () => $this->command->run('xcrun', ['simctl', 'push', $this->udid(), $this->configuration->bundleId(), $file]));
+        } finally {
+            @unlink($file);
+        }
+    }
+
     private function buildOnce(): void
     {
         $key = $this->device->key();

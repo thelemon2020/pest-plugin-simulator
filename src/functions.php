@@ -7,6 +7,7 @@ use NativePhp\Simulator\DeviceState;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 use NativePhp\Simulator\MobileSuite;
 use NativePhp\Simulator\Permissions;
+use NativePhp\Simulator\Photo;
 use NativePhp\Simulator\Recording;
 use NativePhp\Simulator\Run;
 use NativePhp\Simulator\Screen;
@@ -66,6 +67,36 @@ function location(float $latitude, float $longitude): void
 function fixStatusBar(): void
 {
     DeviceState::request('statusBar', true);
+}
+
+/**
+ * Adds an image or video to the device's photo library before the first screen(), for
+ * pickPhoto() to choose.
+ */
+function addPhoto(string $path): void
+{
+    if (! Run::inside()) {
+        throw new SimulatorException('addPhoto() only works inside a mobile() suite.');
+    }
+
+    $driver = Sessions::get(Run::device());
+    $driver->ensureReady();
+    $driver->addMedia(Photo::file($path));
+}
+
+/**
+ * Makes sure the device has a face or finger enrolled before the first screen(), for an
+ * app that checks before it offers Face ID or a fingerprint.
+ */
+function enrollBiometrics(): void
+{
+    if (! Run::inside()) {
+        throw new SimulatorException('enrollBiometrics() only works inside a mobile() suite.');
+    }
+
+    $driver = Sessions::get(Run::device());
+    $driver->ensureReady();
+    $driver->biometric('enroll');
 }
 
 function record(?string $path = null): void

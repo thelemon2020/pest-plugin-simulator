@@ -840,6 +840,50 @@ final class AndroidDriver implements Driver
     }
 
     /**
+     * Pushed to the shared Pictures folder, then scanned so the photo picker lists it. The
+     * name keeps a copy pushed in an earlier test from being replaced by one with the same
+     * file name.
+     */
+    public function addMedia(string $path): void
+    {
+        $remote = '/sdcard/Pictures/pest-'.bin2hex(random_bytes(4)).'-'.basename($path);
+
+        $this->recovering(function () use ($path, $remote): void {
+            $this->command->run($this->adb(), ['-s', $this->serial(), 'push', $path, $remote]);
+            $this->command->run($this->adb(), [
+                '-s', $this->serial(), 'shell', 'am', 'broadcast',
+                '-a', 'android.intent.action.MEDIA_SCANNER_SCAN_FILE',
+                '-d', 'file://'.$remote,
+            ]);
+        });
+    }
+
+    /**
+     * The emulator touches a fingerprint sensor with `emu finger touch`. Finger 1 is the one
+     * enrolled in the emulator's settings; finger 99 was never enrolled, so it fails. adb
+     * cannot enroll a finger: that needs a screen lock and the settings flow, once per AVD.
+     */
+    private const ENROLLED_FINGER = '1';
+
+    private const UNKNOWN_FINGER = '99';
+
+    public function biometric(string $action): void
+    {
+        if ($action === 'enroll') {
+            return;
+        }
+
+        $this->recovering(fn () => $this->command->run($this->adb(), [
+            '-s', $this->serial(), 'emu', 'finger', 'touch', $action === 'match' ? self::ENROLLED_FINGER : self::UNKNOWN_FINGER,
+        ]));
+    }
+
+    public function push(array $payload): void
+    {
+        throw new SimulatorException('push() only works on the iOS Simulator. Android delivers push notifications through Firebase, and the emulator has no way to fake one.');
+    }
+
+    /**
      * Starts the app as its launcher icon does, which brings a running one back as it was.
      * monkey exits before it starts anything on an image with no hardware keys (android-36),
      * and the launcher intent alone does not resolve, so this names the launcher activity.
