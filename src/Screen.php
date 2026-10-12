@@ -56,6 +56,70 @@ final class Screen
      */
     private ?array $step = null;
 
+    /**
+     * The controls this screen looks inside, outermost first (see within()).
+     *
+     * @var list<string>
+     */
+    private array $scopes = [];
+
+    /**
+     * Everything the last read had, before within() narrowed it.
+     *
+     * @var list<Element>
+     */
+    private array $screenElements = [];
+
+    /**
+     * The within() control the last read could not find, if one was missing.
+     */
+    private ?string $scopeMissing = null;
+
+    /**
+     * nth() for the next call, then for the call under way, and whether that call used it.
+     */
+    private ?int $nth = null;
+
+    private ?int $stepNth = null;
+
+    private bool $nthUsed = false;
+
+    /**
+     * Look only inside one control. $callback gets this screen narrowed to the controls whose
+     * center sits inside that control's frame: a card, a row, or a sheet, named by its label
+     * or accessibility id. The control is found again on every read, so it can move as the
+     * screen scrolls. This screen, which within() returns, still looks at everything.
+     *
+     * @param  Closure(self): mixed  $callback
+     */
+    public function within(string $container, Closure $callback): self
+    {
+        if ($this->nth !== null) {
+            throw new SimulatorException('nth() counts the controls the next call matches. Call it inside within(), on the call it is for.');
+        }
+
+        $scoped = clone $this;
+        $scoped->scopes[] = $container;
+        $callback($scoped);
+
+        return $this;
+    }
+
+    /**
+     * The next call takes the nth control its label matches, counting from 1 in reading
+     * order (top to bottom, then left to right), instead of failing when several match.
+     */
+    public function nth(int $index): self
+    {
+        if ($index < 1) {
+            throw new SimulatorException("nth() counts from 1, not [{$index}].");
+        }
+
+        $this->nth = $index;
+
+        return $this;
+    }
+
     public function tap(string $label): self
     {
         return $this->step('tap', $label, function () use ($label): void {
@@ -158,7 +222,7 @@ final class Screen
                 $elements = [];
             }
 
-            $matches = $elements !== [] && $this->finder->holds($elements, $label, $field, $text);
+            $matches = $elements !== [] && $this->finder->holds($elements, $label, $field, $text, $this->stepNth);
 
             if ($matches && $confirmed) {
                 return true;
@@ -486,48 +550,52 @@ final class Screen
     public function assertValue(string $label, string $value): self
     {
         return $this->step('assertValue', $label, function () use ($label, $value): void {
+            $nth = $this->index();
             $elements = $this->until(
-                fn (array $elements): bool => $this->finder->hasValue($elements, $label, $value),
+                fn (array $elements): bool => $this->finder->hasValue($elements, $label, $value, $nth),
                 "[{$label}] did not have value [{$value}].",
             );
 
-            Assert::assertTrue($this->finder->hasValue($elements, $label, $value));
+            Assert::assertTrue($this->finder->hasValue($elements, $label, $value, $nth));
         });
     }
 
     public function assertEnabled(string $label): self
     {
         return $this->step('assertEnabled', $label, function () use ($label): void {
+            $nth = $this->index();
             $elements = $this->until(
-                fn (array $elements): bool => $this->finder->isEnabled($elements, $label, true),
+                fn (array $elements): bool => $this->finder->isEnabled($elements, $label, true, $nth),
                 "[{$label}] was disabled.",
             );
 
-            Assert::assertTrue($this->finder->isEnabled($elements, $label, true));
+            Assert::assertTrue($this->finder->isEnabled($elements, $label, true, $nth));
         });
     }
 
     public function assertDisabled(string $label): self
     {
         return $this->step('assertDisabled', $label, function () use ($label): void {
+            $nth = $this->index();
             $elements = $this->until(
-                fn (array $elements): bool => $this->finder->isEnabled($elements, $label, false),
+                fn (array $elements): bool => $this->finder->isEnabled($elements, $label, false, $nth),
                 "[{$label}] was enabled.",
             );
 
-            Assert::assertTrue($this->finder->isEnabled($elements, $label, false));
+            Assert::assertTrue($this->finder->isEnabled($elements, $label, false, $nth));
         });
     }
 
     public function assertChecked(string $label): self
     {
         return $this->step('assertChecked', $label, function () use ($label): void {
+            $nth = $this->index();
             $elements = $this->until(
-                fn (array $elements): bool => $this->finder->isChecked($elements, $label, true),
+                fn (array $elements): bool => $this->finder->isChecked($elements, $label, true, $nth),
                 "[{$label}] was unchecked.",
             );
 
-            Assert::assertTrue($this->finder->isChecked($elements, $label, true));
+            Assert::assertTrue($this->finder->isChecked($elements, $label, true, $nth));
         });
     }
 
@@ -538,12 +606,13 @@ final class Screen
     public function assertNotChecked(string $label): self
     {
         return $this->step('assertNotChecked', $label, function () use ($label): void {
+            $nth = $this->index();
             $elements = $this->until(
-                fn (array $elements): bool => $this->finder->isChecked($elements, $label, false),
+                fn (array $elements): bool => $this->finder->isChecked($elements, $label, false, $nth),
                 "[{$label}] was checked.",
             );
 
-            Assert::assertTrue($this->finder->isChecked($elements, $label, false));
+            Assert::assertTrue($this->finder->isChecked($elements, $label, false, $nth));
         });
     }
 
@@ -554,12 +623,13 @@ final class Screen
     public function assertSelected(string $label): self
     {
         return $this->step('assertSelected', $label, function () use ($label): void {
+            $nth = $this->index();
             $elements = $this->until(
-                fn (array $elements): bool => $this->finder->isSelected($elements, $label, true),
+                fn (array $elements): bool => $this->finder->isSelected($elements, $label, true, $nth),
                 "[{$label}] was not selected.",
             );
 
-            Assert::assertTrue($this->finder->isSelected($elements, $label, true));
+            Assert::assertTrue($this->finder->isSelected($elements, $label, true, $nth));
         });
     }
 
@@ -570,12 +640,13 @@ final class Screen
     public function assertNotSelected(string $label): self
     {
         return $this->step('assertNotSelected', $label, function () use ($label): void {
+            $nth = $this->index();
             $elements = $this->until(
-                fn (array $elements): bool => $this->finder->isSelected($elements, $label, false),
+                fn (array $elements): bool => $this->finder->isSelected($elements, $label, false, $nth),
                 "[{$label}] was selected.",
             );
 
-            Assert::assertTrue($this->finder->isSelected($elements, $label, false));
+            Assert::assertTrue($this->finder->isSelected($elements, $label, false, $nth));
         });
     }
 
@@ -747,14 +818,31 @@ final class Screen
             return $this;
         }
 
+        $this->stepNth = $this->nth;
+        $this->nth = null;
+        $this->nthUsed = false;
         $this->step = ['action' => $action, 'target' => $target, 'started' => microtime(true), 'reads' => 0, 'failedReads' => 0];
+
+        if ($this->stepNth !== null) {
+            $this->step['nth'] = $this->stepNth;
+        }
+
+        if ($this->scopes !== []) {
+            $this->step['within'] = $this->scopes;
+        }
 
         try {
             $body();
+
+            if ($this->stepNth !== null && ! $this->nthUsed) {
+                throw new SimulatorException("nth() picks one of the controls a label matches. {$action}() does not look one up, so there is nothing to count.");
+            }
         } catch (Throwable $exception) {
             $this->endStep($exception instanceof AssertionFailedError ? 'failed' : 'error', $exception->getMessage());
 
             throw $exception;
+        } finally {
+            $this->stepNth = null;
         }
 
         $this->endStep('ok');
@@ -778,6 +866,18 @@ final class Screen
         }
 
         Trace::add($step);
+    }
+
+    /**
+     * nth() for the call under way, marked as used.
+     */
+    private function index(): ?int
+    {
+        if ($this->stepNth !== null) {
+            $this->nthUsed = true;
+        }
+
+        return $this->stepNth;
     }
 
     private function note(string $key, mixed $value): void
@@ -926,6 +1026,12 @@ final class Screen
 
         $message = $failure instanceof Closure ? $failure($last) : $failure;
 
+        if ($this->scopes !== []) {
+            $message .= $this->scopeMissing !== null
+                ? "\n\nCould not find [{$this->scopeMissing}] to look within."
+                : "\n\nLooked only within [".implode('] then [', $this->scopes).'].';
+        }
+
         if ($unread !== null) {
             $message .= "\n\nThe last attempt to read the screen failed: ".$unread->getMessage();
         }
@@ -963,7 +1069,7 @@ final class Screen
     {
         $this->endStep('failed', $failure);
 
-        throw new AssertionFailedError($failure."\n\n".$this->listing($elements).$this->captureFailure($unread));
+        throw new AssertionFailedError($failure."\n\n".$this->listing($this->scopes === [] ? $elements : $this->screenElements).$this->captureFailure($unread));
     }
 
     /**
@@ -1005,6 +1111,45 @@ final class Screen
 
         $presenting = $this->finder->hasSheet($elements) || $this->finder->hasAlert($elements);
         $this->sheetSeen = $presenting ? ($this->sheetSeen ?? microtime(true)) : null;
+        $this->screenElements = $elements;
+
+        return $this->scoped($elements);
+    }
+
+    /**
+     * The elements inside every within() control, found again in this read. None when one
+     * of them is not on the screen, so until() keeps waiting for it.
+     *
+     * @param  list<Element>  $elements
+     * @return list<Element>
+     */
+    private function scoped(array $elements): array
+    {
+        $this->scopeMissing = null;
+
+        foreach ($this->scopes as $scope) {
+            try {
+                $frame = $this->finder->match($elements, $scope)['frame'] ?? null;
+            } catch (NoMatch) {
+                $frame = null;
+            } catch (AmbiguousMatch) {
+                throw new SimulatorException("within('{$scope}') matches more than one control. Give the one to look inside an accessibility id, and name that.");
+            }
+
+            if (! is_array($frame)) {
+                $this->scopeMissing = $scope;
+
+                return [];
+            }
+
+            [$x, $y, $width, $height] = $frame;
+            $elements = array_values(array_filter(
+                $elements,
+                fn (array $element): bool => is_array($element['center'] ?? null)
+                    && $element['center'][0] >= $x && $element['center'][0] <= $x + $width
+                    && $element['center'][1] >= $y && $element['center'][1] <= $y + $height,
+            ));
+        }
 
         return $elements;
     }
@@ -1063,7 +1208,7 @@ final class Screen
     private function canMatch(array $elements, string $label): bool
     {
         try {
-            $this->finder->match($elements, $label);
+            $this->finder->match($elements, $label, $this->stepNth);
 
             return true;
         } catch (NoMatch) {
@@ -1090,16 +1235,17 @@ final class Screen
     {
         $deadline = microtime(true) + $this->timeoutSeconds;
         $scrolls = 0;
+        $nth = $this->index();
 
         while (true) {
             $elements = $this->until(
                 fn (array $visible): bool => $search !== null || $this->canMatch($visible, $label),
-                "Could not find [{$label}] to {$action}.",
+                fn (array $visible): string => $this->notFound($label, $action, $visible, $nth),
                 $deadline,
             );
 
             try {
-                $match = $this->finder->match($elements, $label);
+                $match = $this->finder->match($elements, $label, $nth);
             } catch (NoMatch) {
                 $match = null;
             } catch (AmbiguousMatch $ambiguous) {
@@ -1118,7 +1264,7 @@ final class Screen
                     ? Gesture::scroll($search, $width, $height)
                     : Gesture::sideways($search, ...$row)];
             } else {
-                $scroll = $this->toward($match, $elements);
+                $scroll = $this->toward($match);
             }
 
             if ($scroll === null) {
@@ -1155,6 +1301,30 @@ final class Screen
     }
 
     /**
+     * Why locate() found nothing: with nth(), how many the label did match.
+     *
+     * @param  list<Element>  $elements
+     */
+    private function notFound(string $label, string $action, array $elements, ?int $nth): string
+    {
+        $message = "Could not find [{$label}] to {$action}.";
+
+        if ($nth === null) {
+            return $message;
+        }
+
+        try {
+            $this->finder->match($elements, $label, $nth);
+        } catch (NoMatch $missing) {
+            if ($missing->getMessage() !== (new NoMatch($label))->getMessage()) {
+                return $message.' '.$missing->getMessage();
+            }
+        }
+
+        return $message;
+    }
+
+    /**
      * Where a control is off screen, and the drag that brings it toward the middle, or null
      * when it is already on screen. A nav bar or tab bar's own controls never move, so they
      * are never scrolled toward. Nor is a key on the software keyboard, which is below the
@@ -1166,17 +1336,16 @@ final class Screen
      * list row can open its swipe actions.
      *
      * @param  Tappable  $match
-     * @param  list<Element>  $elements
      * @return array{0: string, 1: array{0: float, 1: float, 2: float, 3: float}|null}|null
      */
-    private function toward(array $match, array $elements): ?array
+    private function toward(array $match): ?array
     {
         if (($match['chrome'] ?? null) !== null || ($match['role'] ?? null) === 'Key') {
             return null;
         }
 
         [$width, $height] = $this->driver->viewport();
-        [$top, $bottom] = $this->visibleBand($elements, $height);
+        [$top, $bottom] = $this->visibleBand($this->screenElements, $height);
         $x = (float) $match['center'][0];
         $y = (float) $match['center'][1];
 
@@ -1237,7 +1406,7 @@ final class Screen
     private function onlyCarousel(string $label, string $direction, array $elements): array
     {
         [, $height] = $this->driver->viewport();
-        [$top, $bottom] = $this->visibleBand($elements, $height);
+        [$top, $bottom] = $this->visibleBand($this->screenElements, $height);
         $rows = [];
 
         foreach ($elements as $element) {
