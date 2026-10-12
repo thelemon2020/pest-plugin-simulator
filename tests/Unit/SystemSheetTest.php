@@ -256,3 +256,15 @@ it('finds the photos in the iOS 26 picker grid, and its Cancel outside the grid'
     expect($finder->firstPhoto($elements)['center'] ?? null)->toBe([66.5, 378.5])
         ->and($finder->photoButton($elements, 'Cancel')['center'] ?? null)->toBe([38.0, 110.0]);
 });
+
+it('taps an android dialog button drawn in capitals, not the title that names it', function () {
+    $driver = new FakeDriver([[
+        ['label' => 'Delete everything?', 'role' => 'android.widget.TextView', 'id' => 'android:id/alertTitle', 'center' => [540.0, 1112.5], 'chrome' => 'alert'],
+        ['label' => 'CANCEL', 'role' => 'Button', 'id' => 'android:id/button2', 'center' => [689.5, 1369.0], 'chrome' => 'alert'],
+        ['label' => 'DELETE', 'role' => 'Button', 'id' => 'android:id/button1', 'center' => [883.5, 1369.0], 'chrome' => 'alert'],
+    ]]);
+
+    (new Screen($driver, timeoutSeconds: 0))->alert('Delete');
+
+    expect($driver->taps)->toBe([[883.5, 1369.0]]);
+});

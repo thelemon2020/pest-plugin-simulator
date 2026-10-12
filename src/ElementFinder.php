@@ -49,6 +49,10 @@ final class ElementFinder
             foreach ([
                 fn (array $element): bool => ($element['id'] ?? null) === $target,
                 fn (array $element): bool => $element['label'] === $target,
+                // Android draws a dialog's buttons in capitals: DELETE for a button named
+                // Delete. Without this, alert('Delete') found the title "Delete everything?"
+                // by the words it contains, and tapped that instead.
+                fn (array $element): bool => mb_strtolower($element['label']) === mb_strtolower($target),
                 fn (array $element): bool => str_contains($element['label'], $target),
             ] as $predicate) {
                 $matches = array_values(array_filter($pool, $predicate));
