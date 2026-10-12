@@ -407,6 +407,13 @@ final class Screen
         });
     }
 
+    /**
+     * How many times pickPhoto() taps a photo. iOS 26's picker draws its grid before it
+     * takes touches: a tap 1.5 seconds after the grid showed did nothing, and the same tap
+     * 3 seconds after it picked the photo.
+     */
+    private const PICK_ATTEMPTS = 3;
+
     public function pickPhoto(): self
     {
         return $this->step('pickPhoto', null, function (): void {
@@ -414,17 +421,44 @@ final class Screen
                 fn (array $elements): bool => $this->finder->firstPhoto($elements) !== null,
                 'The photo picker had no image.',
             );
-            /** @var Tappable $photo until() waited for it */
-            $photo = $this->finder->firstPhoto($elements);
-            $this->tapQuickly($photo);
-            $confirm = $this->finder->photoConfirm($elements);
 
-            if ($confirm === null) {
-                $confirm = $this->finder->photoConfirm($this->read());
-            }
+            for ($attempt = 1; $attempt <= self::PICK_ATTEMPTS; $attempt++) {
+                $photo = $this->finder->firstPhoto($elements);
 
-            if ($confirm !== null) {
-                $this->touch($confirm);
+                if ($photo === null) {
+                    return;
+                }
+
+                $this->note('attempts', $attempt);
+                $this->tapQuickly($photo);
+
+                // A picker that takes one photo closes. One that takes several asks to be
+                // confirmed. Either says the tap was taken.
+                $deadline = microtime(true) + min(2.0, $this->timeoutSeconds);
+
+                do {
+                    try {
+                        $elements = $this->read();
+                    } catch (SimulatorException) {
+                        $elements = [];
+                    }
+
+                    $confirm = $this->finder->photoConfirm($elements);
+
+                    if ($confirm !== null) {
+                        $this->touch($confirm);
+
+                        return;
+                    }
+
+                    if ($elements !== [] && $this->finder->firstPhoto($elements) === null) {
+                        return;
+                    }
+
+                    if ($this->timeoutSeconds > 0) {
+                        usleep(200_000);
+                    }
+                } while (microtime(true) < $deadline);
             }
         });
     }

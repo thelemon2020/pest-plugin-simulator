@@ -116,14 +116,24 @@ it('picks the first image and confirms', function () {
 });
 
 it('picks an image when the picker has no confirm button', function () {
-    $driver = new FakeDriver([[
-        systemControl('Photo, May 1', ['role' => 'Image', 'chrome' => 'photos', 'center' => [30.0, 80.0]]),
-    ]]);
+    $driver = new FakeDriver([
+        [systemControl('Photo, May 1', ['role' => 'Image', 'chrome' => 'photos', 'center' => [30.0, 80.0]])],
+        [systemControl('Picked 1 photo', ['role' => 'StaticText'])],
+    ]);
 
     (new Screen($driver, timeoutSeconds: 0))->pickPhoto();
 
     expect($driver->presses)->toBe([[30.0, 80.0, 0.05]])
         ->and($driver->taps)->toBe([]);
+});
+
+it('taps the photo again while the picker has not taken the tap', function () {
+    $picker = [systemControl('Photo, May 1', ['role' => 'Image', 'chrome' => 'photos', 'center' => [30.0, 80.0]])];
+    $driver = new FakeDriver([$picker, $picker, $picker, [systemControl('Picked 1 photo', ['role' => 'StaticText'])]]);
+
+    (new Screen($driver, timeoutSeconds: 0))->pickPhoto();
+
+    expect($driver->presses)->toHaveCount(3);
 });
 
 it('cancels the photo picker', function () {
