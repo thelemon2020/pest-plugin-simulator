@@ -16,6 +16,10 @@ use Closure;
  * stillness, which a screen that has been still already has, so only a read right after a
  * tap or a scroll waits. A shorter wait read a sheet's screen before the sheet opened.
  *
+ * It types for AndroidDriver too, so typing does not start an `input` process per
+ * character: key presses into the focused field, emptying that field, and closing the
+ * software keyboard. When it cannot, AndroidDriver types with `adb shell input`.
+ *
  * Only one process at a time can hold the device's accessibility connection, so the reader
  * is stopped before AndroidDriver falls back to `uiautomator dump`. After three failures in
  * a row it is not started again.
@@ -25,6 +29,12 @@ final class AndroidReader
     public const string REMOTE = '/data/local/tmp/pest-simulator-reader.jar';
 
     private const int ATTEMPTS = 3;
+
+    /**
+     * Milliseconds before each key. The reader doubles it whenever the field shows an older
+     * render of its text (see android/src/nativephp/simulator/Keyboard.java).
+     */
+    public const int PAUSE = 20;
 
     private ?RunningCommand $process = null;
 
@@ -60,14 +70,10 @@ final class AndroidReader
      */
     public function dump(): ?string
     {
-        if ($this->failures >= self::ATTEMPTS) {
+        $process = $this->send('dump');
+
+        if ($process === null) {
             return null;
-        }
-
-        $process = $this->process ?? $this->open();
-
-        if ($process === null || ! $process->write("dump\n")) {
-            return $this->failed('did not start');
         }
 
         $length = $process->line($this->readSeconds);
@@ -91,10 +97,84 @@ final class AndroidReader
         return $xml;
     }
 
+    /**
+     * Types the text as key presses into the focused field. False when it did not: the
+     * reader is not running, the device's key map has no key for a character (nothing is
+     * typed), or a key could not be sent.
+     */
+    public function type(string $text): bool
+    {
+        // Each key waits for the field to show it, longer when the app is slow. The log
+        // leaves the text out, as the trace leaves out a password.
+        return $this->ask('type '.self::PAUSE.' '.base64_encode($text), $this->readSeconds + 3 * strlen($text), 'type '.strlen($text).' characters');
+    }
+
+    /**
+     * Empties the focused field. False when no field is focused or the reader is not running.
+     */
+    public function clear(): bool
+    {
+        return $this->ask('clear', $this->readSeconds, 'clear');
+    }
+
+    /**
+     * Closes the software keyboard when it is up. False when the reader is not running, or
+     * could not press Back.
+     */
+    public function hideKeyboard(): bool
+    {
+        return $this->ask('hide', $this->readSeconds, 'hide the keyboard');
+    }
+
     public function stop(): void
     {
         $this->process?->close();
         $this->process = null;
+    }
+
+    /**
+     * The running reader, once it has the request. Null when it could not be started or has
+     * stopped reading.
+     */
+    private function send(string $request): ?RunningCommand
+    {
+        if ($this->failures >= self::ATTEMPTS) {
+            return null;
+        }
+
+        $process = $this->process ?? $this->open();
+
+        if ($process === null || ! $process->write($request."\n")) {
+            return $this->failed('did not start');
+        }
+
+        return $process;
+    }
+
+    /**
+     * True when the reader answers "ok", false for "-1", and false when it does not answer.
+     */
+    private function ask(string $request, float $seconds, string $what): bool
+    {
+        $process = $this->send($request);
+
+        if ($process === null) {
+            return false;
+        }
+
+        $started = microtime(true);
+        $answer = $process->line($seconds);
+
+        if ($answer === null) {
+            $this->failed('did not answer');
+
+            return false;
+        }
+
+        $this->failures = 0;
+        VerboseLog::write(microtime(true) - $started, $answer, "Android screen reader: {$what}");
+
+        return $answer === 'ok';
     }
 
     private function open(): ?RunningCommand
@@ -121,7 +201,7 @@ final class AndroidReader
     {
         $this->stop();
         $this->failures++;
-        VerboseLog::write(0.0, 'failed', "Android screen reader {$why}; reading with uiautomator dump");
+        VerboseLog::write(0.0, 'failed', "Android screen reader {$why}; using uiautomator dump and adb shell input");
 
         return null;
     }
