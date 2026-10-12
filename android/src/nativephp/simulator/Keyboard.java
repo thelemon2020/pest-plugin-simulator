@@ -18,6 +18,9 @@ import java.util.List;
  * Types for AndroidDriver from the reader's process, so no `input` process starts per
  * character.
  *
+ * Printable ASCII is typed as key presses. Anything else is pasted (see Clipboard), a new
+ * line too: Enter would submit a field, or move on to the next one.
+ *
  * Keys go to the input manager, as `input` sends them, and each waits until the app has
  * handled it. UiAutomation.injectInputEvent also has the window manager sync its
  * transactions around every key, which cost about 60 ms a character on an emulator.
@@ -25,10 +28,12 @@ import java.util.List;
  * NativePHP's text field sends each change to PHP and takes back what PHP renders. A render
  * of an older value that comes back after a newer key replaces the text with that value,
  * until the render of the newer one comes back. A key that lands in between is typed onto
- * the older value, and the key before it is lost. So each key waits until the field shows
- * everything typed before it, and then until it shows that key too, after a pause that
- * doubles whenever the field showed an older render. A render already on its way when the
- * field is read can still land first, so a lost key is put right (see type()).
+ * the older value, and the key before it is lost. So each key, and each paste, waits until
+ * the field shows everything typed before it, and then until it shows that key or paste
+ * too, after a pause that doubles whenever the field showed an older render. A render
+ * already on its way when the field is read can still land first, so a lost key is put
+ * right (see type()). A paste is typed in the same type() as the keys around it, because
+ * only that call knows what the field should show before it.
  *
  * On CollectShine's sign-in screen, 20 characters typed with no pause lost letters every
  * time. A fixed pause alone lost one run in fifteen at 40 ms, and lost a letter at 60 ms
@@ -56,6 +61,8 @@ final class Keyboard {
     private final UiAutomation automation;
 
     private final KeyCharacterMap keys = KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD);
+
+    private final Clipboard clipboard = Clipboard.connect();
 
     private Object manager;
 
@@ -89,8 +96,10 @@ final class Keyboard {
     }
 
     /**
-     * Types the text into the focused field as key presses. False, with nothing typed, when
-     * the key map has no key for one of the characters.
+     * Types the text into the focused field: key presses, and a paste for each run of
+     * characters with no key (see the class). False, with nothing typed, when the key map
+     * has no key for a printable character, or the text has something to paste and the
+     * clipboard cannot be set.
      *
      * A key that landed on an older render is lost for good: the renders still to come end
      * on the text with the key missing. Then the field is set to the whole text in one
@@ -101,16 +110,22 @@ final class Keyboard {
      * so typing again after an older render goes slower.
      */
     boolean type(String text, long pause) {
-        List<KeyEvent[]> characters = new ArrayList<>();
+        List<Piece> pieces = pieces(text);
 
-        for (int i = 0; i < text.length(); i++) {
-            KeyEvent[] events = keys.getEvents(new char[]{text.charAt(i)});
+        if (pieces == null) {
+            return false;
+        }
 
-            if (events == null || events.length == 0) {
-                return false;
+        // Setting the clipboard before the first key, so a clipboard that refuses it leaves
+        // nothing typed.
+        for (Piece piece : pieces) {
+            if (piece.keys == null) {
+                if (clipboard == null || !clipboard.set(piece.text)) {
+                    return false;
+                }
+
+                break;
             }
-
-            characters.add(events);
         }
 
         pause = Math.max(pause, reached / 2);
@@ -124,15 +139,13 @@ final class Keyboard {
 
         String typed = start;
 
-        for (int i = 0; i < characters.size(); i++) {
+        for (Piece piece : pieces) {
             SystemClock.sleep(pause);
-            String next = typed + text.charAt(i);
+            String next = typed + piece.text;
             int before = field == null ? SHOWN : await(field, typed, null);
 
-            for (KeyEvent event : characters.get(i)) {
-                if (!send(event.getAction(), event.getKeyCode(), event.getMetaState())) {
-                    return false;
-                }
+            if (!enter(piece)) {
+                return false;
             }
 
             int after = field == null ? SHOWN : await(field, next, typed);
@@ -155,6 +168,64 @@ final class Keyboard {
         }
 
         reached = pause;
+
+        return true;
+    }
+
+    /**
+     * A key press for each printable ASCII character, and one paste for each run of the
+     * rest. Null when the key map has no key for a printable character.
+     */
+    private List<Piece> pieces(String text) {
+        List<Piece> pieces = new ArrayList<>();
+        StringBuilder paste = new StringBuilder();
+
+        for (int i = 0; i < text.length(); i++) {
+            char character = text.charAt(i);
+
+            if (character < ' ' || character > '~') {
+                paste.append(character);
+
+                continue;
+            }
+
+            KeyEvent[] events = keys.getEvents(new char[]{character});
+
+            if (events == null || events.length == 0) {
+                return null;
+            }
+
+            if (paste.length() > 0) {
+                pieces.add(new Piece(paste.toString(), null));
+                paste.setLength(0);
+            }
+
+            pieces.add(new Piece(String.valueOf(character), events));
+        }
+
+        if (paste.length() > 0) {
+            pieces.add(new Piece(paste.toString(), null));
+        }
+
+        return pieces;
+    }
+
+    /**
+     * Presses the piece's keys, or puts its text on the clipboard and presses Paste, which
+     * the field pastes at its cursor as it would from a hardware keyboard.
+     */
+    private boolean enter(Piece piece) {
+        if (piece.keys == null) {
+            return clipboard.set(piece.text)
+                    && send(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_PASTE, 0)
+                    && send(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_PASTE, 0);
+        }
+
+        for (KeyEvent event : piece.keys) {
+            if (!send(event.getAction(), event.getKeyCode(), event.getMetaState())) {
+                return false;
+            }
+        }
 
         return true;
     }
@@ -348,5 +419,20 @@ final class Keyboard {
         }
 
         return automation.injectInputEvent(event, true);
+    }
+
+    /**
+     * Part of a text: one character and the key events that type it, or characters to
+     * paste, with no keys.
+     */
+    private static final class Piece {
+        final String text;
+
+        final KeyEvent[] keys;
+
+        Piece(String text, KeyEvent[] keys) {
+            this.text = text;
+            this.keys = keys;
+        }
     }
 }

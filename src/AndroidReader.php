@@ -17,8 +17,9 @@ use Closure;
  * tap or a scroll waits. A shorter wait read a sheet's screen before the sheet opened.
  *
  * It types for AndroidDriver too, so typing does not start an `input` process per
- * character: key presses into the focused field, emptying that field, and closing the
- * software keyboard. When it cannot, AndroidDriver types with `adb shell input`.
+ * character: key presses into the focused field, a paste from a clipboard it sets itself
+ * for what has no key, emptying that field, and closing the software keyboard. When it
+ * cannot, AndroidDriver types with `adb shell input`.
  *
  * Only one process at a time can hold the device's accessibility connection, so the reader
  * is stopped before AndroidDriver falls back to `uiautomator dump`. After three failures in
@@ -98,15 +99,16 @@ final class AndroidReader
     }
 
     /**
-     * Types the text as key presses into the focused field. False when it did not: the
-     * reader is not running, the device's key map has no key for a character (nothing is
-     * typed), or a key could not be sent.
+     * Types the text into the focused field: key presses for printable ASCII, and a paste
+     * for each run of anything else, a new line too. False when it did not: the reader is
+     * not running, the device's key map has no key for a character or the clipboard cannot
+     * be set (nothing is typed), or a key could not be sent.
      */
     public function type(string $text): bool
     {
         // Each key waits for the field to show it, longer when the app is slow. The log
         // leaves the text out, as the trace leaves out a password.
-        return $this->ask('type '.self::PAUSE.' '.base64_encode($text), $this->readSeconds + 3 * strlen($text), 'type '.strlen($text).' characters');
+        return $this->ask('type '.self::PAUSE.' '.base64_encode($text), $this->readSeconds + 3 * strlen($text), 'type '.mb_strlen($text).' characters');
     }
 
     /**

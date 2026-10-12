@@ -40,9 +40,10 @@ import java.util.Base64;
  * which way it scrolls (scroll-axis), from the scroll actions it offers, which the plain
  * dump leaves out. The hierarchy carries the display's width and height.
  *
- * It types too (see Keyboard), so typing starts no `input` process per character: "type",
- * "clear", and "hide" answer "ok", or "-1" when they could not, and AndroidDriver then
- * types with `adb shell input` instead.
+ * It types too (see Keyboard), so typing starts no `input` process per character, and
+ * pastes what has no key from a clipboard it sets itself: "type", "clear", and "hide"
+ * answer "ok", or "-1" when they could not, and AndroidDriver then types with `adb shell
+ * input` instead.
  *
  * Run as: CLASSPATH=/system/framework/uiautomator.jar:<this jar> app_process /system/bin nativephp.simulator.Reader [idle ms] [timeout ms]
  */

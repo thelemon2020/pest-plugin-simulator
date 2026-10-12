@@ -383,9 +383,24 @@ final class AndroidDriver implements Driver
         }
     }
 
+    /**
+     * The reader types the whole text: key presses for ASCII, and a paste for the rest, a
+     * new line too. When it cannot, `adb shell input` types ASCII and `cmd clipboard`
+     * pastes the rest.
+     */
     public function text(string $text): void
     {
         $this->keyboardLeftUp = false;
+
+        if ($text !== '' && ! $this->reader()->type($text)) {
+            $this->typeWithAdb($text);
+        }
+
+        $this->hideKeyboard();
+    }
+
+    private function typeWithAdb(string $text): void
+    {
         $lines = explode("\n", $text);
         $last = count($lines) - 1;
 
@@ -410,20 +425,13 @@ final class AndroidDriver implements Driver
                 $this->pasteOrFail("\n");
             }
         }
-
-        $this->hideKeyboard();
     }
 
     /**
-     * Printable ASCII. The reader types it as key presses, each once the field shows the
-     * one before. Without the reader, `adb shell input` types it.
+     * Printable ASCII, with `adb shell input`.
      */
     private function typeKeys(string $text): void
     {
-        if ($text === '' || $this->reader()->type($text)) {
-            return;
-        }
-
         // One character per `input text`. A single call with the whole string overflows
         // the emulator queue, and Compose drops letters. Those calls share one adb shell,
         // with a pause between them, so a word is not one process per letter. `;` keeps
@@ -468,7 +476,7 @@ final class AndroidDriver implements Driver
 
         $character = $text === "\n" ? 'a new line' : '['.$text.']';
 
-        throw new SimulatorException("Cannot type {$character} on this emulator. `input text` only types ASCII, and the emulator has no `cmd clipboard` to paste it.");
+        throw new SimulatorException("Cannot type {$character} on this emulator. The screen reader could not paste it, `input text` only types ASCII, and the emulator has no `cmd clipboard`.");
     }
 
     /**
