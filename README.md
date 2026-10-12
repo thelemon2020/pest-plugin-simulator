@@ -233,7 +233,7 @@ The plugin only sees native controls. A `<webview>` is one node. Blade and Livew
 
 When a label matches more than one button, the call fails and names the label. Two calls choose between them.
 
-`within()` looks inside one control: a card, a row, or a sheet, named by its label or accessibility id. The closure gets the screen narrowed to the controls whose center is inside that control. The control is found again on every read, so it can scroll. The screen `within()` returns still sees everything.
+`within()` looks inside one control: an alert, a sheet, or a row, named by its label or accessibility id. The closure gets the screen narrowed to the controls whose center is inside that control. The control is found again on every read, so it can scroll. The screen `within()` returns still sees everything.
 
 ```php
 screen('/orders')
@@ -249,7 +249,7 @@ screen('/basket')
     ->nth(1)->assertChecked('Gift wrap');
 ```
 
-A container in SwiftUI or Compose often has no label of its own. Give it an accessibility id, so `within()` has something to find.
+`within()` needs a container the platform shows as one element: an alert, a sheet, a list row, or a view an app gives its own accessibility container. NativePHP does not do that for a `<native:column>` yet, even with an `a11y-label`: its children are read on their own, and the label goes nowhere. On those screens, `nth()` picks between the repeated controls instead.
 
 ## Screenshots and recordings
 
