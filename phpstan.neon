@@ -1,9 +1,3 @@
-includes:
-    # Two calls that can return false: getcwd() in Configuration::resolve() and getmypid()
-    # in Shutdown. Handling false changes what happens when they fail, so that is left for
-    # a change of its own.
-    - phpstan-baseline.neon
-
 parameters:
     level: 8
     paths:

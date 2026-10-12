@@ -82,7 +82,7 @@ final class Shutdown
         // interrupted run, not one that exited. exit() would also run
         // destructors, which can kill child processes mid-cleanup.
         if (function_exists('posix_kill')) {
-            posix_kill(getmypid(), $signal);
+            posix_kill(posix_getpid(), $signal);
         }
 
         exit(128 + $signal);
