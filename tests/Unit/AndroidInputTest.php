@@ -164,18 +164,47 @@ it('clears by deleting from the end of the field', function () {
     ]);
 });
 
-it('closes the software keyboard after typing or clearing, and only while it is up', function () {
+it('closes the software keyboard after typing, and only while it is up', function () {
     $command = new RecordingCommand;
     $driver = androidDriver($command);
     $hide = ['-s', 'emulator-5554', 'shell', 'if dumpsys input_method | grep mInputShown=true >/dev/null; then input keyevent 4; fi'];
 
     $driver->clear();
-    $afterClear = end($command->calls)[1];
     $driver->text('ab');
-    $afterText = end($command->calls)[1];
 
-    expect($afterClear)->toBe($hide)
-        ->and($afterText)->toBe($hide);
+    $hides = array_keys(array_filter($command->calls, fn (array $call): bool => $call[1] === $hide));
+
+    expect($hides)->toBe([array_key_last($command->calls)]);
+});
+
+it('closes the software keyboard a clear left up before the next read or screenshot', function () {
+    $command = new RecordingCommand;
+    $command->outputs['uiautomator'] = '<hierarchy rotation="0" width="1080" height="2400"><node text="Home" class="android.widget.TextView" bounds="[0,0][200,80]" /></hierarchy>';
+    $driver = androidDriver($command);
+    $hide = ['-s', 'emulator-5554', 'shell', 'if dumpsys input_method | grep mInputShown=true >/dev/null; then input keyevent 4; fi'];
+    $sent = fn (): array => array_map(fn (array $call): array => $call[1], $command->calls);
+    $path = tempnam(sys_get_temp_dir(), 'shot');
+
+    try {
+        $driver->clear();
+        $afterClear = $sent();
+        $driver->describe();
+        $afterRead = $sent();
+        $driver->describe();
+        $driver->clear();
+        $driver->screenshot((string) $path);
+    } finally {
+        @unlink((string) $path);
+    }
+
+    $all = $sent();
+    $dump = array_search(['-s', 'emulator-5554', 'exec-out', 'uiautomator', 'dump', '/dev/tty'], $afterRead, true);
+    $shot = array_search(['-s', 'emulator-5554', 'exec-out', 'screencap', '-p'], $all, true);
+
+    expect($afterClear)->not->toContain($hide)
+        ->and(array_search($hide, $afterRead, true))->toBeLessThan($dump)
+        ->and(array_keys($all, $hide, true))->toHaveCount(2)
+        ->and(array_keys($all, $hide, true)[1])->toBe($shot - 1);
 });
 
 it('reads the emulator screen size from the hierarchy', function () {

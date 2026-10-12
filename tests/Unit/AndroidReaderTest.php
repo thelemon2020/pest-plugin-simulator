@@ -153,3 +153,161 @@ it('reads with uiautomator dump when the reader cannot start', function () {
     expect(array_column($elements, 'label'))->toBe(['Home'])
         ->and($dumps)->toHaveCount(1);
 });
+
+it('types through the running reader, with the pause before each key and the text in base64', function () {
+    [$start, $log, $starts] = stubReader([]);
+    $reader = new AndroidReader($start, 5, 5);
+
+    try {
+        expect($reader->type("Ada@example.com it's"))->toBeTrue()
+            ->and($reader->clear())->toBeTrue()
+            ->and($reader->hideKeyboard())->toBeTrue()
+            ->and($starts())->toBe(1)
+            ->and(file($log, FILE_IGNORE_NEW_LINES))->toBe([
+                'type '.AndroidReader::PAUSE.' '.base64_encode("Ada@example.com it's"),
+                'clear',
+                'hide',
+            ]);
+    } finally {
+        $reader->stop();
+    }
+});
+
+it('says when the reader could not type or clear, and keeps it running', function () use ($xml) {
+    [$start, , $starts] = stubReader(['answers' => [$xml], 'inputs' => ['-1', '-1', 'ok']]);
+    $reader = new AndroidReader($start, 5, 5);
+
+    try {
+        expect($reader->type('a'))->toBeFalse()
+            ->and($reader->clear())->toBeFalse()
+            ->and($reader->type('a'))->toBeTrue()
+            ->and($reader->dump())->toBe($xml)
+            ->and($starts())->toBe(1);
+    } finally {
+        $reader->stop();
+    }
+});
+
+it('starts a new reader after one stops answering while it clears', function () {
+    [$start, , $starts] = stubReader(['inputs' => [['hang' => true], 'ok']]);
+    $reader = new AndroidReader($start, 5, 0.3);
+
+    try {
+        expect($reader->clear())->toBeFalse()
+            ->and($reader->clear())->toBeTrue()
+            ->and($starts())->toBe(2);
+    } finally {
+        $reader->stop();
+    }
+});
+
+it('does not type through a reader that has failed three times', function () {
+    [$start, , $starts] = stubReader(['ready' => false]);
+    $reader = new AndroidReader($start, 0.3, 5);
+
+    expect([$reader->type('a'), $reader->clear(), $reader->hideKeyboard(), $reader->type('a'), $reader->dump()])
+        ->toBe([false, false, false, false, null])
+        ->and($starts())->toBe(3);
+});
+
+it('clears, types, and closes the keyboard through the reader, with no adb shell input', function () {
+    [$start, $log] = stubReader([]);
+    $command = new RecordingCommand;
+    $command->opened = $start();
+    $driver = new AndroidDriver(new Device('android', 'Pixel', true), Configuration::resolve(), $command);
+    (new ReflectionProperty(AndroidDriver::class, 'serial'))->setValue($driver, 'emulator-5554');
+
+    try {
+        $driver->clear();
+        $driver->text('Ada@example.com');
+    } finally {
+        (new ReflectionProperty(AndroidDriver::class, 'reader'))->getValue($driver)?->stop();
+    }
+
+    $adb = AndroidSdk::binary('platform-tools/adb', 'adb');
+
+    expect(file($log, FILE_IGNORE_NEW_LINES))->toBe([
+        'clear',
+        'type '.AndroidReader::PAUSE.' '.base64_encode('Ada@example.com'),
+        'hide',
+    ])->and($command->calls)->toBe([
+        [$adb, ['-s', 'emulator-5554', 'push', AndroidReader::jar(), AndroidReader::REMOTE]],
+        [$adb, ['-s', 'emulator-5554', 'shell', AndroidReader::launch()]],
+    ]);
+});
+
+it('pastes what the reader has no key for, and types the rest through it', function () {
+    [$start, $log] = stubReader([]);
+    $command = new RecordingCommand;
+    $command->opened = $start();
+    $driver = new AndroidDriver(new Device('android', 'Pixel', true), Configuration::resolve(), $command);
+    (new ReflectionProperty(AndroidDriver::class, 'serial'))->setValue($driver, 'emulator-5554');
+
+    try {
+        $driver->text("café au\nlait");
+    } finally {
+        (new ReflectionProperty(AndroidDriver::class, 'reader'))->getValue($driver)?->stop();
+    }
+
+    $sent = array_map(fn (array $call): string => implode(' ', array_slice($call[1], 2)), array_slice($command->calls, 2));
+
+    expect(file($log, FILE_IGNORE_NEW_LINES))->toBe([
+        'type '.AndroidReader::PAUSE.' '.base64_encode('caf'),
+        'type '.AndroidReader::PAUSE.' '.base64_encode(' au'),
+        'type '.AndroidReader::PAUSE.' '.base64_encode('lait'),
+        'hide',
+    ])->and($sent)->toBe([
+        "shell cmd clipboard set-text 'é' 2>&1",
+        'shell input keyevent 279',
+        "shell cmd clipboard set-text '\n' 2>&1",
+        'shell input keyevent 279',
+    ]);
+});
+
+it('types with adb shell input, @ and all, when the reader could not type', function () {
+    [$start, $log] = stubReader(['inputs' => ['-1', 'ok']]);
+    $command = new RecordingCommand;
+    $command->opened = $start();
+    $command->outputs['set-text'] = "No shell command implementation.\n";
+    $driver = new AndroidDriver(new Device('android', 'Pixel', true), Configuration::resolve(), $command);
+    (new ReflectionProperty(AndroidDriver::class, 'serial'))->setValue($driver, 'emulator-5554');
+
+    try {
+        $driver->text('a@b');
+    } finally {
+        (new ReflectionProperty(AndroidDriver::class, 'reader'))->getValue($driver)?->stop();
+    }
+
+    $sent = array_map(fn (array $call): string => implode(' ', array_slice($call[1], 2)), array_slice($command->calls, 2));
+
+    expect(file($log, FILE_IGNORE_NEW_LINES))->toBe([
+        'type '.AndroidReader::PAUSE.' '.base64_encode('a@b'),
+        'dump',
+        'hide',
+    ])->and($sent)->toBe([
+        "shell input text 'a'",
+        "shell cmd clipboard set-text '@' 2>&1",
+        'shell input keyevent 77',
+        "shell input text 'b'",
+    ]);
+});
+
+it('clears from the end with adb shell input when no field is focused for the reader', function () {
+    [$start, $log] = stubReader(['inputs' => ['-1', 'ok']]);
+    $command = new RecordingCommand;
+    $command->opened = $start();
+    $driver = new AndroidDriver(new Device('android', 'Pixel', true), Configuration::resolve(), $command);
+    (new ReflectionProperty(AndroidDriver::class, 'serial'))->setValue($driver, 'emulator-5554');
+
+    try {
+        $driver->clear(3);
+        $driver->describe();
+    } finally {
+        (new ReflectionProperty(AndroidDriver::class, 'reader'))->getValue($driver)?->stop();
+    }
+
+    $sent = array_map(fn (array $call): string => implode(' ', array_slice($call[1], 2)), array_slice($command->calls, 2));
+
+    expect(file($log, FILE_IGNORE_NEW_LINES))->toBe(['clear', 'hide', 'dump'])
+        ->and($sent)->toBe(['shell input keyevent 123 67 67 67']);
+});

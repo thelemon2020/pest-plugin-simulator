@@ -55,6 +55,13 @@ final class AndroidDriver implements Driver
     /** When a night mode or font scale change last made System UI rebuild the status bar. */
     private ?float $redrawnAt = null;
 
+    /**
+     * Set by clear(), which leaves the software keyboard up. The text() that usually comes
+     * next opens it again anyway, and keys typed while it slides away land slower. So the
+     * keyboard is closed before the next read or screenshot instead.
+     */
+    private bool $keyboardLeftUp = false;
+
     public function __construct(
         private readonly Device $device,
         private readonly Configuration $configuration,
@@ -191,6 +198,8 @@ final class AndroidDriver implements Driver
 
     public function describe(?string $treePath = null): array
     {
+        $this->closeKeyboardLeftUp();
+
         return $this->dismissSystemDialog($this->elementsFrom($this->dumpHierarchy(), $treePath), 0);
     }
 
@@ -316,7 +325,20 @@ final class AndroidDriver implements Driver
         $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'input', 'keyevent', '4']);
     }
 
+    /**
+     * The reader empties the focused field in one change. Without it, the field is cleared
+     * from the end with `adb shell input`.
+     */
     public function clear(int $characters = 40): void
+    {
+        if (! $this->reader()->clear()) {
+            $this->deleteFromEnd($characters);
+        }
+
+        $this->keyboardLeftUp = true;
+    }
+
+    private function deleteFromEnd(int $characters): void
     {
         // Select-all is Ctrl+A. On the emulator that modifier stays down, so the
         // next "input text" treats c as Copy and the character never lands.
@@ -332,8 +354,6 @@ final class AndroidDriver implements Driver
             ]);
             $remaining -= $count;
         }
-
-        $this->hideKeyboard();
     }
 
     /**
@@ -345,43 +365,46 @@ final class AndroidDriver implements Driver
      */
     private function hideKeyboard(): void
     {
+        if ($this->reader()->hideKeyboard()) {
+            return;
+        }
+
         $this->command->run($this->adb(), [
             '-s', $this->serial(), 'shell',
             'if dumpsys input_method | grep mInputShown=true >/dev/null; then input keyevent 4; fi',
         ]);
     }
 
+    private function closeKeyboardLeftUp(): void
+    {
+        if ($this->keyboardLeftUp) {
+            $this->keyboardLeftUp = false;
+            $this->hideKeyboard();
+        }
+    }
+
     public function text(string $text): void
     {
+        $this->keyboardLeftUp = false;
         $lines = explode("\n", $text);
         $last = count($lines) - 1;
 
         foreach ($lines as $index => $line) {
-            // One character per `input text`. A single call with the whole
-            // string overflows the emulator queue, and Compose drops letters.
-            // Those calls share one adb shell, with a pause between them, so
-            // a word is not one process per letter. `;` keeps going when one
-            // character fails.
-            $batch = [];
+            $keys = '';
 
             foreach ($this->characters($line) as $character) {
-                if ($character === '@' || ! $this->onKeyboard($character)) {
-                    $this->flushText($batch);
-                    $batch = [];
-
-                    if ($character === '@') {
-                        $this->typeAt();
-                    } else {
-                        $this->pasteOrFail($character);
-                    }
+                if ($this->onKeyboard($character)) {
+                    $keys .= $character;
 
                     continue;
                 }
 
-                $batch[] = $character;
+                $this->typeKeys($keys);
+                $keys = '';
+                $this->pasteOrFail($character);
             }
 
-            $this->flushText($batch);
+            $this->typeKeys($keys);
 
             if ($index < $last) {
                 $this->pasteOrFail("\n");
@@ -389,6 +412,37 @@ final class AndroidDriver implements Driver
         }
 
         $this->hideKeyboard();
+    }
+
+    /**
+     * Printable ASCII. The reader types it as key presses, each once the field shows the
+     * one before. Without the reader, `adb shell input` types it.
+     */
+    private function typeKeys(string $text): void
+    {
+        if ($text === '' || $this->reader()->type($text)) {
+            return;
+        }
+
+        // One character per `input text`. A single call with the whole string overflows
+        // the emulator queue, and Compose drops letters. Those calls share one adb shell,
+        // with a pause between them, so a word is not one process per letter. `;` keeps
+        // going when one character fails.
+        $batch = [];
+
+        foreach (str_split($text) as $character) {
+            if ($character === '@') {
+                $this->flushText($batch);
+                $batch = [];
+                $this->typeAt();
+
+                continue;
+            }
+
+            $batch[] = $character;
+        }
+
+        $this->flushText($batch);
     }
 
     /**
@@ -513,6 +567,7 @@ final class AndroidDriver implements Driver
 
     public function screenshot(string $path): void
     {
+        $this->closeKeyboardLeftUp();
         $png = $this->command->run($this->adb(), ['-s', $this->serial(), 'exec-out', 'screencap', '-p']);
         file_put_contents($path, $png);
     }

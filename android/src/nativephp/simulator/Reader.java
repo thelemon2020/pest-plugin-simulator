@@ -1,10 +1,13 @@
 package nativephp.simulator;
 
+import android.accessibilityservice.AccessibilityServiceInfo;
 import android.app.UiAutomation;
 import android.graphics.Point;
 import android.graphics.Rect;
+import android.os.SystemClock;
 import android.util.Xml;
 import android.view.Display;
+import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction;
 
@@ -17,7 +20,7 @@ import java.io.OutputStream;
 import java.io.PrintStream;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
-import java.util.concurrent.TimeoutException;
+import java.util.Base64;
 
 /**
  * Reads the screen for AndroidDriver without starting a process per read.
@@ -37,9 +40,16 @@ import java.util.concurrent.TimeoutException;
  * which way it scrolls (scroll-axis), from the scroll actions it offers, which the plain
  * dump leaves out. The hierarchy carries the display's width and height.
  *
+ * It types too (see Keyboard), so typing starts no `input` process per character: "type",
+ * "clear", and "hide" answer "ok", or "-1" when they could not, and AndroidDriver then
+ * types with `adb shell input` instead.
+ *
  * Run as: CLASSPATH=/system/framework/uiautomator.jar:<this jar> app_process /system/bin nativephp.simulator.Reader [idle ms] [timeout ms]
  */
 public final class Reader {
+    // When the app last sent an accessibility event, in uptime milliseconds.
+    private static volatile long lastEvent;
+
     private Reader() {
     }
 
@@ -53,6 +63,17 @@ public final class Reader {
         wrapperClass.getMethod("setCompressedLayoutHierarchy", boolean.class).invoke(wrapper, false);
         UiAutomation automation = (UiAutomation) wrapperClass.getMethod("getUiAutomation").invoke(wrapper);
 
+        // Keyboard.hide() looks for the software keyboard's window among the windows on screen.
+        AccessibilityServiceInfo info = automation.getServiceInfo();
+        info.flags |= AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;
+        automation.setServiceInfo(info);
+        automation.setOnAccessibilityEventListener(event -> {
+            if (event.getEventType() != AccessibilityEvent.TYPE_WINDOWS_CHANGED) {
+                lastEvent = event.getEventTime();
+            }
+        });
+        Keyboard keyboard = new Keyboard(automation);
+
         PrintStream out = new PrintStream(System.out, false, "UTF-8");
         BufferedReader in = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
         out.print("ready\n");
@@ -62,23 +83,25 @@ public final class Reader {
             String line;
 
             while ((line = in.readLine()) != null) {
-                if (!line.trim().equals("dump")) {
-                    continue;
-                }
+                String[] words = line.trim().split(" ");
 
-                byte[] xml;
+                if (words[0].equals("dump")) {
+                    byte[] xml;
 
-                try {
-                    xml = dump(automation, idle, timeout);
-                } catch (Exception exception) {
-                    xml = null;
-                }
+                    try {
+                        xml = dump(automation, idle, timeout);
+                    } catch (Exception exception) {
+                        xml = null;
+                    }
 
-                if (xml == null) {
-                    out.print("-1\n");
+                    if (xml == null) {
+                        out.print("-1\n");
+                    } else {
+                        out.print(xml.length + "\n");
+                        out.write(xml);
+                    }
                 } else {
-                    out.print(xml.length + "\n");
-                    out.write(xml);
+                    out.print(input(keyboard, words) ? "ok\n" : "-1\n");
                 }
 
                 out.flush();
@@ -88,12 +111,28 @@ public final class Reader {
         }
     }
 
-    private static byte[] dump(UiAutomation automation, long idle, long timeout) throws Exception {
+    /**
+     * "type <pause ms> <the UTF-8 text in base64>", "clear", or "hide".
+     */
+    private static boolean input(Keyboard keyboard, String[] words) {
         try {
-            automation.waitForIdle(idle, timeout);
-        } catch (TimeoutException ignored) {
-            // A screen that never stops moving is read as it is.
+            switch (words[0]) {
+                case "type":
+                    return keyboard.type(new String(Base64.getDecoder().decode(words[2]), StandardCharsets.UTF_8), Long.parseLong(words[1]));
+                case "clear":
+                    return keyboard.clear();
+                case "hide":
+                    return keyboard.hide();
+                default:
+                    return false;
+            }
+        } catch (Exception exception) {
+            return false;
         }
+    }
+
+    private static byte[] dump(UiAutomation automation, long idle, long timeout) throws Exception {
+        waitForIdle(idle, timeout);
 
         AccessibilityNodeInfo root = automation.getRootInActiveWindow();
 
@@ -118,6 +157,31 @@ public final class Reader {
         serializer.endDocument();
 
         return bytes.toByteArray();
+    }
+
+    /**
+     * UiAutomation.waitForIdle(), but a change in which windows are on screen does not
+     * count. Only Keyboard.hide() asks for the windows, which `uiautomator dump` does not,
+     * and a read would otherwise wait a second more after the keyboard opens or closes.
+     * A screen that never stops moving is read as it is.
+     */
+    private static void waitForIdle(long idle, long timeout) {
+        long started = SystemClock.uptimeMillis();
+
+        if (lastEvent <= 0) {
+            lastEvent = started;
+        }
+
+        while (true) {
+            long now = SystemClock.uptimeMillis();
+            long left = idle - (now - lastEvent);
+
+            if (left <= 0 || now - started >= timeout) {
+                return;
+            }
+
+            SystemClock.sleep(Math.min(left, timeout - (now - started)));
+        }
     }
 
     private static Display display() throws Exception {

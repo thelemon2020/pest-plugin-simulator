@@ -8,16 +8,18 @@ declare(strict_types=1);
  *   php stub-reader.php <script.json> <requests.log>
  *
  * Says "ready" (unless the script's "ready" is false), then answers each "dump" line with
- * the next scripted answer, the last one repeating. The script carries on across processes,
- * so a reader started again gets the answers after the ones the last one used. An answer
- * is any of:
+ * the next of the script's "answers", and any other line ("type ...", "clear", "hide") with
+ * the next of its "inputs", "ok" when it has none. The last one repeats. The script carries
+ * on across processes, so a reader started again gets the answers after the ones the last
+ * one used. An answer is any of:
  *
- *   "<xml>"            a length line and that XML
+ *   "<xml>"            a length line and that XML (a dump)
+ *   "ok" or "-1"       that line (any other request)
  *   {"none": true}     -1: no window to read
  *   {"hang": true}     nothing, until stdin closes
  *   {"exit": true}     the process ends without answering
  *
- * Each request is appended to the log, so a test can count them.
+ * Each request line is appended to the log, so a test can count and read them.
  */
 
 $script = json_decode((string) file_get_contents($argv[1]), true);
@@ -31,16 +33,17 @@ if (($script['ready'] ?? true) === false) {
 
 fwrite(STDOUT, "ready\n");
 fflush(STDOUT);
-$answers = $script['answers'];
+$answers = $script['answers'] ?? [''];
+$inputs = $script['inputs'] ?? ['ok'];
 
 while (($line = fgets(STDIN)) !== false) {
-    if (trim($line) !== 'dump') {
-        continue;
-    }
-
-    $next = count(file($log) ?: []);
-    file_put_contents($log, "dump\n", FILE_APPEND);
-    $answer = $answers[min($next, count($answers) - 1)];
+    $request = trim($line);
+    $dump = $request === 'dump';
+    $requests = file($log, FILE_IGNORE_NEW_LINES) ?: [];
+    $next = count(array_filter($requests, fn (string $logged): bool => ($logged === 'dump') === $dump));
+    file_put_contents($log, $request."\n", FILE_APPEND);
+    $scripted = $dump ? $answers : $inputs;
+    $answer = $scripted[min($next, count($scripted) - 1)];
 
     if (is_array($answer) && ($answer['hang'] ?? false)) {
         stream_get_contents(STDIN);
@@ -58,6 +61,6 @@ while (($line = fgets(STDIN)) !== false) {
         continue;
     }
 
-    fwrite(STDOUT, strlen($answer)."\n".$answer);
+    fwrite(STDOUT, $dump ? strlen($answer)."\n".$answer : $answer."\n");
     fflush(STDOUT);
 }
