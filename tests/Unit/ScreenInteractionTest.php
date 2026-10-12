@@ -493,7 +493,7 @@ it('waits for a sheet that just opened before answering it without locate()', fu
             control('Photo, first', ['role' => 'Image', 'chrome' => 'photos', 'center' => [40.0, 120.0]]),
             control('Add', ['chrome' => 'photos', 'center' => [300.0, 700.0]]),
         ],
-        fn (Screen $screen) => $screen->pickPhoto(), 2, 0,
+        fn (Screen $screen) => $screen->pickPhoto(), 1, 0,
     ],
     'cancelPhoto()' => [
         [control('Cancel', ['chrome' => 'photos'])],

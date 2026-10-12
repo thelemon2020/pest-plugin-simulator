@@ -416,7 +416,7 @@ final class Screen
             );
             /** @var Tappable $photo until() waited for it */
             $photo = $this->finder->firstPhoto($elements);
-            $this->touch($photo);
+            $this->tapQuickly($photo);
             $confirm = $this->finder->photoConfirm($elements);
 
             if ($confirm === null) {
@@ -780,6 +780,22 @@ final class Screen
         $y = (float) $element['center'][1];
         $this->sent(['tap', $x, $y]);
         $this->driver->tap($x, $y);
+    }
+
+    /**
+     * A tap with almost no hold. iOS 26's photo picker takes touch()'s usual hold on a photo
+     * as the start of a long press, which previews the photo instead of picking it: with a
+     * 50ms hold the same photo was picked.
+     *
+     * @param  array{center: array{0: float|int, 1: float|int}}  $element
+     */
+    private function tapQuickly(array $element): void
+    {
+        $this->presented();
+        $x = (float) $element['center'][0];
+        $y = (float) $element['center'][1];
+        $this->sent(['tap', $x, $y]);
+        $this->driver->press($x, $y, 0.05);
     }
 
     private function erase(int $characters): void

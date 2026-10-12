@@ -110,7 +110,9 @@ it('picks the first image and confirms', function () {
 
     (new Screen($driver, timeoutSeconds: 0))->pickPhoto();
 
-    expect($driver->taps)->toBe([[40.0, 120.0], [300.0, 700.0]]);
+    // The photo with a quick press: a held tap previews it in iOS 26's picker.
+    expect($driver->presses)->toBe([[40.0, 120.0, 0.05]])
+        ->and($driver->taps)->toBe([[300.0, 700.0]]);
 });
 
 it('picks an image when the picker has no confirm button', function () {
@@ -120,7 +122,8 @@ it('picks an image when the picker has no confirm button', function () {
 
     (new Screen($driver, timeoutSeconds: 0))->pickPhoto();
 
-    expect($driver->taps)->toBe([[30.0, 80.0]]);
+    expect($driver->presses)->toBe([[30.0, 80.0, 0.05]])
+        ->and($driver->taps)->toBe([]);
 });
 
 it('cancels the photo picker', function () {
