@@ -75,7 +75,7 @@ final class Configuration
             resolvedHost: self::present(self::$host ?? self::env('NATIVEPHP_DEEPLINK_HOST') ?? self::laravel('deeplink_host')),
             resolvedBundleId: self::present(self::$bundleId ?? self::env('NATIVEPHP_APP_ID') ?? self::laravel('app_id')),
             resolvedTimeout: self::$timeout,
-            resolvedAppDirectory: self::$appDirectory ?? getcwd(),
+            resolvedAppDirectory: self::$appDirectory ?? (getcwd() ?: null),
             resolvedPermissions: self::$permissions,
             resolvedRecordFailures: self::$recordFailures,
         );
@@ -89,7 +89,7 @@ final class Configuration
         private readonly ?string $resolvedHost,
         private readonly ?string $resolvedBundleId,
         private readonly float $resolvedTimeout,
-        private readonly string $resolvedAppDirectory,
+        private readonly ?string $resolvedAppDirectory,
         private readonly ?array $resolvedPermissions,
         private readonly bool $resolvedRecordFailures,
     ) {}
@@ -130,7 +130,9 @@ final class Configuration
 
     public function appDirectory(): string
     {
-        return $this->resolvedAppDirectory;
+        return $this->resolvedAppDirectory ?? throw new SimulatorException(
+            'Could not read the directory the tests run from. Run them from the app\'s directory, or call Configuration::configure([\'app_directory\' => \'/path/to/app\']).',
+        );
     }
 
     /**

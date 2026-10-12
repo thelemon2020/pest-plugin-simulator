@@ -46,6 +46,27 @@ it('asks for a scheme or host before opening a screen', function () {
     });
 })->throws(SimulatorException::class);
 
+it('asks for the app directory when the directory the tests run from is gone', function () {
+    $previous = getcwd();
+    $directory = sys_get_temp_dir().'/pest-simulator-gone-'.getmypid();
+    mkdir($directory);
+    chdir($directory);
+    rmdir($directory);
+
+    try {
+        expect(fn () => Configuration::resolve()->appDirectory())->toThrow(
+            SimulatorException::class,
+            "Could not read the directory the tests run from. Run them from the app's directory, or call Configuration::configure(['app_directory' => '/path/to/app']).",
+        );
+
+        Configuration::configure(['app_directory' => '/path/to/app']);
+
+        expect(Configuration::resolve()->appDirectory())->toBe('/path/to/app');
+    } finally {
+        chdir($previous);
+    }
+});
+
 function withNativeEnvironment(Closure $callback): void
 {
     $keys = ['NATIVEPHP_DEEPLINK_SCHEME', 'NATIVEPHP_DEEPLINK_HOST', 'NATIVEPHP_APP_ID'];

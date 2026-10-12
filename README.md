@@ -104,6 +104,8 @@ If the same value is set in more than one place, the plugin uses `Configuration:
 
 `timeout`, `permissions`, and `record_failures` are not `.env` variables. Set a timeout with `Configuration::configure(['timeout' => 15])`. Set permissions with `permissions()` inside a test, or with `Configuration::configure(['permissions' => ['location']])` for every test. `record_failures` is under [Debug a flaky test](#debug-a-flaky-test).
 
+`php artisan native:run` runs in the directory the tests run from, and the `idb_companion` and emulator logs are written there. Set another directory with `Configuration::configure(['app_directory' => '/path/to/app'])`.
+
 ## Write a test
 
 **Tests that touch the device must be wrapped in `mobile()`.** A plain `it()` does not boot one. `screen()` stops with `screen() only works inside a mobile() suite`.
