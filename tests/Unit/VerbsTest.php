@@ -294,3 +294,13 @@ it('finds the top of an ios sheet after the dimming view it lays over the screen
     expect($top['center'] ?? null)->toBe([201.0, 422.0])
         ->and((new ElementFinder)->sheetTop([verb('Open sheet', 'Button', 70.0, 184.0)]))->toBeNull();
 });
+
+it('taps a field named by its placeholder again where it was, once text has replaced the name', function () {
+    $empty = [verb('Search…', 'TextField', 215.0, 395.0, ['value' => ''])];
+    $driver = new FakeDriver([$empty, $empty, [verb('Talk', 'TextField', 215.0, 395.0, ['value' => 'Talk'])]]);
+
+    (new Screen($driver, timeoutSeconds: 0))->submit('Search…', 'Talk');
+
+    expect(end($driver->taps))->toBe([215.0, 395.0])
+        ->and(end($driver->events))->toBe(['enter']);
+});

@@ -456,13 +456,17 @@ final class Screen
     public function submit(string $label, ?string $text = null): self
     {
         return $this->step('submit', $label, function () use ($label, $text): void {
+            $field = $this->locate($label, 'submit');
+
             if ($text !== null) {
                 $this->type($label, $text);
             }
 
             // Android closes the keyboard once type() is done, which leaves the field without
             // focus, and a return key pressed then goes nowhere. A tap gives it focus back.
-            $this->touch($this->locate($label, 'submit'));
+            // It goes where the field was found before typing: a field named by its
+            // placeholder has no name once text is in it.
+            $this->touch($field);
             $this->sent(['enter']);
             $this->driver->enter();
         });
