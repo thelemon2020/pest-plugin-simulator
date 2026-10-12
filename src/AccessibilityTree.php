@@ -302,6 +302,22 @@ final class AccessibilityTree
             }
         }
 
+        // Compose reports a slider's range on an unlabeled SeekBar, and its a11y-label on a
+        // View drawn over it in the same place. The label is the slider, so it takes the range.
+        foreach ($nodes as $index => $node) {
+            if (! is_array($node) || ($node['range-current'] ?? '') === '' || self::flatLabel($node) !== '' || $frames[$index] === null) {
+                continue;
+            }
+
+            foreach ($nodes as $otherIndex => $other) {
+                if ($otherIndex !== $index && is_array($other) && self::flatLabel($other) !== '' && $frames[$otherIndex] === $frames[$index]) {
+                    foreach (['range-min', 'range-max', 'range-current'] as $key) {
+                        $nodes[$otherIndex][$key] = $node[$key] ?? '';
+                    }
+                }
+            }
+        }
+
         foreach ($nodes as $index => $node) {
             if (! is_array($node) || ! self::truthy($node['checkable'] ?? false) || self::flatLabel($node) !== '' || $frames[$index] === null) {
                 continue;

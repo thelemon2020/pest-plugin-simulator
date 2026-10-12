@@ -458,10 +458,11 @@ final class Screen
         return $this->step('submit', $label, function () use ($label, $text): void {
             if ($text !== null) {
                 $this->type($label, $text);
-            } else {
-                $this->touch($this->locate($label, 'submit'));
             }
 
+            // Android closes the keyboard once type() is done, which leaves the field without
+            // focus, and a return key pressed then goes nowhere. A tap gives it focus back.
+            $this->touch($this->locate($label, 'submit'));
             $this->sent(['enter']);
             $this->driver->enter();
         });
