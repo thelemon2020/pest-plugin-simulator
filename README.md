@@ -366,7 +366,7 @@ screen('/settings')
 
 `relaunch()` stops the app and starts it again. The database is not copied again, so rows the app wrote stay. The app opens on its first screen. iOS runs `xcrun simctl launch --terminate-running-process`. Android runs `am force-stop`, then starts the launcher activity.
 
-`openUrl('/settings/profile')` opens another route in the app that is already running, the way `screen()` does. It does not copy the database again. A link sent while the app is still starting can be lost: on iOS, an `openUrl()` straight after `screen()` stayed on the first route. Check the first screen before opening another one.
+`openUrl('/settings/profile')` opens another route in the app that is already running, the way `screen()` does. It does not copy the database again. On Android, a link that no activity in the app takes starts the launcher activity instead. A link sent while the app is still starting can be lost: on iOS, an `openUrl()` straight after `screen()` stayed on the first route. Check the first screen before opening another one.
 
 ## Answer system sheets
 

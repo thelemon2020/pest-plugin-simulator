@@ -743,7 +743,7 @@ it('lets a screen command fail when the shared emulator is still up', function (
         $boot = $command->responder;
         $command->responder = function (string $binary, array $arguments) use ($boot): ?string {
             if (in_array('am', $arguments, true) && in_array('start', $arguments, true)) {
-                throw new SimulatorException('Activity not started, unable to resolve Intent');
+                throw new SimulatorException('Security exception: Permission Denial: starting Intent');
             }
 
             if (in_array('get-state', $arguments, true)) {
@@ -757,7 +757,7 @@ it('lets a screen command fail when the shared emulator is still up', function (
 
         $driver->ensureReady();
 
-        expect(fn () => $driver->open('app://screen'))->toThrow(SimulatorException::class, 'unable to resolve Intent')
+        expect(fn () => $driver->open('app://screen'))->toThrow(SimulatorException::class, 'Permission Denial')
             ->and(emulatorListings($command))->toBe(1);
     });
 });

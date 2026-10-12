@@ -169,23 +169,23 @@ final class AndroidDriver implements Driver
 
     private function openUrl(string $url): void
     {
-        $bundle = $this->configuration->bundleId();
-        // adb joins the arguments into one line for the device shell, where an & in the
-        // query would end the command.
-        $result = $this->command->run($this->adb(), [
-            '-s', $this->serial(), 'shell', 'am', 'start',
-            '-a', 'android.intent.action.VIEW',
-            '-d', escapeshellarg($url),
-            $bundle,
-        ]);
-
-        if (str_contains($result, 'Error')) {
+        try {
+            // adb joins the arguments into one line for the device shell, where an & in the
+            // query would end the command.
             $this->command->run($this->adb(), [
-                '-s', $this->serial(), 'shell', 'monkey',
-                '-p', $bundle,
-                '-c', 'android.intent.category.LAUNCHER',
-                '1',
+                '-s', $this->serial(), 'shell', 'am', 'start',
+                '-a', 'android.intent.action.VIEW',
+                '-d', escapeshellarg($url),
+                $this->configuration->bundleId(),
             ]);
+        } catch (SimulatorException $exception) {
+            // am start exits 1 when no activity in the app takes the link. The app is then
+            // started as its launcher icon does.
+            if (! str_contains($exception->getMessage(), 'unable to resolve Intent')) {
+                throw $exception;
+            }
+
+            $this->launchApp();
         }
     }
 
