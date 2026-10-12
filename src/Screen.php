@@ -1218,6 +1218,11 @@ final class Screen
      * The tree has a bar's controls, not the bar's frame. Their centers sit about half a bar
      * from its edge, which is the inset.
      *
+     * An iOS software keyboard covers the screen from its top row of keys down, with its
+     * suggestions bar above them. It shows when no hardware keyboard is connected, which is
+     * how a Simulator booted without Simulator.app runs: on the sample app's form, a tap on
+     * Save under the keyboard typed a "w" into the field instead.
+     *
      * @param  list<Element>  $elements
      * @return array{0: float, 1: float}
      */
@@ -1226,6 +1231,16 @@ final class Screen
         $inset = $height * 0.03;
         $top = 0.0;
         $bottom = $height - $this->driver->homeIndicator();
+        $keys = array_filter(
+            $elements,
+            fn (array $element): bool => ($element['role'] ?? null) === 'Key' && is_array($element['center'] ?? null),
+        );
+
+        if ($keys !== []) {
+            // The top row's centers are half a key below the keyboard's edge, and the
+            // suggestions bar sits above that edge: about 8% of the screen in all.
+            $bottom = min($bottom, min(array_map(fn (array $key): float => (float) $key['center'][1], $keys)) - $height * 0.08);
+        }
 
         foreach ($elements as $element) {
             if (! in_array($element['chrome'] ?? null, ['navigation', 'tab'], true) || ! is_array($element['center'] ?? null)) {

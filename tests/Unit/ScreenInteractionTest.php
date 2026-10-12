@@ -807,3 +807,18 @@ it('asserts a switch is off', function () {
     expect(fn () => $screen->assertNotChecked('Flashlight'))
         ->toThrow(AssertionFailedError::class, '[Flashlight] was checked.');
 });
+
+it('scrolls a control out from under an iOS software keyboard before tapping it', function () {
+    $keyboard = fn (float $offset): array => [
+        control('Save', ['center' => [46.0, 600.0 - $offset]]),
+        control('q', ['role' => 'Key', 'center' => [22.0, 611.0]]),
+        control('w', ['role' => 'Key', 'center' => [62.0, 611.0]]),
+    ];
+    $driver = new FakeDriver([$keyboard(0), $keyboard(200)]);
+    $driver->viewport = [402.0, 874.0];
+
+    (new Screen($driver, timeoutSeconds: 0))->tap('Save');
+
+    expect($driver->swipes)->toHaveCount(1)
+        ->and($driver->taps)->toBe([[46.0, 400.0]]);
+});
