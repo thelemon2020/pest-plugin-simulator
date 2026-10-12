@@ -92,6 +92,11 @@ final class FakeDriver implements Driver
     /** @var list<array<string, mixed>> */
     public array $pushes = [];
 
+    /**
+     * An image file screenshot() copies, instead of writing a placeholder.
+     */
+    public ?string $screen = null;
+
     private int $reads = 0;
 
     /**
@@ -183,6 +188,12 @@ final class FakeDriver implements Driver
 
     public function screenshot(string $path): void
     {
+        if ($this->screen !== null) {
+            copy($this->screen, $path);
+
+            return;
+        }
+
         file_put_contents($path, 'png');
     }
 

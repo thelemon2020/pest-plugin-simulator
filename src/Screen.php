@@ -1241,6 +1241,84 @@ final class Screen
     }
 
     /**
+     * Compares the screen with a baseline saved from an earlier run. The first run saves
+     * the baseline and passes; --update-screenshots saves it again. The status bar is fixed
+     * at 9:41 first, so the clock does not count as a change. A screen still moving gets
+     * until the timeout to match.
+     *
+     * $threshold is the share of pixels that may differ: 0.001 is a tenth of a percent.
+     */
+    public function assertScreenshotMatches(?string $name = null, float $threshold = 0.001): self
+    {
+        if (! Run::inside()) {
+            throw new SimulatorException('assertScreenshotMatches() only works inside a mobile() suite.');
+        }
+
+        return $this->step('assertScreenshotMatches', $name, function () use ($name, $threshold): void {
+            $device = Run::device();
+            DeviceState::change($this->driver, $device->key(), 'statusBar', true);
+            $baseline = Screenshots::baseline($device, $name);
+            $this->settle();
+            $elements = $this->readRetrying();
+
+            if (! is_file($baseline) || Arguments::wantsScreenshotUpdate()) {
+                if (! is_file($baseline) && in_array(strtolower((string) getenv('CI')), ['1', 'true'], true)) {
+                    throw new AssertionFailedError("There is no baseline at [{$baseline}]. Run the test outside CI once to save it, and commit it.");
+                }
+
+                if (! is_dir(dirname($baseline))) {
+                    mkdir(dirname($baseline), 0777, true);
+                }
+
+                $this->driver->screenshot($baseline);
+                $this->note('baseline', 'saved');
+
+                return;
+            }
+
+            $actual = sys_get_temp_dir().'/pest-simulator-screenshot-'.uniqid('', true).'.png';
+            $deadline = microtime(true) + $this->timeoutSeconds;
+
+            try {
+                do {
+                    $this->driver->screenshot($actual);
+                    [$share, $marked] = Screenshots::compare($baseline, $actual);
+                    $this->note('different', round($share, 5));
+
+                    if ($share <= $threshold) {
+                        return;
+                    }
+
+                    if ($this->timeoutSeconds > 0) {
+                        usleep(500_000);
+                    }
+                } while ($this->timeoutSeconds > 0 && microtime(true) < $deadline);
+
+                $root = $this->failureDirectory !== '' ? $this->failureDirectory : FailureCapture::directory();
+
+                if (! is_dir($root)) {
+                    mkdir($root, 0777, true);
+                }
+
+                $saved = [];
+
+                if ($marked !== null && imagepng($marked, $root.'/screenshot-diff.png')) {
+                    $saved[] = $root.'/screenshot-diff.png';
+                }
+
+                $percent = fn (float $share): string => rtrim(rtrim(number_format($share * 100, 2), '0'), '.').'%';
+                $message = $marked === null
+                    ? "The screenshot is not the size of the baseline [{$baseline}]."
+                    : 'The screen differs from the baseline in '.$percent($share).' of its pixels, more than '.$percent($threshold).". Baseline: [{$baseline}].";
+
+                $this->fail($message, $elements, null, $root, $saved);
+            } finally {
+                @unlink($actual);
+            }
+        });
+    }
+
+    /**
      * Print the controls on screen, the way a failed assertion lists them.
      */
     public function dump(): self
@@ -1589,12 +1667,13 @@ final class Screen
 
     /**
      * @param  list<Element>  $elements
+     * @param  list<string>  $saved  files the failing step wrote into $root itself
      */
-    private function fail(string $failure, array $elements, ?SimulatorException $unread = null): never
+    private function fail(string $failure, array $elements, ?SimulatorException $unread = null, ?string $root = null, array $saved = []): never
     {
         $this->endStep('failed', $failure);
 
-        throw new AssertionFailedError($failure."\n\n".$this->listing($this->scopes === [] ? $elements : $this->screenElements).$this->captureFailure($unread));
+        throw new AssertionFailedError($failure."\n\n".$this->listing($this->scopes === [] ? $elements : $this->screenElements).$this->captureFailure($unread, $root, $saved));
     }
 
     /**
@@ -2065,10 +2144,13 @@ final class Screen
     /**
      * @param  ?SimulatorException  $unread  why the last read failed, so a companion that stopped answering is not asked for the tree again
      */
-    private function captureFailure(?SimulatorException $unread = null): string
+    /**
+     * @param  list<string>  $saved
+     */
+    private function captureFailure(?SimulatorException $unread = null, ?string $root = null, array $saved = []): string
     {
-        $root = $this->failureDirectory !== '' ? $this->failureDirectory : FailureCapture::directory();
+        $root ??= $this->failureDirectory !== '' ? $this->failureDirectory : FailureCapture::directory();
 
-        return FailureCapture::listing($root, FailureCapture::save($this->driver, $root, $unread));
+        return FailureCapture::listing($root, [...FailureCapture::save($this->driver, $root, $unread), ...$saved]);
     }
 }
