@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use NativePhp\Simulator\AccessibilityTree;
 use NativePhp\Simulator\AndroidDriver;
 use NativePhp\Simulator\Command;
 use NativePhp\Simulator\Configuration;
@@ -294,6 +295,68 @@ it('settles typing into an Android password field on the first attempt', functio
 
     expect($driver->taps)->toHaveCount(1)
         ->and($driver->texts)->toBe(['secret']);
+});
+
+it('names a Compose field by its placeholder, not by the icon drawn beside it', function () {
+    // Captured from CollectShine's lights screen on an android-36 emulator. The effects
+    // search field has a leading "search" icon and no label: inside the EditText are the
+    // icon, a TextView whose text is the icon's name, and the placeholder. Once text goes
+    // in, the placeholder is gone and only the icon is left inside.
+    $read = function (string $fixture): array {
+        $command = new RecordingCommand;
+        $command->output = (string) file_get_contents(dirname(__DIR__).'/Fixtures/'.$fixture);
+
+        return androidDriver($command)->describe();
+    };
+    $empty = $read('android-search-field-empty.xml');
+    $typed = $read('android-search-field-typed.xml');
+    $finder = new ElementFinder;
+
+    $field = $finder->match($empty, 'Search effects…');
+
+    expect($field['role'])->toBe('TextField')
+        ->and($field['center'])->toBe([540.0, 1851.5])
+        ->and($finder->sees($typed, 'Search effects…'))->toBeFalse()
+        ->and($finder->holds($typed, 'Search effects…', $field, 'Rain'))->toBeTrue()
+        ->and($finder->holds($typed, 'Search effects…', $field, 'Rai'))->toBeFalse()
+        ->and($finder->holds($empty, 'Search effects…', $field, 'Rain'))->toBeFalse();
+});
+
+it('settles typing into an Android field named by its placeholder on the first attempt', function () {
+    $read = function (string $fixture): array {
+        $command = new RecordingCommand;
+        $command->output = (string) file_get_contents(dirname(__DIR__).'/Fixtures/'.$fixture);
+
+        return androidDriver($command)->describe();
+    };
+    $driver = new FakeDriver([$read('android-search-field-empty.xml'), $read('android-search-field-typed.xml')]);
+    $driver->viewport = [1080.0, 2400.0];
+
+    (new Screen($driver, timeoutSeconds: 1))->type('Search effects…', 'Rain');
+
+    expect($driver->taps)->toBe([[540.0, 1851.5]])
+        ->and($driver->texts)->toBe(['Rain']);
+});
+
+it('names a Compose field by the text inside it that is not an icon', function () {
+    $node = fn (string $class, string $bounds, string $text = ''): array => [
+        'text' => $text, 'content-desc' => '', 'resource-id' => '', 'class' => $class, 'package' => 'com.example',
+        'bounds' => $bounds, 'checked' => 'false', 'checkable' => 'false', 'enabled' => 'true', 'selected' => 'false',
+    ];
+    $elements = AccessibilityTree::summarize((string) json_encode([
+        $node('android.view.View', '[0,0][1080,2400]'),
+        $node('android.widget.EditText', '[42,300][1038,447]'),
+        $node('android.widget.TextView', '[179,342][504,405]', 'Search a city or region…'),
+        $node('android.widget.EditText', '[42,500][1038,647]'),
+        $node('android.widget.TextView', '[74,543][137,606]', 'mail'),
+        $node('android.widget.TextView', '[179,543][310,606]', 'email'),
+        $node('android.widget.EditText', '[42,700][1038,847]'),
+        $node('android.widget.TextView', '[912,743][975,806]', 'qr_code_2'),
+    ]));
+    $fields = array_values(array_filter($elements, fn (array $element): bool => $element['role'] === 'TextField'));
+
+    expect(array_column($fields, 'label'))->toBe(['Search a city or region…', 'email', ''])
+        ->and(array_column($elements, 'label'))->toContain('mail', 'qr_code_2');
 });
 
 it('quotes a deep link for the device shell', function () {
