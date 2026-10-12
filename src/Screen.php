@@ -429,7 +429,7 @@ final class Screen
                     return;
                 }
 
-                $this->note('attempts', $attempt);
+                $this->note('taps', $attempt);
                 $this->tapQuickly($photo);
 
                 // A picker that takes one photo closes. One that takes several asks to be
