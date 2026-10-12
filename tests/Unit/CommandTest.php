@@ -130,3 +130,22 @@ function eventually(Closure $condition, float $seconds = 2.0): bool
 
     return true;
 }
+
+it('keeps a utf-8 locale as it is', function () {
+    expect(Command::environment(['LANG' => 'en_CA.UTF-8', 'PATH' => '/bin']))->toBe(['LANG' => 'en_CA.UTF-8', 'PATH' => '/bin'])
+        ->and(Command::environment(['LC_ALL' => 'C.utf8']))->toBe(['LC_ALL' => 'C.utf8']);
+});
+
+it('gives commands a utf-8 locale when none is set', function () {
+    expect(Command::environment(['PATH' => '/bin']))->toBe(['LC_ALL' => 'en_US.UTF-8', 'PATH' => '/bin']);
+});
+
+it('overrides a locale that is not utf-8', function () {
+    expect(Command::environment(['LANG' => 'en_US.UTF-8', 'LC_ALL' => 'C']))->toBe(['LC_ALL' => 'en_US.UTF-8', 'LANG' => 'en_US.UTF-8']);
+});
+
+it('runs a command with a utf-8 locale', function () {
+    $locale = trim((new Command)->run('sh', ['-c', 'echo "${LC_ALL:-$LANG}"']));
+
+    expect($locale)->toMatch('/utf-?8/i');
+});
