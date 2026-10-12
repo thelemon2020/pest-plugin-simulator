@@ -8,6 +8,7 @@ use NativePhp\Simulator\AndroidSdk;
 use NativePhp\Simulator\Command;
 use NativePhp\Simulator\Configuration;
 use NativePhp\Simulator\Device;
+use NativePhp\Simulator\Exceptions\SimulatorException;
 use NativePhp\Simulator\RunningCommand;
 use Tests\Support\RecordingCommand;
 
@@ -160,11 +161,13 @@ it('types through the running reader, with the pause before each key and the tex
 
     try {
         expect($reader->type("Ada@example.com it's"))->toBeTrue()
+            ->and($reader->type("Zoë says\nhello"))->toBeTrue()
             ->and($reader->clear())->toBeTrue()
             ->and($reader->hideKeyboard())->toBeTrue()
             ->and($starts())->toBe(1)
             ->and(file($log, FILE_IGNORE_NEW_LINES))->toBe([
                 'type '.AndroidReader::PAUSE.' '.base64_encode("Ada@example.com it's"),
+                'type '.AndroidReader::PAUSE.' '.base64_encode("Zoë says\nhello"),
                 'clear',
                 'hide',
             ]);
@@ -236,8 +239,32 @@ it('clears, types, and closes the keyboard through the reader, with no adb shell
     ]);
 });
 
-it('pastes what the reader has no key for, and types the rest through it', function () {
+it('types a new line and what has no key in the same request as the keys around them, with no adb', function () {
     [$start, $log] = stubReader([]);
+    $command = new RecordingCommand;
+    $command->opened = $start();
+    $driver = new AndroidDriver(new Device('android', 'Pixel', true), Configuration::resolve(), $command);
+    (new ReflectionProperty(AndroidDriver::class, 'serial'))->setValue($driver, 'emulator-5554');
+
+    try {
+        $driver->text("café au\nlait");
+    } finally {
+        (new ReflectionProperty(AndroidDriver::class, 'reader'))->getValue($driver)?->stop();
+    }
+
+    $adb = AndroidSdk::binary('platform-tools/adb', 'adb');
+
+    expect(file($log, FILE_IGNORE_NEW_LINES))->toBe([
+        'type '.AndroidReader::PAUSE.' '.base64_encode("café au\nlait"),
+        'hide',
+    ])->and($command->calls)->toBe([
+        [$adb, ['-s', 'emulator-5554', 'push', AndroidReader::jar(), AndroidReader::REMOTE]],
+        [$adb, ['-s', 'emulator-5554', 'shell', AndroidReader::launch()]],
+    ]);
+});
+
+it('pastes with cmd clipboard, and types the rest with adb shell input, when the reader could not paste', function () {
+    [$start, $log] = stubReader(['inputs' => ['-1', 'ok']]);
     $command = new RecordingCommand;
     $command->opened = $start();
     $driver = new AndroidDriver(new Device('android', 'Pixel', true), Configuration::resolve(), $command);
@@ -252,16 +279,32 @@ it('pastes what the reader has no key for, and types the rest through it', funct
     $sent = array_map(fn (array $call): string => implode(' ', array_slice($call[1], 2)), array_slice($command->calls, 2));
 
     expect(file($log, FILE_IGNORE_NEW_LINES))->toBe([
-        'type '.AndroidReader::PAUSE.' '.base64_encode('caf'),
-        'type '.AndroidReader::PAUSE.' '.base64_encode(' au'),
-        'type '.AndroidReader::PAUSE.' '.base64_encode('lait'),
+        'type '.AndroidReader::PAUSE.' '.base64_encode("café au\nlait"),
         'hide',
     ])->and($sent)->toBe([
+        "shell input text 'c'; sleep 0.1; input text 'a'; sleep 0.1; input text 'f'",
         "shell cmd clipboard set-text 'é' 2>&1",
         'shell input keyevent 279',
+        "shell input text '%s'; sleep 0.1; input text 'a'; sleep 0.1; input text 'u'",
         "shell cmd clipboard set-text '\n' 2>&1",
         'shell input keyevent 279',
+        "shell input text 'l'; sleep 0.1; input text 'a'; sleep 0.1; input text 'i'; sleep 0.1; input text 't'",
     ]);
+});
+
+it('says it cannot type a new line when neither the reader nor cmd clipboard can paste it', function () {
+    [$start] = stubReader(['inputs' => ['-1']]);
+    $command = new RecordingCommand;
+    $command->opened = $start();
+    $command->outputs['set-text'] = "No shell command implementation.\n";
+    $driver = new AndroidDriver(new Device('android', 'Pixel', true), Configuration::resolve(), $command);
+    (new ReflectionProperty(AndroidDriver::class, 'serial'))->setValue($driver, 'emulator-5554');
+
+    try {
+        expect(fn () => $driver->text("a\nb"))->toThrow(SimulatorException::class, 'Cannot type a new line on this emulator. The screen reader could not paste it');
+    } finally {
+        (new ReflectionProperty(AndroidDriver::class, 'reader'))->getValue($driver)?->stop();
+    }
 });
 
 it('types with adb shell input, @ and all, when the reader could not type', function () {
