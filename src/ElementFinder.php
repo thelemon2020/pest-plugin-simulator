@@ -459,6 +459,18 @@ final class ElementFinder
             return null;
         }
 
+        // iOS 26's picker puts the Photos app's icon in a banner above the grid, an image
+        // with no label like the photos. Its tiles carry a PXGGridLayout id: when any do,
+        // only they are photos.
+        $tiles = array_values(array_filter(
+            $photos,
+            fn (array $photo): bool => str_starts_with((string) ($photo['id'] ?? ''), 'PXGGridLayout'),
+        ));
+
+        if ($tiles !== []) {
+            $photos = $tiles;
+        }
+
         usort($photos, function (array $left, array $right): int {
             $vertical = $left['center'][1] <=> $right['center'][1];
 

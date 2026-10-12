@@ -250,12 +250,13 @@ it('waits for an alert to finish appearing before tapping its button', function 
         ->and($driver->taps)->toBe([[250.0, 450.0]]);
 });
 
-it('finds the photos in the iOS 26 picker grid, and its Cancel outside the grid', function () {
+it('finds the photos in the iOS 26 picker grid, not the icon above it, and its Cancel outside the grid', function () {
     $tree = json_encode(['type' => 'Application', 'children' => [
         ['type' => 'NavigationBar', 'identifier' => 'Photos', 'frame' => ['x' => 0, 'y' => 88, 'width' => 402, 'height' => 62], 'children' => [
             ['type' => 'Button', 'label' => 'Cancel', 'identifier' => 'Cancel', 'frame' => ['x' => 20, 'y' => 92, 'width' => 36, 'height' => 36]],
         ]],
         ['type' => '_PXPhotosGridContainerUIView', 'label' => 'Photos', 'frame' => ['x' => 0, 'y' => 72, 'width' => 402, 'height' => 802], 'children' => [
+            ['type' => 'Image', 'identifier' => 'PickerOnboardingHeaderViewIcon', 'frame' => ['x' => 32, 'y' => 160, 'width' => 38, 'height' => 38]],
             ['type' => 'Image', 'label' => 'Screenshot', 'identifier' => 'PXGGridLayout-Info', 'frame' => ['x' => 134, 'y' => 312, 'width' => 133, 'height' => 133]],
             ['type' => 'Image', 'label' => 'Photo', 'identifier' => 'PXGGridLayout-Info', 'frame' => ['x' => 0, 'y' => 312, 'width' => 133, 'height' => 133]],
         ]],
