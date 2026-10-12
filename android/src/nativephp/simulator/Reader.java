@@ -220,6 +220,15 @@ public final class Reader {
         serializer.attribute("", "drawing-order", Integer.toString(node.getDrawingOrder()));
         serializer.attribute("", "hint", text(node.getHintText()));
 
+        // A slider says where it is only through its range: no text, no description.
+        AccessibilityNodeInfo.RangeInfo range = node.getRangeInfo();
+
+        if (range != null) {
+            serializer.attribute("", "range-min", Float.toString(range.getMin()));
+            serializer.attribute("", "range-max", Float.toString(range.getMax()));
+            serializer.attribute("", "range-current", Float.toString(range.getCurrent()));
+        }
+
         for (int i = 0; i < node.getChildCount(); i++) {
             AccessibilityNodeInfo child = node.getChild(i);
 

@@ -251,6 +251,37 @@ screen('/basket')
 
 `within()` needs a container the platform shows as one element: an alert, a sheet, a list row, or a view an app gives its own accessibility container. NativePHP does not do that for a `<native:column>` yet, even with an `a11y-label`: its children are read on their own, and the label goes nowhere. On those screens, `nth()` picks between the repeated controls instead.
 
+## Fill in controls
+
+These calls read the control's state first and wait until it reads what they asked for. They are named after the calls in NativePHP's own test harness, so a test can move from `Native::test()` to a device with few changes.
+
+```php
+screen('/settings')
+    ->toggle('Notifications', true)
+    ->check('Subscribe')
+    ->select('Size', 'Large')
+    ->selectRadio('Plan', 'Pro')
+    ->slide('Volume', 75, min: 0, max: 100)
+    ->changeTab('Activity')
+    ->submit('Search…', 'Talk Talk');
+```
+
+`toggle('Notifications', true)` turns a switch on, and taps it only while it is off. `toggle('Notifications')` flips it. `check('Subscribe')` and `uncheck('Subscribe')` do the same for a checkbox. When the control does not change, the call fails: `[Notifications] stayed off.`
+
+`select('Size', 'Large')` taps the picker, then taps the option that appeared when it opened. The picker's own label for the current choice is not an option, so `select('Size', 'Medium')` picks Medium from the menu even when Medium is showing already.
+
+`selectRadio('Plan', 'Pro')` taps the option under the group's label, not one with the same name in a group further down, and waits until it reads as selected.
+
+`slide('Volume', 75)` drags the slider's thumb to that value. It works out where the thumb is from the value and the slider's range, then aims each drag by how far the last one moved the value, up to five drags. Android reports the range. iOS does not, so pass the `min` and `max` the `<native:slider>` has.
+
+`changeTab('Activity')` taps a tab in a `<native:tab-row>` or tab bar, and waits until it is the active one.
+
+`submit('Search…', 'Talk Talk')` types into the field, then presses the keyboard's return key. Leave the text off to press return in a field that has its text already.
+
+`dismissSheet()` closes the sheet that is up. On iOS it drags the sheet down by its grabber, and waits until the sheet has gone. Android presses Back, which closes a bottom sheet, and goes back a screen when no sheet is open.
+
+`longPress()`, `input()`, and `pressBack()` are `press()`, `type()`, and `goBack()` under the harness's names.
+
 ## Screenshots and recordings
 
 These calls go inside a test that is wrapped in `mobile()`.

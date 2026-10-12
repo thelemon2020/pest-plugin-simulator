@@ -7,7 +7,7 @@ namespace NativePhp\Simulator;
 final class AccessibilityTree
 {
     /**
-     * @return list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}, value: ?string, enabled: bool, selected: bool, checked: bool, chrome: ?string, webview: bool, carousel: ?array{0: float, 1: float, 2: float, 3: float}, secure: bool, frame: ?array{0: float, 1: float, 2: float, 3: float}}>
+     * @return list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}, value: ?string, enabled: bool, selected: bool, checked: bool, chrome: ?string, webview: bool, carousel: ?array{0: float, 1: float, 2: float, 3: float}, secure: bool, frame: ?array{0: float, 1: float, 2: float, 3: float}, range: ?array{0: float, 1: float}, checkable: bool}>
      */
     public static function summarize(string $json): array
     {
@@ -85,6 +85,8 @@ final class AccessibilityTree
                 'carousel' => self::carousel($node),
                 'secure' => self::secure($node),
                 'frame' => self::frame($node),
+                'range' => self::range($node),
+                'checkable' => $role === 'Switch' || self::truthy($node['checkable'] ?? false) || self::truthy($node['__checkable'] ?? false),
             ];
         }
 
@@ -301,12 +303,36 @@ final class AccessibilityTree
         }
 
         foreach ($nodes as $index => $node) {
+            if (! is_array($node) || ! self::truthy($node['checkable'] ?? false) || self::flatLabel($node) !== '' || $frames[$index] === null) {
+                continue;
+            }
+
+            // A toggle's label inside the row it draws is that toggle, even while it is off,
+            // so a match can tell it from the same words in a caption beside it.
+            foreach (self::labelsInside($nodes, $frames, $drop, $index) as $labelIndex) {
+                $nodes[$labelIndex]['__checkable'] = 'true';
+            }
+        }
+
+        foreach ($nodes as $index => $node) {
             if (! is_array($node) || ! self::truthy($node['checkable'] ?? false) || ! self::truthy($node['checked'] ?? false)) {
                 continue;
             }
 
             if (self::flatLabel($node) !== '' || $frames[$index] === null) {
                 continue;
+            }
+
+            // The check box Compose draws inside the row has no state of its own: the row is
+            // what is checked.
+            foreach ($nodes as $otherIndex => $other) {
+                $inner = $frames[$otherIndex];
+
+                if ($otherIndex !== $index && is_array($other) && $inner !== null && self::frameInside($inner, $frames[$index])
+                    && str_contains((string) ($other['class'] ?? ''), 'CheckBox')) {
+                    $nodes[$otherIndex]['checked'] = 'true';
+                    $nodes[$otherIndex]['selected'] = 'true';
+                }
             }
 
             $labels = self::labelsInside($nodes, $frames, $drop, $index);
@@ -331,7 +357,17 @@ final class AccessibilityTree
             $labels = self::labelsInside($nodes, $frames, $drop, $index);
 
             if (count($labels) === 1) {
-                $nodes[$index]['content-desc'] = self::flatLabel($nodes[$labels[0]]);
+                $label = $nodes[$labels[0]];
+                $nodes[$index]['content-desc'] = self::flatLabel($label);
+
+                // A radio button reads its state from the row its words sit in. Compose
+                // draws the button a row lower than that row, so it is not inside it, but
+                // its words are.
+                foreach (['checked', 'selected', '__checkable'] as $state) {
+                    if (is_array($label) && self::truthy($label[$state] ?? false)) {
+                        $nodes[$index][$state] = 'true';
+                    }
+                }
             }
         }
 
@@ -827,6 +863,12 @@ final class AccessibilityTree
      */
     private static function value(array $node, ?string $role): ?string
     {
+        $current = self::string($node['range-current'] ?? null);
+
+        if ($current !== null && is_numeric($current)) {
+            return $current;
+        }
+
         foreach (['AXValue', 'value'] as $key) {
             $value = self::string($node[$key] ?? null);
 
@@ -840,6 +882,25 @@ final class AccessibilityTree
         }
 
         return null;
+    }
+
+    /**
+     * The lowest and highest value a slider takes, when the platform says. Android's reader
+     * reports it; iOS does not.
+     *
+     * @param  array<mixed>  $node
+     * @return array{0: float, 1: float}|null
+     */
+    private static function range(array $node): ?array
+    {
+        $min = self::string($node['range-min'] ?? null);
+        $max = self::string($node['range-max'] ?? null);
+
+        if ($min === null || $max === null || ! is_numeric($min) || ! is_numeric($max) || (float) $max <= (float) $min) {
+            return null;
+        }
+
+        return [(float) $min, (float) $max];
     }
 
     /**

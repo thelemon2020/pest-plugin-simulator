@@ -1,0 +1,28 @@
+<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>
+<!-- The sample app's /controls screen on an android-36 emulator, as the reader reads it.
+     Bounds and classes are from a real read, including Compose drawing each RadioButton a
+     row below the checkable row its words sit in. The slider's range attributes are what
+     the reader sends since it reports RangeInfo. Notifications is on; Subscribe is off. -->
+<hierarchy rotation="0" width="1080" height="2400">
+  <node class="android.widget.FrameLayout" package="com.thelemon2020.simulatorsample" bounds="[0,0][1080,2400]">
+    <node text="Notifications" class="android.widget.TextView" bounds="[42,385][281,434]" />
+    <node class="android.view.View" checkable="true" checked="true" bounds="[901,346][1038,472]">
+      <node content-desc="Notifications" class="android.view.View" bounds="[901,367][1038,451]" />
+    </node>
+    <node text="Notifications are on" class="android.widget.TextView" bounds="[42,514][414,563]" />
+    <node class="android.view.View" checkable="true" checked="false" bounds="[42,574][324,700]">
+      <node class="android.widget.CheckBox" bounds="[42,605][324,668]" />
+      <node text="Subscribe" class="android.widget.TextView" bounds="[126,605][324,668]" />
+    </node>
+    <node content-desc="Volume" class="android.view.View" range-min="0.0" range-max="100.0" range-current="20.0" bounds="[16,806][1064,922]" />
+    <node text="Plan" class="android.widget.TextView" bounds="[42,1340][130,1393]" />
+    <node class="android.view.View" checkable="true" checked="true" bounds="[42,1393][1038,1456]">
+      <node text="Free" class="android.widget.TextView" bounds="[126,1424][212,1456]" />
+    </node>
+    <node class="android.widget.RadioButton" bounds="[42,1424][1038,1487]" />
+    <node class="android.view.View" checkable="true" checked="false" bounds="[42,1456][1038,1519]">
+      <node text="Pro" class="android.widget.TextView" bounds="[126,1487][195,1519]" />
+    </node>
+    <node class="android.widget.RadioButton" bounds="[42,1487][1038,1550]" />
+  </node>
+</hierarchy>
