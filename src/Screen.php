@@ -44,6 +44,18 @@ final class Screen
     private const SHEET_SECONDS = 0.8;
 
     /**
+     * How many events the app has sent to PHP that PHP has not taken, as the last read's
+     * IdleMarker said. Null when the app shows no marker, and every wait is by looking.
+     */
+    private ?int $pending = null;
+
+    /**
+     * Whether idle() is waiting. read() taps iOS's "Open in" prompt through touch(), which
+     * waits through idle(), which reads: one wait is enough.
+     */
+    private bool $idling = false;
+
+    /**
      * When a read first had the sheet or alert that is up now, or null when the last read
      * had neither.
      */
@@ -172,7 +184,16 @@ final class Screen
 
                 // A password stays out of the trace, as it stays masked in tree.json.
                 $this->sent(['text', ($match['secure'] ?? false) === true ? str_repeat('•', mb_strlen($text)) : $text]);
-                $this->driver->text($text);
+
+                // A burst first, as fields take it best. Only a retry, for an app that says how
+                // far behind PHP is, goes a key at a time: the burst lost keys to a late answer.
+                if ($attempt > 1 && $this->pending !== null) {
+                    $this->note('paced', true);
+                    $this->paced($label, $match, $text);
+                } else {
+                    $this->driver->text($text);
+                }
+
                 $settled = $this->settled($label, $match, $text);
                 $this->note('attempts', $attempt);
                 $this->note('settled', $settled);
@@ -182,6 +203,45 @@ final class Screen
                 }
             }
         });
+    }
+
+    /**
+     * Types one character at a time, each once the field shows the one before and PHP has
+     * taken every event the app sent it, for an app that shows the IdleMarker. type() does
+     * this only after a burst lost keys: an ordinary field took about two seconds to show
+     * each key typed one at a time on iOS, where a burst settled at once.
+     *
+     * A `native:model` field sends PHP an event for each keystroke and writes back what PHP
+     * answers. Typed in one burst, an answer that comes back after the next keystroke writes
+     * an older value over the field: the sample app's field, whose PHP takes 300ms an
+     * event, kept one letter of "hello there" in three tries. With nothing still on its way
+     * to PHP when a key goes in, there is no older answer to write back.
+     *
+     * @param  Tappable  $field
+     */
+    private function paced(string $label, array $field, string $text): void
+    {
+        $typed = '';
+
+        foreach (mb_str_split($text) as $character) {
+            $typed .= $character;
+            $this->driver->text($character);
+            $deadline = microtime(true) + min(10.0, $this->timeoutSeconds);
+
+            do {
+                try {
+                    $elements = $this->read();
+                } catch (SimulatorException) {
+                    $elements = [];
+                }
+
+                if (! $this->busy() && $elements !== [] && $this->finder->holds($elements, $label, $field, $typed)) {
+                    break;
+                }
+
+                usleep(50_000);
+            } while (microtime(true) < $deadline);
+        }
     }
 
     /**
@@ -224,7 +284,9 @@ final class Screen
 
             $matches = $elements !== [] && $this->finder->holds($elements, $label, $field, $text, $this->stepNth);
 
-            if ($matches && $confirmed) {
+            // With the app's marker saying PHP has taken everything it was sent, there is no
+            // answer still on its way to change the field again: one read is enough.
+            if ($matches && ($confirmed || ($this->pending !== null && ! $this->busy()))) {
                 return true;
             }
 
@@ -355,12 +417,12 @@ final class Screen
         try {
             while (microtime(true) < $deadline) {
                 try {
-                    $current = $this->driver->describe();
+                    [$current, $this->pending] = IdleMarker::split($this->driver->describe());
                 } catch (SimulatorException) {
                     return;
                 }
 
-                if ($previous !== null && $current === $previous) {
+                if ($previous !== null && $current === $previous && ! $this->busy()) {
                     return;
                 }
 
@@ -1366,6 +1428,7 @@ final class Screen
      */
     private function touch(array $element): void
     {
+        $this->idle();
         $this->presented();
         $x = (float) $element['center'][0];
         $y = (float) $element['center'][1];
@@ -1459,6 +1522,14 @@ final class Screen
                 continue;
             }
 
+            // The app is still answering the last thing it was sent: what is on screen now
+            // may change, so it is not the answer yet.
+            if ($this->busy() && microtime(true) < $deadline) {
+                usleep(50_000);
+
+                continue;
+            }
+
             try {
                 if ($predicate($last)) {
                     return $last;
@@ -1480,6 +1551,10 @@ final class Screen
             $message .= $this->scopeMissing !== null
                 ? "\n\nCould not find [{$this->scopeMissing}] to look within."
                 : "\n\nLooked only within [".implode('] then [', $this->scopes).'].';
+        }
+
+        if ($this->busy()) {
+            $message .= "\n\nThe app was still busy: PHP had not taken {$this->pending} ".($this->pending === 1 ? 'event' : 'events').' it was sent.';
         }
 
         if ($unread !== null) {
@@ -1614,12 +1689,56 @@ final class Screen
         $this->tally('reads');
 
         try {
-            return $this->driver->describe();
+            [$elements, $this->pending] = IdleMarker::split($this->driver->describe());
         } catch (SimulatorException $exception) {
             $this->tally('failedReads');
 
             throw $exception;
         }
+
+        if ($this->busy()) {
+            $this->tally('busyReads');
+        }
+
+        return $elements;
+    }
+
+    /**
+     * Whether the last read's marker said PHP still had events to take.
+     */
+    private function busy(): bool
+    {
+        return $this->pending !== null && $this->pending > 0;
+    }
+
+    /**
+     * Reads until the app's marker says PHP has taken every event it was sent, or the time
+     * runs out. Returns at once for an app that shows no marker.
+     */
+    private function idle(?float $deadline = null): void
+    {
+        if (! $this->busy() || $this->timeoutSeconds <= 0 || $this->idling) {
+            return;
+        }
+
+        $deadline ??= microtime(true) + $this->timeoutSeconds;
+        $started = microtime(true);
+        $this->idling = true;
+
+        try {
+            do {
+                usleep(50_000);
+
+                try {
+                    $this->read();
+                } catch (SimulatorException) {
+                }
+            } while ($this->pending > 0 && microtime(true) < $deadline);
+        } finally {
+            $this->idling = false;
+        }
+
+        $this->tally('idleWait', microtime(true) - $started);
     }
 
     /**

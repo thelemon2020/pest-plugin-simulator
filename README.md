@@ -528,6 +528,18 @@ It saves `screen.png`, `tree.json`, and the logs as well, unless the device stop
 
 Each failure gets its own directory under `simulator-failures/`, named for when it failed.
 
+## Wait for the app, not the clock
+
+A tap or a keystroke on a NativePHP screen goes to PHP, and PHP answers with the next screen. The plugin cannot see that round trip, so it waits by looking: until two reads of the screen match, until a sheet has had time to slide in, until a field reads the same twice. A slow handler, or a busy machine, can outlast every one of those.
+
+An app can tell the plugin instead. When the screen has an element whose accessibility id is `nativephp-pending`, and whose label is how many events the app has sent PHP that PHP has not taken yet, the plugin:
+
+- does not take a read as an answer while the count is above 0, and says so when a step times out that way;
+- waits for 0 before it taps;
+- types one character at a time, each once the field shows the one before and the count is 0. A `native:model` field typed in one burst loses keys when PHP answers late: an answer that arrives after the next keystroke writes the older value back.
+
+A screen without that element is waited for as before. NativePHP does not show it yet. [docs/nativephp-idle-signal.md](docs/nativephp-idle-signal.md) has the change that adds it, for iOS and Android, and how it was checked on both.
+
 ## Debug a flaky test
 
 `dump()` prints the controls on screen, in the list a failure shows. It returns the screen, so the chain keeps going. Pest prints it once the test ends, whether it passed or failed.
