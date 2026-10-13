@@ -136,6 +136,16 @@ it('taps the photo again while the picker has not taken the tap', function () {
     expect($driver->presses)->toHaveCount(3);
 });
 
+it('fails when the picker never takes the tap on its photo', function () {
+    $picker = [systemControl('Photo, May 1', ['role' => 'Image', 'chrome' => 'photos', 'center' => [30.0, 80.0]])];
+    $driver = new FakeDriver([$picker]);
+
+    expect(fn () => (new Screen($driver, timeoutSeconds: 0))->pickPhoto())
+        ->toThrow(AssertionFailedError::class, 'The photo picker did not take a tap on its first photo, tapped 3 times.');
+
+    expect($driver->presses)->toHaveCount(3);
+});
+
 it('cancels the photo picker', function () {
     $driver = new FakeDriver([[
         systemControl('Cancel', ['center' => [10.0, 10.0]]),

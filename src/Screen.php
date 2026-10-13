@@ -438,21 +438,26 @@ final class Screen
 
                 do {
                     try {
-                        $elements = $this->read();
+                        $now = $this->read();
                     } catch (SimulatorException) {
-                        $elements = [];
+                        $now = [];
                     }
 
-                    $confirm = $this->finder->photoConfirm($elements);
+                    // A read that failed or came back empty says nothing about the picker,
+                    // so the next try works from the last one that did.
+                    if ($now !== []) {
+                        $elements = $now;
+                        $confirm = $this->finder->photoConfirm($elements);
 
-                    if ($confirm !== null) {
-                        $this->touch($confirm);
+                        if ($confirm !== null) {
+                            $this->touch($confirm);
 
-                        return;
-                    }
+                            return;
+                        }
 
-                    if ($elements !== [] && $this->finder->firstPhoto($elements) === null) {
-                        return;
+                        if ($this->finder->firstPhoto($elements) === null) {
+                            return;
+                        }
                     }
 
                     if ($this->timeoutSeconds > 0) {
@@ -460,6 +465,8 @@ final class Screen
                     }
                 } while (microtime(true) < $deadline);
             }
+
+            $this->fail('The photo picker did not take a tap on its first photo, tapped '.self::PICK_ATTEMPTS.' times.', $elements);
         });
     }
 
