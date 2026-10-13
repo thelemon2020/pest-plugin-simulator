@@ -339,9 +339,9 @@ final class AndroidDriver implements Driver
     }
 
     /**
-     * The field's IME action, through the reader: Compose runs a text field's keyboard
-     * action from that, and not from a KEYCODE_ENTER key event. The key event is what is
-     * left when the reader is not running.
+     * The focused field's IME action, through the reader, as the keyboard's action key would
+     * send it, or a KEYCODE_ENTER key event when the reader is not running. NativePHP 4.6's
+     * Android fields submit from neither: see Keyboard.enter() in the reader.
      */
     public function enter(): void
     {
