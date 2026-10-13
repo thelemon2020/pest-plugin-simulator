@@ -20,6 +20,7 @@ it('renders every screen', function (string $uri, string $text) {
     ['/sheet', 'Sheet closed'],
     ['/alerts', 'Nothing deleted'],
     ['/slow', 'Not started'],
+    ['/photos', 'No photo'],
 ]);
 
 it('saves the form', function () {

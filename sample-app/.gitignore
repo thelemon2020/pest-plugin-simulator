@@ -31,3 +31,4 @@ simulator-recordings/
 companion*.log
 emulator*.log
 probe/
+/tests/.pest/
