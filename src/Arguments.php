@@ -20,6 +20,8 @@ final class Arguments
 
     private const RECORD_FAILURES = 'NATIVEPHP_SIMULATOR_RECORD_FAILURES';
 
+    private const UPDATE_SCREENSHOTS = 'NATIVEPHP_SIMULATOR_UPDATE_SCREENSHOTS';
+
     /** @var list<'ios'|'android'>|null */
     private static ?array $platforms = null;
 
@@ -36,6 +38,8 @@ final class Arguments
 
     private static bool $recordFailures = false;
 
+    private static bool $updateScreenshots = false;
+
     private static bool $parsed = false;
 
     private static bool $excludedByPin = false;
@@ -49,7 +53,7 @@ final class Arguments
         self::$parsed = true;
         $parsed = self::parse($arguments);
 
-        if ($parsed['platforms'] === [] && $parsed['devices'] === [] && ! $parsed['doctor'] && ! $parsed['rebuild'] && ! $parsed['wipe'] && $parsed['verbose'] === null && ! $parsed['recordFailures']) {
+        if ($parsed['platforms'] === [] && $parsed['devices'] === [] && ! $parsed['doctor'] && ! $parsed['rebuild'] && ! $parsed['wipe'] && $parsed['verbose'] === null && ! $parsed['recordFailures'] && ! $parsed['updateScreenshots']) {
             self::hydrate();
 
             return $parsed['kept'];
@@ -62,6 +66,7 @@ final class Arguments
         self::$wipe = $parsed['wipe'];
         self::$verbose = $parsed['verbose'];
         self::$recordFailures = $parsed['recordFailures'];
+        self::$updateScreenshots = $parsed['updateScreenshots'];
         self::log($arguments);
         self::publish();
 
@@ -86,6 +91,11 @@ final class Arguments
     public static function wantsFailureRecordings(): bool
     {
         return self::$recordFailures;
+    }
+
+    public static function wantsScreenshotUpdate(): bool
+    {
+        return self::$updateScreenshots;
     }
 
     /**
@@ -170,6 +180,7 @@ final class Arguments
         self::$wipe = false;
         self::$verbose = null;
         self::$recordFailures = false;
+        self::$updateScreenshots = false;
         self::$parsed = false;
         self::$excludedByPin = false;
         self::expose(self::PLATFORMS, null);
@@ -178,6 +189,7 @@ final class Arguments
         self::expose(self::WIPE, null);
         self::expose(self::VERBOSE, null);
         self::expose(self::RECORD_FAILURES, null);
+        self::expose(self::UPDATE_SCREENSHOTS, null);
         VerboseLog::to(null);
         ParallelLanes::clearEnv();
     }
@@ -209,7 +221,7 @@ final class Arguments
 
     /**
      * @param  array<int, mixed>  $arguments  argv, where anything but a string is skipped
-     * @return array{platforms: list<'ios'|'android'>, devices: list<array{platform: 'ios'|'android'|null, name: string}>, doctor: bool, rebuild: bool, wipe: bool, verbose: ?string, recordFailures: bool, kept: list<string>}
+     * @return array{platforms: list<'ios'|'android'>, devices: list<array{platform: 'ios'|'android'|null, name: string}>, doctor: bool, rebuild: bool, wipe: bool, verbose: ?string, recordFailures: bool, updateScreenshots: bool, kept: list<string>}
      */
     private static function parse(array $arguments): array
     {
@@ -225,6 +237,7 @@ final class Arguments
         $wipe = false;
         $verbose = null;
         $recordFailures = false;
+        $updateScreenshots = false;
         $kept = [];
         $count = count($arguments);
 
@@ -258,6 +271,12 @@ final class Arguments
 
             if ($argument === '--record-failures') {
                 $recordFailures = true;
+
+                continue;
+            }
+
+            if ($argument === '--update-screenshots') {
+                $updateScreenshots = true;
 
                 continue;
             }
@@ -304,6 +323,7 @@ final class Arguments
             'wipe' => $wipe,
             'verbose' => $verbose,
             'recordFailures' => $recordFailures,
+            'updateScreenshots' => $updateScreenshots,
             'kept' => $kept,
         ];
     }
@@ -388,6 +408,7 @@ final class Arguments
         self::expose(self::WIPE, self::$wipe ? '1' : null);
         self::expose(self::VERBOSE, self::$verbose);
         self::expose(self::RECORD_FAILURES, self::$recordFailures ? '1' : null);
+        self::expose(self::UPDATE_SCREENSHOTS, self::$updateScreenshots ? '1' : null);
     }
 
     /**
@@ -434,6 +455,7 @@ final class Arguments
         self::$rebuild = getenv(self::REBUILD) === '1';
         self::$wipe = getenv(self::WIPE) === '1';
         self::$recordFailures = getenv(self::RECORD_FAILURES) === '1';
+        self::$updateScreenshots = getenv(self::UPDATE_SCREENSHOTS) === '1';
         $verbose = getenv(self::VERBOSE);
         self::$verbose = is_string($verbose) && $verbose !== '' ? $verbose : null;
         VerboseLog::to(self::$verbose);

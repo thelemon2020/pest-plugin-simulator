@@ -68,6 +68,38 @@ class Command
     }
 
     /**
+     * The environment a command runs in: this process's own, with a UTF-8 locale when it has
+     * none. CocoaPods, which `native:run ios` runs, stops when the locale is not UTF-8: under
+     * a shell that set no LANG at all, `pod install` died with an Encoding::CompatibilityError
+     * and every test failed its build.
+     *
+     * The locale is LC_ALL, then LC_CTYPE, then LANG, the first one set. LC_ALL wins over
+     * the other two, so that is the one set here.
+     *
+     * @param  array<string, string>|null  $environment  this process's, by default
+     * @return array<string, string>|null null for this process's own, unchanged
+     */
+    public static function environment(?array $environment = null): ?array
+    {
+        $current = $environment ?? getenv();
+        $locale = '';
+
+        foreach (['LC_ALL', 'LC_CTYPE', 'LANG'] as $name) {
+            if (($current[$name] ?? '') !== '') {
+                $locale = $current[$name];
+
+                break;
+            }
+        }
+
+        if (preg_match('/utf-?8/i', $locale) === 1) {
+            return $environment;
+        }
+
+        return ['LC_ALL' => 'en_US.UTF-8'] + $current;
+    }
+
+    /**
      * @param  list<string>  $command
      */
     private function execute(array $command, ?string $stdin, ?string $cwd, float $timeout): string
@@ -79,7 +111,7 @@ class Command
         }
 
         $started = self::now();
-        $process = proc_open($command, $descriptor, $pipes, $cwd);
+        $process = proc_open($command, $descriptor, $pipes, $cwd, self::environment());
 
         if (! is_resource($process)) {
             $this->log($started, 'not run', $command);

@@ -89,6 +89,14 @@ final class FakeDriver implements Driver
 
     public float $homeIndicator = 0.0;
 
+    /** @var list<array<string, mixed>> */
+    public array $pushes = [];
+
+    /**
+     * An image file screenshot() copies, instead of writing a placeholder.
+     */
+    public ?string $screen = null;
+
     private int $reads = 0;
 
     /**
@@ -158,6 +166,11 @@ final class FakeDriver implements Driver
         $this->cleared = $characters;
     }
 
+    public function enter(): void
+    {
+        $this->events[] = ['enter'];
+    }
+
     public function text(string $text): void
     {
         $this->texts[] = $text;
@@ -175,6 +188,12 @@ final class FakeDriver implements Driver
 
     public function screenshot(string $path): void
     {
+        if ($this->screen !== null) {
+            copy($this->screen, $path);
+
+            return;
+        }
+
         file_put_contents($path, 'png');
     }
 
@@ -250,6 +269,22 @@ final class FakeDriver implements Driver
     {
         $this->relaunches++;
         $this->events[] = ['relaunch'];
+    }
+
+    public function addMedia(string $path): void
+    {
+        $this->events[] = ['addMedia', $path];
+    }
+
+    public function biometric(string $action): void
+    {
+        $this->events[] = ['biometric', $action];
+    }
+
+    public function push(array $payload): void
+    {
+        $this->pushes[] = $payload;
+        $this->events[] = ['push'];
     }
 
     private function setting(string $name, mixed $value): void

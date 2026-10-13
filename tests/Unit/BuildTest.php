@@ -144,9 +144,13 @@ it('builds android when nothing is installed', function () {
 
     buildOnce($driver);
 
+    $adb = AndroidSdk::binary('platform-tools/adb', 'adb');
+
     expect($command->calls)->toBe([
-        [AndroidSdk::binary('platform-tools/adb', 'adb'), ['-s', 'emulator-5554', 'shell', 'pm', 'path', 'com.example.app']],
+        [$adb, ['-s', 'emulator-5554', 'shell', 'pm', 'path', 'com.example.app']],
         ['php', ['artisan', 'native:run', 'android', 'emulator-5554', '--build=debug', '--no-tty']],
+        [$adb, ['-s', 'emulator-5554', 'shell', 'am', 'force-stop', 'com.example.app']],
+        [$adb, ['-s', 'emulator-5554', 'shell', 'run-as', 'com.example.app', 'rm', '-rf', 'app_storage/laravel']],
     ]);
 });
 
@@ -161,8 +165,12 @@ it('rebuilds android when asked', function () {
 
     buildOnce($driver);
 
+    // The rebuilt app unpacks its new Laravel bundle on its next launch only once the copy
+    // it unpacked before is gone: its version has not changed.
     expect($command->calls)->toBe([
         ['php', ['artisan', 'native:run', 'android', 'emulator-5554', '--build=debug', '--no-tty']],
+        [AndroidSdk::binary('platform-tools/adb', 'adb'), ['-s', 'emulator-5554', 'shell', 'am', 'force-stop', 'com.example.app']],
+        [AndroidSdk::binary('platform-tools/adb', 'adb'), ['-s', 'emulator-5554', 'shell', 'run-as', 'com.example.app', 'rm', '-rf', 'app_storage/laravel']],
     ]);
 });
 

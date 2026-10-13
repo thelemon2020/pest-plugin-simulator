@@ -476,10 +476,6 @@ it('waits for a sheet that just opened before answering it without locate()', fu
         [control('Note', ['role' => 'StaticText'])],
         fn (Screen $screen) => $screen->goBack(), 0, 1,
     ],
-    'alert()' => [
-        [control('Delete', ['chrome' => 'alert'])],
-        fn (Screen $screen) => $screen->alert('Delete'), 1, 0,
-    ],
     'share() to a target' => [
         [control('Copy', ['chrome' => 'share'])],
         fn (Screen $screen) => $screen->share('Copy'), 1, 0,
@@ -497,7 +493,7 @@ it('waits for a sheet that just opened before answering it without locate()', fu
             control('Photo, first', ['role' => 'Image', 'chrome' => 'photos', 'center' => [40.0, 120.0]]),
             control('Add', ['chrome' => 'photos', 'center' => [300.0, 700.0]]),
         ],
-        fn (Screen $screen) => $screen->pickPhoto(), 2, 0,
+        fn (Screen $screen) => $screen->pickPhoto(), 1, 0,
     ],
     'cancelPhoto()' => [
         [control('Cancel', ['chrome' => 'photos'])],
@@ -821,4 +817,18 @@ it('scrolls a control out from under an iOS software keyboard before tapping it'
 
     expect($driver->swipes)->toHaveCount(1)
         ->and($driver->taps)->toBe([[46.0, 400.0]]);
+});
+
+it('taps a key on the iOS software keyboard where it is', function () {
+    $driver = new FakeDriver([[
+        control('Name', ['role' => 'TextField', 'center' => [200.0, 300.0]]),
+        control('q', ['role' => 'Key', 'center' => [22.0, 611.0]]),
+        control('Go', ['role' => 'Key', 'center' => [360.0, 790.0]]),
+    ]]);
+    $driver->viewport = [402.0, 874.0];
+
+    (new Screen($driver, timeoutSeconds: 0))->tap('Go');
+
+    expect($driver->swipes)->toBe([])
+        ->and($driver->taps)->toBe([[360.0, 790.0]]);
 });

@@ -14,10 +14,14 @@ use NativePhp\Simulator\Exceptions\NoMatch;
 final class ElementFinder
 {
     /**
+     * The control a label names: its accessibility id, then an exact label, then a label
+     * that contains the text. With $nth, the nth of those in reading order (top to bottom,
+     * then left to right), counting from 1, instead of one picked by role.
+     *
      * @param  list<Element>  $elements
      * @return Tappable
      */
-    public function match(array $elements, string $target): array
+    public function match(array $elements, string $target, ?int $nth = null): array
     {
         $tappable = array_values(array_filter(
             $elements,
@@ -49,6 +53,10 @@ final class ElementFinder
             foreach ([
                 fn (array $element): bool => ($element['id'] ?? null) === $target,
                 fn (array $element): bool => $element['label'] === $target,
+                // Android draws a dialog's buttons in capitals: DELETE for a button named
+                // Delete. Without this, alert('Delete') found the title "Delete everything?"
+                // by the words it contains, and tapped that instead.
+                fn (array $element): bool => mb_strtolower($element['label']) === mb_strtolower($target),
                 fn (array $element): bool => str_contains($element['label'], $target),
             ] as $predicate) {
                 $matches = array_values(array_filter($pool, $predicate));
@@ -57,7 +65,7 @@ final class ElementFinder
                     continue;
                 }
 
-                return $this->choose($matches, $target);
+                return $nth === null ? $this->choose($matches, $target) : $this->nth($matches, $target, $nth);
             }
         }
 
@@ -180,10 +188,10 @@ final class ElementFinder
     /**
      * @param  list<Element>  $elements
      */
-    public function hasValue(array $elements, string $target, string $value): bool
+    public function hasValue(array $elements, string $target, string $value, ?int $nth = null): bool
     {
         try {
-            return $this->valueOf($elements, $target) === $value;
+            return $this->valueOf($elements, $target, $nth) === $value;
         } catch (NoMatch) {
             return false;
         }
@@ -198,10 +206,10 @@ final class ElementFinder
      * @param  list<Element>  $elements
      * @param  Tappable  $field
      */
-    public function holds(array $elements, string $target, array $field, string $value): bool
+    public function holds(array $elements, string $target, array $field, string $value, ?int $nth = null): bool
     {
         try {
-            if ($this->shows($this->match($elements, $target), $value)) {
+            if ($this->shows($this->match($elements, $target, $nth), $value)) {
                 return true;
             }
         } catch (NoMatch) {
@@ -253,18 +261,18 @@ final class ElementFinder
     /**
      * @param  list<Element>  $elements
      */
-    public function valueOf(array $elements, string $target): string
+    public function valueOf(array $elements, string $target, ?int $nth = null): string
     {
-        return $this->value($this->match($elements, $target));
+        return $this->value($this->match($elements, $target, $nth));
     }
 
     /**
      * @param  list<Element>  $elements
      */
-    public function isEnabled(array $elements, string $target, bool $enabled): bool
+    public function isEnabled(array $elements, string $target, bool $enabled, ?int $nth = null): bool
     {
         try {
-            $match = $this->match($elements, $target);
+            $match = $this->match($elements, $target, $nth);
         } catch (NoMatch) {
             return false;
         }
@@ -275,10 +283,10 @@ final class ElementFinder
     /**
      * @param  list<Element>  $elements
      */
-    public function isChecked(array $elements, string $target, bool $checked): bool
+    public function isChecked(array $elements, string $target, bool $checked, ?int $nth = null): bool
     {
         try {
-            $match = $this->match($elements, $target);
+            $match = $this->match($elements, $target, $nth);
         } catch (NoMatch) {
             return false;
         }
@@ -294,10 +302,10 @@ final class ElementFinder
      *
      * @param  list<Element>  $elements
      */
-    public function isSelected(array $elements, string $target, bool $selected): bool
+    public function isSelected(array $elements, string $target, bool $selected, ?int $nth = null): bool
     {
         try {
-            $match = $this->match($elements, $target);
+            $match = $this->match($elements, $target, $nth);
         } catch (NoMatch) {
             return false;
         }
@@ -413,7 +421,30 @@ final class ElementFinder
      */
     public function photoButton(array $elements, string $label): ?array
     {
-        return $this->labeled($elements, 'photos', $label);
+        $button = $this->labeled($elements, 'photos', $label);
+
+        if ($button !== null || ! $this->showsPhotos($elements)) {
+            return $button;
+        }
+
+        // iOS 26 puts the picker's Cancel in a bar outside its photo grid. Its id is
+        // Cancel in every language.
+        foreach ($elements as $element) {
+            if (($element['role'] ?? null) === 'Button' && ($element['id'] ?? null) === $label && is_array($element['center'] ?? null)) {
+                /** @var Tappable $element */
+                return $element;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  list<Element>  $elements
+     */
+    private function showsPhotos(array $elements): bool
+    {
+        return $this->within($elements, 'photos') !== [];
     }
 
     /**
@@ -430,6 +461,18 @@ final class ElementFinder
 
         if ($photos === []) {
             return null;
+        }
+
+        // iOS 26's picker puts the Photos app's icon in a banner above the grid, an image
+        // with no label like the photos. Its tiles carry a PXGGridLayout id: when any do,
+        // only they are photos.
+        $tiles = array_values(array_filter(
+            $photos,
+            fn (array $photo): bool => str_starts_with((string) ($photo['id'] ?? ''), 'PXGGridLayout'),
+        ));
+
+        if ($tiles !== []) {
+            $photos = $tiles;
         }
 
         usort($photos, function (array $left, array $right): int {
@@ -473,6 +516,16 @@ final class ElementFinder
     }
 
     /**
+     * An alert or action sheet is up.
+     *
+     * @param  list<Element>  $elements
+     */
+    public function hasAlert(array $elements): bool
+    {
+        return $this->within($elements, 'alert') !== [];
+    }
+
+    /**
      * An iOS sheet is up: the dimming view it lays over the screen behind it. iOS names that
      * view by its class and gives it an identifier, neither of them translated.
      *
@@ -487,6 +540,39 @@ final class ElementFinder
         }
 
         return false;
+    }
+
+    /**
+     * The top of the iOS sheet that is up: the first control after the dimming view the
+     * sheet lays over the screen behind it, which is its grabber. Null with no sheet.
+     *
+     * @param  list<Element>  $elements
+     * @return Tappable|null
+     */
+    public function sheetTop(array $elements): ?array
+    {
+        $dimming = null;
+
+        foreach ($elements as $index => $element) {
+            if (($element['role'] ?? null) === 'UIDimmingView' || ($element['id'] ?? null) === 'PopoverDismissRegion') {
+                $dimming = $index;
+            }
+        }
+
+        if ($dimming === null) {
+            return null;
+        }
+
+        $top = null;
+
+        foreach (array_slice($elements, $dimming + 1) as $element) {
+            if (is_array($element['center'] ?? null) && ($top === null || $element['center'][1] < $top['center'][1])) {
+                /** @var Tappable $element */
+                $top = $element;
+            }
+        }
+
+        return $top;
     }
 
     /**
@@ -600,6 +686,23 @@ final class ElementFinder
      * @param  list<Tappable>  $matches
      * @return Tappable
      */
+    private function nth(array $matches, string $target, int $nth): array
+    {
+        usort($matches, function (array $left, array $right): int {
+            $vertical = $left['center'][1] <=> $right['center'][1];
+
+            return $vertical !== 0 ? $vertical : $left['center'][0] <=> $right['center'][0];
+        });
+
+        return $matches[$nth - 1] ?? throw new NoMatch($target, count($matches) === 1
+            ? "Found one [{$target}], so there is no number {$nth}."
+            : 'Found '.count($matches)." [{$target}], so there is no number {$nth}.");
+    }
+
+    /**
+     * @param  list<Tappable>  $matches
+     * @return Tappable
+     */
     private function choose(array $matches, string $target): array
     {
         $buttons = array_values(array_filter(
@@ -640,10 +743,45 @@ final class ElementFinder
             }
         }
 
+        // A toggle and the caption beside it often say the same words. The toggle is the one
+        // that checks: Android's toggle row, or an iOS Switch.
+        if (count($pool) > 1) {
+            $checkable = array_values(array_filter(
+                $pool,
+                fn (array $element): bool => ($element['checkable'] ?? false) === true,
+            ));
+
+            if (count($checkable) === 1) {
+                return $checkable[0];
+            }
+        }
+
+        // Android draws a tab or a button's words as a node of their own on top of the
+        // control, in the same place. Matches that all sit on one spot are one control.
+        if (count($pool) > 1 && $this->samePlace($pool)) {
+            return $pool[0];
+        }
+
         if (count($pool) > 1) {
             throw new AmbiguousMatch($target);
         }
 
         return $pool[0];
+    }
+
+    /**
+     * @param  list<Tappable>  $matches
+     */
+    private function samePlace(array $matches): bool
+    {
+        [$x, $y] = $matches[0]['center'];
+
+        foreach ($matches as $match) {
+            if (abs($match['center'][0] - $x) > 2 || abs($match['center'][1] - $y) > 2) {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

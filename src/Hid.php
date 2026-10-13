@@ -145,6 +145,14 @@ final class Hid
     }
 
     /**
+     * @return list<string>
+     */
+    public static function enter(): array
+    {
+        return self::key(40, false);
+    }
+
+    /**
      * The Home button's press and release. idb's HIDButtonType numbers Home 1.
      *
      * @return list<string>

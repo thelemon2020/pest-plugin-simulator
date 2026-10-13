@@ -176,6 +176,18 @@ On iOS the file is `Library/Application Support/database/database.sqlite`. On An
 
 Another `screen()` in the same test keeps rows the app has written. The next test copies the database again.
 
+A test that only reads can skip the copy. Call `keepDatabase()` before its first `screen()`. The app keeps the database it has, and it is not stopped, so the screen opens without a cold launch. The next test copies again.
+
+```php
+it('shows the settings title', function () {
+    keepDatabase();
+
+    screen('/settings')->assertNavTitle('Settings');
+});
+```
+
+`Configuration::configure(['copy_database' => false])` skips the copy in every test.
+
 The database must be a file. Set `DB_CONNECTION=sqlite`. An in-memory database cannot be copied, so the test stops.
 
 ## Drive the screen
@@ -221,6 +233,57 @@ The plugin only sees native controls. A `<webview>` is one node. Blade and Livew
 
 `tap()`, `press()`, `type()`, and the assertions look for an accessibility id first, then an exact label, then a label that contains the text. The label is what the phone reads aloud: the visible text, or the `a11y-label`. An icon button, chip, tab, or nav action has no label until that prop is set. `tap('save-button')` matches an accessibility id even when the control has no visible text. A field with no label is named by its placeholder, but only while it is empty: iOS reports the placeholder as the field's value, and typed text replaces it. A multiline field that draws its placeholder as text over itself is named by that text the same way. An icon in the field, like a `leadingIcon`, is not its name. `type()` checks the field where it tapped, so `type('Search…', 'Talk')` works. `assertValue('Search…', 'Talk')` cannot find that field. Give it a label to assert its value.
 
+When a label matches more than one button, the call fails and names the label. Two calls choose between them.
+
+`within()` looks inside one control: an alert, a sheet, or a row, named by its label or accessibility id. The closure gets the screen narrowed to the controls whose center is inside that control. The control is found again on every read, so it can scroll. The screen `within()` returns still sees everything.
+
+```php
+screen('/orders')
+    ->within('order-42', fn ($order) => $order->tap('Pay')->assertSee('Paid'))
+    ->assertSee('1 order paid');
+```
+
+`nth()` picks one match for the next call, counting from 1 from the top of the screen, then left to right. It works with any call that looks up one control, including the assertions that read a control's state.
+
+```php
+screen('/basket')
+    ->nth(2)->tap('Remove')
+    ->nth(1)->assertChecked('Gift wrap');
+```
+
+`within()` needs a container the platform shows as one element: an alert, a sheet, a list row, or a view an app gives its own accessibility container. NativePHP does not do that for a `<native:column>` yet, even with an `a11y-label`: its children are read on their own, and the label goes nowhere. On those screens, `nth()` picks between the repeated controls instead.
+
+## Fill in controls
+
+These calls read the control's state first and wait until it reads what they asked for. They are named after the calls in NativePHP's own test harness, so a test can move from `Native::test()` to a device with few changes.
+
+```php
+screen('/settings')
+    ->toggle('Notifications', true)
+    ->check('Subscribe')
+    ->select('Size', 'Large')
+    ->selectRadio('Plan', 'Pro')
+    ->slide('Volume', 75, min: 0, max: 100)
+    ->changeTab('Activity')
+    ->submit('Search…', 'Talk Talk');
+```
+
+`toggle('Notifications', true)` turns a switch on, and taps it only while it is off. `toggle('Notifications')` flips it. `check('Subscribe')` and `uncheck('Subscribe')` do the same for a checkbox. When the control does not change, the call fails: `[Notifications] stayed off.`
+
+`select('Size', 'Large')` taps the picker, then taps the option that appeared when it opened. The picker's own label for the current choice is not an option, so `select('Size', 'Medium')` picks Medium from the menu even when Medium is showing already.
+
+`selectRadio('Plan', 'Pro')` taps the option under the group's label, not one with the same name in a group further down, and waits until it reads as selected.
+
+`slide('Volume', 75)` drags the slider's thumb to that value. It works out where the thumb is from the value and the slider's range, then aims each drag by how far the last one moved the value, up to five drags. Android reports the range. iOS does not, so pass the `min` and `max` the `<native:slider>` has.
+
+`changeTab('Activity')` taps a tab in a `<native:tab-row>` or tab bar, and waits until it is the active one.
+
+`submit('Search…', 'Talk Talk')` types into the field, then presses the keyboard's return key. Leave the text off to press return in a field that has its text already. On Android, it performs the field's IME action. NativePHP 4.6 runs a field's `@submit` only from the keyboard's own Done key, which Gboard does not show to a test, so `submit()` does not submit a NativePHP field on Android yet.
+
+`dismissSheet()` closes the sheet that is up. On iOS it drags the sheet down by its grabber, and waits until the sheet has gone. Android presses Back, which closes a bottom sheet. When no sheet is open, it presses Back on either platform, which goes back a screen.
+
+`longPress()`, `input()`, and `pressBack()` are `press()`, `type()`, and `goBack()` under the harness's names.
+
 ## Screenshots and recordings
 
 These calls go inside a test that is wrapped in `mobile()`.
@@ -235,6 +298,20 @@ screen('/settings')
 ```
 
 A failed assertion also writes its own `screen.png`, next to `tree.json`. That file is separate from a path you passed to `screenshot()`.
+
+`assertScreenshotMatches()` compares the screen with a baseline saved by an earlier run. The first run saves the baseline and passes. Commit the baseline. On CI, where the `CI` environment variable is `true`, a missing baseline fails instead, so a baseline is never made up on a machine nobody looks at.
+
+```php
+screen('/settings')
+    ->assertSee('Settings')
+    ->assertScreenshotMatches();
+```
+
+The baseline is `tests/.pest/simulator-screenshots/` plus the test, the platform, and the device: `shows-the-settings-ios-iphone-17-pro.png`. Each device has its own. Pass a name for a second baseline in the same test: `assertScreenshotMatches('empty')`.
+
+Before the screenshot, the status bar is fixed at 9:41 with full signal and battery, as `fixStatusBar()` does, so the clock is not a change. The screen is compared at half size, and a color less than 24 out of 255 away in every channel counts as the same, which absorbs antialiasing. Up to 0.1% of the pixels can differ. `assertScreenshotMatches(threshold: 0.01)` allows 1%. A screen still moving gets until the timeout to match.
+
+A mismatch fails with how much changed, and writes `screenshot-diff.png`, the new screen with the changed pixels in red, next to `screen.png` and `tree.json`. `vendor/bin/pest --update-screenshots` saves every baseline again. It needs PHP's `gd` extension.
 
 `record()` saves an mp4 of the device. `stopRecord()` ends that clip. Both work as their own call, and both work on the screen.
 
@@ -400,6 +477,47 @@ screen('/settings')
 
 The iOS "Open in…" dialog and Android's "Wait" button are closed automatically.
 
+## Photos, Face ID, and push
+
+`addPhoto()` puts an image or video in the device's photo library, so `pickPhoto()` has a known picture to choose. Call it before the first `screen()`, or on the screen. A relative path is read from the directory the tests run in. The photo stays in the library until `--wipe`.
+
+```php
+addPhoto('tests/fixtures/cat.jpg');
+
+screen('/profile')
+    ->tap('Change photo')
+    ->pickPhoto();
+```
+
+iOS runs `xcrun simctl addmedia`. Android pushes the file to `/sdcard/Pictures` and asks the media scanner to list it.
+
+`matchBiometric()` answers the Face ID or fingerprint prompt on screen with a match. `failBiometric()` answers it with a face or finger the device does not know. Tap the control that asks first.
+
+```php
+screen('/vault')
+    ->tap('Unlock')
+    ->matchBiometric()
+    ->assertSee('Unlocked');
+```
+
+On iOS, both calls first enroll a face and a finger, then post the Simulator's own match or no-match notification for both sensors with `notifyutil`. An app often checks that something is enrolled before it offers Face ID at all. Call `enrollBiometrics()` before the first `screen()` for that app. Enrollment stays until `--wipe`.
+
+On Android, `matchBiometric()` touches finger 1 with `adb emu finger touch`, and `failBiometric()` touches finger 99, which was never enrolled. adb cannot enroll a finger. Set a screen lock and enroll one in the emulator's Settings once, and the AVD keeps it.
+
+`push()` delivers a push notification to the app, the way APNs would. It takes a title, a body, and custom keys for the app to read. It works on the iOS Simulator only. Android delivers push notifications through Firebase, and the emulator cannot fake one.
+
+```php
+screen('/orders')
+    ->push('Order shipped', 'It arrives Tuesday', ['order' => 42])
+    ->assertSee('Order 42 shipped');
+```
+
+iOS runs `xcrun simctl push` with this payload:
+
+```json
+{"aps": {"alert": {"title": "Order shipped", "body": "It arrives Tuesday"}, "sound": "default"}, "order": 42}
+```
+
 ## When an assertion fails
 
 A failed assertion writes `tree.json`, `screen.png`, `trace.json`, and `trace.txt`. A recording that is still running is stopped and kept. It also copies `laravel.log` out of the app: `Library/Application Support/storage/logs/laravel.log` on iOS, and `app_storage/persisted_data/storage/logs/laravel.log` on Android. Android also writes `logcat.txt` for that app id. The failure message lists each file it wrote, and it lists the controls on screen. When the last attempt to read the screen failed, for example because the app stopped answering, the message says so. A control with no label is named by its role, and by its accessibility id when it has one.
@@ -425,6 +543,18 @@ A test can also end with an error from the device, such as a companion call or a
 It saves `screen.png`, `tree.json`, and the logs as well, unless the device stopped answering. When the companion stopped, it skips `tree.json`, which comes from the companion on iOS. When a command ran out of time, it saves only the trace. The error lists each file it wrote. A test that expects the error, with `throws()`, saves nothing.
 
 Each failure gets its own directory under `simulator-failures/`, named for when it failed.
+
+## Wait for the app, not the clock
+
+A tap or a keystroke on a NativePHP screen goes to PHP, and PHP answers with the next screen. The plugin cannot see that round trip, so it waits by looking: until two reads of the screen match, until a sheet has had time to slide in, until a field reads the same twice. A slow handler, or a busy machine, can outlast every one of those.
+
+An app can tell the plugin instead. When the screen has an element whose accessibility id is `nativephp-pending`, and whose label is how many events the app has sent PHP that PHP has not taken yet, the plugin:
+
+- does not take a read as an answer while the count is above 0, and says so when a step times out that way;
+- waits for 0 before it taps;
+- types one character at a time, each once the field shows the one before and the count is 0. A `native:model` field typed in one burst loses keys when PHP answers late: an answer that arrives after the next keystroke writes the older value back.
+
+A screen without that element is waited for as before. NativePHP does not show it yet. [docs/nativephp-idle-signal.md](docs/nativephp-idle-signal.md) has the change that adds it, for iOS and Android, and how it was checked on both.
 
 ## Debug a flaky test
 
