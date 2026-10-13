@@ -21,6 +21,14 @@ final class RecordingClient extends Client
      */
     public array $trees = [];
 
+    /**
+     * Unary methods that fail, such as `setting` on a companion that cannot connect a
+     * hardware keyboard. Any other method but `accessibility_info` answers with nothing.
+     *
+     * @var list<string>
+     */
+    public array $failing = [];
+
     private int $reads = 0;
 
     public function __construct()
@@ -31,6 +39,14 @@ final class RecordingClient extends Client
     public function unary(string $method, string $message): string
     {
         $this->calls[] = ['unary', $method, [$message]];
+
+        if (in_array($method, $this->failing, true)) {
+            throw new SimulatorException("Companion [{$method}] failed: scripted");
+        }
+
+        if ($method !== 'accessibility_info') {
+            return '';
+        }
 
         if ($this->trees === []) {
             throw new SimulatorException("Companion [{$method}] failed: nothing scripted");

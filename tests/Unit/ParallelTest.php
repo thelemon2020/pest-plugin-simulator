@@ -111,6 +111,55 @@ it('leaves a booted worker simulator up when the hardware keyboard is already co
     });
 });
 
+it('turns off what changes typed text once per simulator, leaving what is already off', function () {
+    withWorker(1, function (): void {
+        [$command, $driver] = iosWorker(simulatorJson([
+            ['name' => 'iPhone 17 pest-1', 'udid' => 'CLONE', 'state' => 'Booted', 'isAvailable' => true],
+        ]));
+        $command->outputs['ConnectHardwareKeyboard'] = "1\n";
+        $command->outputs['export'] = '<plist version="1.0"><dict>'
+            ."<key>KeyboardAutocorrection</key>\n\t<false/>"
+            .'<key>KeyboardPrediction</key><true/>'
+            .'<key>HWKeyboardAutocorrection</key><false/>'
+            .'</dict></plist>';
+
+        $driver->ensureReady();
+        $driver->ensureReady();
+
+        $spawned = array_values(array_filter($command->calls, fn (array $call): bool => in_array('spawn', $call[1], true)));
+        $written = array_map(fn (array $call): string => $call[1][6], array_slice($spawned, 1));
+
+        expect($spawned[0])->toBe(['xcrun', ['simctl', 'spawn', 'CLONE', 'defaults', 'export', 'com.apple.keyboard.preferences', '-']])
+            ->and($spawned[1])->toBe(['xcrun', ['simctl', 'spawn', 'CLONE', 'defaults', 'write', 'com.apple.keyboard.preferences', 'KeyboardAutocapitalization', '-bool', 'NO']])
+            ->and($written)->toBe([
+                'KeyboardAutocapitalization',
+                'KeyboardCheckSpelling',
+                'KeyboardPrediction',
+                'KeyboardInlineCompletion',
+                'KeyboardPeriodShortcut',
+                'HWKeyboardAutocapitalization',
+                'HWKeyboardPeriodShortcut',
+                'SmartQuotesEnabled',
+                'SmartDashesEnabled',
+            ]);
+    });
+});
+
+it('boots on when the keyboard settings cannot be read or written', function () {
+    withWorker(1, function (): void {
+        [$command, $driver] = iosWorker(simulatorJson([
+            ['name' => 'iPhone 17 pest-1', 'udid' => 'CLONE', 'state' => 'Booted', 'isAvailable' => true],
+        ]));
+        $command->outputs['ConnectHardwareKeyboard'] = "1\n";
+        $command->failures['spawn'] = 'Unable to spawn';
+
+        $driver->ensureReady();
+
+        expect(array_filter($command->calls, fn (array $call): bool => in_array('spawn', $call[1], true)))->toHaveCount(12)
+            ->and($command->calls)->toContain(['/bin/echo', ['--udid', 'CLONE', '--grpc-port', '10884', '--log-level', 'info']]);
+    });
+});
+
 it('replaces a worker simulator cloned from an older runtime', function () {
     withWorker(1, function (): void {
         [$command, $driver] = iosWorker((string) json_encode([
@@ -860,6 +909,7 @@ function resetDriverState(): void
     (new ReflectionProperty(AndroidDriver::class, 'privateSerial'))->setValue(null, null);
     (new ReflectionProperty(AndroidDriver::class, 'privateDevice'))->setValue(null, null);
     (new ReflectionProperty(IosDriver::class, 'hardwareKeyboard'))->setValue(null, false);
+    (new ReflectionProperty(IosDriver::class, 'correctionsOff'))->setValue(null, []);
     (new ReflectionProperty(IosDriver::class, 'wiped'))->setValue(null, []);
     (new ReflectionProperty(AndroidDriver::class, 'wiped'))->setValue(null, []);
     (new ReflectionProperty(IosDriver::class, 'ready'))->setValue(null, null);

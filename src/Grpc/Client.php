@@ -70,8 +70,8 @@ class Client
     ) {}
 
     /**
-     * The only unary call made is a read (accessibility_info), so one can always be sent
-     * again.
+     * The unary calls made are a read (accessibility_info) and turning a setting on
+     * (setting), so one can always be sent again.
      */
     public function unary(string $method, string $message): string
     {

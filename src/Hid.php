@@ -192,6 +192,16 @@ final class Hid
         ];
     }
 
+    /**
+     * idb's SettingRequest with its HardwareKeyboard case (field 1) turned on: the Simulator
+     * then has a hardware keyboard connected, as Simulator.app's Connect Hardware Keyboard
+     * does, and parks the software keyboard below the display.
+     */
+    public static function hardwareKeyboard(): string
+    {
+        return Protobuf::messageField(1, Protobuf::varintField(1, 1));
+    }
+
     public static function accessibilityInfo(): string
     {
         // format=COMPLETE (field 3), backend=AXBRIDGE (field 8) — see idb's idb.proto

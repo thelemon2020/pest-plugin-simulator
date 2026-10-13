@@ -27,6 +27,9 @@ final class IosDriver implements Driver
     private static bool $hardwareKeyboard = false;
 
     /** @var array<string, true> */
+    private static array $correctionsOff = [];
+
+    /** @var array<string, true> */
     private static array $wiped = [];
 
     private const CALL_TIMEOUT_FLOOR_SECONDS = 10.0;
@@ -62,7 +65,14 @@ final class IosDriver implements Driver
             $this->bootShared();
         }
 
+        $this->turnOffTextCorrections();
+        $client = $this->client;
         $this->startCompanion();
+
+        if ($this->client !== $client) {
+            $this->connectKeyboard();
+        }
+
         $this->buildOnce();
 
         if (! $parallel) {
@@ -496,6 +506,8 @@ final class IosDriver implements Driver
             $keys = Hid::keystrokes($piece);
             $this->releasing($keys, fn () => $this->client()->streamStrokes('hid', $keys, self::TEXT_KEY_GAP_MICROSECONDS));
         }
+
+        $this->closeKeyboard();
     }
 
     /**
@@ -599,6 +611,122 @@ final class IosDriver implements Driver
         self::$hardwareKeyboard = true;
 
         return true;
+    }
+
+    private const KEYBOARD_PREFERENCES = 'com.apple.keyboard.preferences';
+
+    /**
+     * Settings > General > Keyboard, and its Hardware Keyboard page, as iOS 26's TextInput
+     * reads them. Keys typed through the companion count as a hardware keyboard's, and with
+     * these on, an iPhone 17 Pro Simulator (iOS 26.5) typed "teh quick brown fox. its done"
+     * into a field as "The quick brown fox. It’sdone", and quotes and dashes came out curly
+     * and long. The software keyboard's own switches are off too, for while it is on screen.
+     */
+    private const TEXT_CORRECTIONS = [
+        'KeyboardAutocorrection',
+        'KeyboardAutocapitalization',
+        'KeyboardCheckSpelling',
+        'KeyboardPrediction',
+        'KeyboardInlineCompletion',
+        'KeyboardPeriodShortcut',
+        'HWKeyboardAutocorrection',
+        'HWKeyboardAutocapitalization',
+        'HWKeyboardPeriodShortcut',
+        'SmartQuotesEnabled',
+        'SmartDashesEnabled',
+    ];
+
+    /**
+     * Turns off whatever changes typed text, once per Simulator per run. The keyboard reads
+     * these when the app starts, so the next launch types exactly what it is sent, without
+     * restarting the Simulator. Only the switches not already off are written.
+     */
+    private function turnOffTextCorrections(): void
+    {
+        $simulator = $this->udid();
+
+        if (isset(self::$correctionsOff[$simulator])) {
+            return;
+        }
+
+        try {
+            $current = $this->command->run('xcrun', ['simctl', 'spawn', $simulator, 'defaults', 'export', self::KEYBOARD_PREFERENCES, '-']);
+        } catch (SimulatorException) {
+            $current = '';
+        }
+
+        foreach (self::TEXT_CORRECTIONS as $key) {
+            if (preg_match('/<key>'.preg_quote($key, '/').'<\/key>\s*<false\/>/', $current) === 1) {
+                continue;
+            }
+
+            try {
+                $this->command->run('xcrun', ['simctl', 'spawn', $simulator, 'defaults', 'write', self::KEYBOARD_PREFERENCES, $key, '-bool', 'NO']);
+            } catch (SimulatorException) {
+            }
+        }
+
+        self::$correctionsOff[$simulator] = true;
+    }
+
+    /**
+     * Without Simulator.app, nothing connects the hardware keyboard that its preference
+     * above asks for, and iOS shows the software keyboard over the lower part of the screen
+     * whenever a field has focus. Turning it on through the companion parks the software
+     * keyboard below the display at once, with no restart. False when the companion could
+     * not do it.
+     */
+    private function connectKeyboard(): bool
+    {
+        try {
+            $this->client()->unary('setting', Hid::hardwareKeyboard());
+        } catch (SimulatorException) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * A software keyboard still on the glass after typing covers what the next tap is for:
+     * the sample app's Save button sat under it, and a tap there typed a letter instead.
+     * Connecting the hardware keyboard parks it below the display, as Android's closes. The
+     * field keeps its focus and its text.
+     */
+    private function closeKeyboard(): void
+    {
+        if (! $this->keyboardShown() || ! $this->connectKeyboard()) {
+            return;
+        }
+
+        $deadline = microtime(true) + 2.0;
+
+        while (microtime(true) < $deadline && $this->keyboardShown()) {
+            usleep(100_000);
+        }
+    }
+
+    /**
+     * Whether a key of the software keyboard is on the display. A parked keyboard is still
+     * in the tree, with its keys below the bottom edge.
+     *
+     * @phpstan-impure
+     */
+    private function keyboardShown(): bool
+    {
+        try {
+            $elements = $this->describe();
+        } catch (SimulatorException) {
+            return false;
+        }
+
+        foreach ($elements as $element) {
+            if (($element['role'] ?? null) === 'Key' && is_array($element['center'] ?? null) && (float) $element['center'][1] < $this->viewport[1]) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function dataContainer(): string
