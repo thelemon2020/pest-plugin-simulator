@@ -886,6 +886,14 @@ final class AndroidDriver implements Driver
     }
 
     /**
+     * Android opens a deep link without asking.
+     */
+    public function openPrompts(): array
+    {
+        return [];
+    }
+
+    /**
      * Starts the app as its launcher icon does, which brings a running one back as it was.
      * monkey exits before it starts anything on an image with no hardware keys (android-36),
      * and the launcher intent alone does not resolve, so this names the launcher activity.

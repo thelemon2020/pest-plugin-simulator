@@ -475,7 +475,7 @@ screen('/settings')
 
 `alert()` taps that button on the alert or action sheet. `share()` closes the share sheet. `share('Copy')` taps a named share action. `pickPhoto()` taps the first image, then Add or Done if the picker asks. `cancelPhoto()` taps Cancel.
 
-The iOS "Open in…" dialog and Android's "Wait" button are closed automatically.
+The iOS "Open in…" dialog and Android's "Wait" button are closed automatically. The "Open in…" dialog is found in whatever language the Simulator is set to, by the text iOS itself uses for it.
 
 ## Photos, Face ID, and push
 
