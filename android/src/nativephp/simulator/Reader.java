@@ -51,6 +51,13 @@ public final class Reader {
     // When the app last sent an accessibility event, in uptime milliseconds.
     private static volatile long lastEvent;
 
+    /**
+     * The element an app shows to say how many events PHP has not taken yet (IdleMarker in
+     * the plugin). It is one or a few pixels square, and Compose reports a node that small
+     * as not visible to the user, which every other node needs to be read.
+     */
+    private static final String IDLE_MARKER = "nativephp-pending";
+
     private Reader() {
     }
 
@@ -238,7 +245,7 @@ public final class Reader {
             // the events an app sends, and Compose sends them in batches, so a row still
             // gliding could read twice in the same place. A fresh process, like
             // `uiautomator dump`, has no cache to read from.
-            if (child != null && child.refresh() && child.isVisibleToUser()) {
+            if (child != null && child.refresh() && (child.isVisibleToUser() || IDLE_MARKER.equals(child.getViewIdResourceName()))) {
                 node(child, serializer, i, width, height);
             }
         }
