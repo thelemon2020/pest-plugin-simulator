@@ -476,10 +476,6 @@ it('waits for a sheet that just opened before answering it without locate()', fu
         [control('Note', ['role' => 'StaticText'])],
         fn (Screen $screen) => $screen->goBack(), 0, 1,
     ],
-    'alert()' => [
-        [control('Delete', ['chrome' => 'alert'])],
-        fn (Screen $screen) => $screen->alert('Delete'), 1, 0,
-    ],
     'share() to a target' => [
         [control('Copy', ['chrome' => 'share'])],
         fn (Screen $screen) => $screen->share('Copy'), 1, 0,
@@ -497,7 +493,7 @@ it('waits for a sheet that just opened before answering it without locate()', fu
             control('Photo, first', ['role' => 'Image', 'chrome' => 'photos', 'center' => [40.0, 120.0]]),
             control('Add', ['chrome' => 'photos', 'center' => [300.0, 700.0]]),
         ],
-        fn (Screen $screen) => $screen->pickPhoto(), 2, 0,
+        fn (Screen $screen) => $screen->pickPhoto(), 1, 0,
     ],
     'cancelPhoto()' => [
         [control('Cancel', ['chrome' => 'photos'])],

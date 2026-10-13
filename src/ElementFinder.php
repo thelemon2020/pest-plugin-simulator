@@ -49,6 +49,10 @@ final class ElementFinder
             foreach ([
                 fn (array $element): bool => ($element['id'] ?? null) === $target,
                 fn (array $element): bool => $element['label'] === $target,
+                // Android draws a dialog's buttons in capitals: DELETE for a button named
+                // Delete. Without this, alert('Delete') found the title "Delete everything?"
+                // by the words it contains, and tapped that instead.
+                fn (array $element): bool => mb_strtolower($element['label']) === mb_strtolower($target),
                 fn (array $element): bool => str_contains($element['label'], $target),
             ] as $predicate) {
                 $matches = array_values(array_filter($pool, $predicate));
@@ -413,7 +417,30 @@ final class ElementFinder
      */
     public function photoButton(array $elements, string $label): ?array
     {
-        return $this->labeled($elements, 'photos', $label);
+        $button = $this->labeled($elements, 'photos', $label);
+
+        if ($button !== null || ! $this->showsPhotos($elements)) {
+            return $button;
+        }
+
+        // iOS 26 puts the picker's Cancel in a bar outside its photo grid. Its id is
+        // Cancel in every language.
+        foreach ($elements as $element) {
+            if (($element['role'] ?? null) === 'Button' && ($element['id'] ?? null) === $label && is_array($element['center'] ?? null)) {
+                /** @var Tappable $element */
+                return $element;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  list<Element>  $elements
+     */
+    private function showsPhotos(array $elements): bool
+    {
+        return $this->within($elements, 'photos') !== [];
     }
 
     /**
@@ -430,6 +457,18 @@ final class ElementFinder
 
         if ($photos === []) {
             return null;
+        }
+
+        // iOS 26's picker puts the Photos app's icon in a banner above the grid, an image
+        // with no label like the photos. Its tiles carry a PXGGridLayout id: when any do,
+        // only they are photos.
+        $tiles = array_values(array_filter(
+            $photos,
+            fn (array $photo): bool => str_starts_with((string) ($photo['id'] ?? ''), 'PXGGridLayout'),
+        ));
+
+        if ($tiles !== []) {
+            $photos = $tiles;
         }
 
         usort($photos, function (array $left, array $right): int {
@@ -470,6 +509,16 @@ final class ElementFinder
         }
 
         return false;
+    }
+
+    /**
+     * An alert or action sheet is up.
+     *
+     * @param  list<Element>  $elements
+     */
+    public function hasAlert(array $elements): bool
+    {
+        return $this->within($elements, 'alert') !== [];
     }
 
     /**

@@ -6,6 +6,7 @@ use NativePhp\Simulator\AccessibilityTree;
 use NativePhp\Simulator\AndroidDriver;
 use NativePhp\Simulator\Configuration;
 use NativePhp\Simulator\Device;
+use NativePhp\Simulator\ElementFinder;
 use NativePhp\Simulator\Screen;
 use PHPUnit\Framework\AssertionFailedError;
 use Tests\Support\FakeDriver;
@@ -109,17 +110,40 @@ it('picks the first image and confirms', function () {
 
     (new Screen($driver, timeoutSeconds: 0))->pickPhoto();
 
-    expect($driver->taps)->toBe([[40.0, 120.0], [300.0, 700.0]]);
+    // The photo with a quick press: a held tap previews it in iOS 26's picker.
+    expect($driver->presses)->toBe([[40.0, 120.0, 0.05]])
+        ->and($driver->taps)->toBe([[300.0, 700.0]]);
 });
 
 it('picks an image when the picker has no confirm button', function () {
-    $driver = new FakeDriver([[
-        systemControl('Photo, May 1', ['role' => 'Image', 'chrome' => 'photos', 'center' => [30.0, 80.0]]),
-    ]]);
+    $driver = new FakeDriver([
+        [systemControl('Photo, May 1', ['role' => 'Image', 'chrome' => 'photos', 'center' => [30.0, 80.0]])],
+        [systemControl('Picked 1 photo', ['role' => 'StaticText'])],
+    ]);
 
     (new Screen($driver, timeoutSeconds: 0))->pickPhoto();
 
-    expect($driver->taps)->toBe([[30.0, 80.0]]);
+    expect($driver->presses)->toBe([[30.0, 80.0, 0.05]])
+        ->and($driver->taps)->toBe([]);
+});
+
+it('taps the photo again while the picker has not taken the tap', function () {
+    $picker = [systemControl('Photo, May 1', ['role' => 'Image', 'chrome' => 'photos', 'center' => [30.0, 80.0]])];
+    $driver = new FakeDriver([$picker, $picker, $picker, [systemControl('Picked 1 photo', ['role' => 'StaticText'])]]);
+
+    (new Screen($driver, timeoutSeconds: 0))->pickPhoto();
+
+    expect($driver->presses)->toHaveCount(3);
+});
+
+it('fails when the picker never takes the tap on its photo', function () {
+    $picker = [systemControl('Photo, May 1', ['role' => 'Image', 'chrome' => 'photos', 'center' => [30.0, 80.0]])];
+    $driver = new FakeDriver([$picker]);
+
+    expect(fn () => (new Screen($driver, timeoutSeconds: 0))->pickPhoto())
+        ->toThrow(AssertionFailedError::class, 'The photo picker did not take a tap on its first photo, tapped 3 times.');
+
+    expect($driver->presses)->toHaveCount(3);
 });
 
 it('cancels the photo picker', function () {
@@ -221,3 +245,71 @@ it('marks an android alert button from the hierarchy', function () {
     expect($elements[0]['chrome'])->toBe('alert')
         ->and($elements[1]['chrome'])->toBeNull();
 });
+
+it('waits for an alert to finish appearing before tapping its button', function () {
+    $alert = [
+        ['label' => 'Delete everything?', 'role' => 'Group', 'id' => null, 'center' => [201.0, 400.0], 'chrome' => 'alert'],
+        ['label' => 'Delete', 'role' => 'Button', 'id' => null, 'center' => [250.0, 450.0], 'chrome' => 'alert'],
+    ];
+    $driver = new FakeDriver([$alert]);
+    $started = microtime(true);
+
+    (new Screen($driver, timeoutSeconds: 1))->alert('Delete');
+
+    expect(microtime(true) - $started)->toBeGreaterThan(0.7)
+        ->and($driver->taps)->toBe([[250.0, 450.0]]);
+});
+
+it('finds the photos in the iOS 26 picker grid, not the icon above it, and its Cancel outside the grid', function () {
+    $tree = json_encode(['type' => 'Application', 'children' => [
+        ['type' => 'NavigationBar', 'identifier' => 'Photos', 'frame' => ['x' => 0, 'y' => 88, 'width' => 402, 'height' => 62], 'children' => [
+            ['type' => 'Button', 'label' => 'Cancel', 'identifier' => 'Cancel', 'frame' => ['x' => 20, 'y' => 92, 'width' => 36, 'height' => 36]],
+        ]],
+        ['type' => '_PXPhotosGridContainerUIView', 'label' => 'Photos', 'frame' => ['x' => 0, 'y' => 72, 'width' => 402, 'height' => 802], 'children' => [
+            ['type' => 'Image', 'identifier' => 'PickerOnboardingHeaderViewIcon', 'frame' => ['x' => 32, 'y' => 160, 'width' => 38, 'height' => 38]],
+            ['type' => 'Image', 'label' => 'Screenshot', 'identifier' => 'PXGGridLayout-Info', 'frame' => ['x' => 134, 'y' => 312, 'width' => 133, 'height' => 133]],
+            ['type' => 'Image', 'label' => 'Photo', 'identifier' => 'PXGGridLayout-Info', 'frame' => ['x' => 0, 'y' => 312, 'width' => 133, 'height' => 133]],
+        ]],
+    ]]);
+    $elements = AccessibilityTree::summarize((string) $tree);
+    $finder = new ElementFinder;
+
+    expect($finder->firstPhoto($elements)['center'] ?? null)->toBe([66.5, 378.5])
+        ->and($finder->photoButton($elements, 'Cancel')['center'] ?? null)->toBe([38.0, 110.0]);
+});
+
+it('taps an android dialog button drawn in capitals, not the title that names it', function () {
+    $driver = new FakeDriver([[
+        ['label' => 'Delete everything?', 'role' => 'android.widget.TextView', 'id' => 'android:id/alertTitle', 'center' => [540.0, 1112.5], 'chrome' => 'alert'],
+        ['label' => 'CANCEL', 'role' => 'Button', 'id' => 'android:id/button2', 'center' => [689.5, 1369.0], 'chrome' => 'alert'],
+        ['label' => 'DELETE', 'role' => 'Button', 'id' => 'android:id/button1', 'center' => [883.5, 1369.0], 'chrome' => 'alert'],
+    ]]);
+
+    (new Screen($driver, timeoutSeconds: 0))->alert('Delete');
+
+    expect($driver->taps)->toBe([[883.5, 1369.0]]);
+});
+
+it('finds the photos in android 16 photo picker', function () {
+    $elements = readSystemAndroid(<<<'XML'
+        <hierarchy rotation="0">
+            <node class="android.widget.FrameLayout" package="com.google.android.photopicker" bounds="[0,0][1080,2400]">
+                <node text="Photos" class="android.widget.TextView" package="com.google.android.photopicker" bounds="[379,723][493,776]" />
+                <node content-desc="Photo taken on Oct 12, 2026 9:35 AM" class="android.view.View" package="com.google.android.photopicker" bounds="[361,1226][719,1584]" />
+                <node content-desc="Photo taken on Oct 12, 2026 9:35 AM" class="android.view.View" package="com.google.android.photopicker" bounds="[0,1226][358,1584]" />
+            </node>
+        </hierarchy>
+        XML);
+
+    expect((new ElementFinder)->firstPhoto($elements)['center'] ?? null)->toBe([179.0, 1405.0]);
+});
+
+function readSystemAndroid(string $xml): array
+{
+    $command = new RecordingCommand;
+    $command->outputs['uiautomator'] = $xml;
+    $driver = new AndroidDriver(new Device('android', 'Pixel', true), Configuration::resolve(), $command);
+    (new ReflectionProperty(AndroidDriver::class, 'serial'))->setValue($driver, 'emulator-5554');
+
+    return $driver->describe();
+}

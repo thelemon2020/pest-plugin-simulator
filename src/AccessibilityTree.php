@@ -969,8 +969,15 @@ final class AccessibilityTree
             return 'share';
         }
 
+        // iOS 26's picker is a Photos grid hosted in the app: _PXPhotosGridContainerUIView,
+        // whose tiles carry PXGGridLayout ids. Neither is translated.
         if (
             str_contains($package, 'providers.media')
+            // Android 16's picker is its own app, com.google.android.photopicker.
+            || str_contains($package, 'photopicker')
+            || str_contains($role, 'pxphotosgrid')
+            || str_contains($id, 'photosview_content_scroll_view')
+            || str_starts_with($id, 'pxggridlayout')
             || str_contains($role, 'phpicker')
             || str_contains($role, 'photospicker')
             || (str_contains($role, 'picker') && str_contains($role, 'photo'))

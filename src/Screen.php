@@ -44,7 +44,8 @@ final class Screen
     private const SHEET_SECONDS = 0.8;
 
     /**
-     * When a read first had the sheet that is up now, or null when the last read had none.
+     * When a read first had the sheet or alert that is up now, or null when the last read
+     * had neither.
      */
     private ?float $sheetSeen = null;
 
@@ -406,6 +407,13 @@ final class Screen
         });
     }
 
+    /**
+     * How many times pickPhoto() taps a photo. iOS 26's picker draws its grid before it
+     * takes touches: a tap 1.5 seconds after the grid showed did nothing, and the same tap
+     * 3 seconds after it picked the photo.
+     */
+    private const PICK_ATTEMPTS = 3;
+
     public function pickPhoto(): self
     {
         return $this->step('pickPhoto', null, function (): void {
@@ -413,18 +421,52 @@ final class Screen
                 fn (array $elements): bool => $this->finder->firstPhoto($elements) !== null,
                 'The photo picker had no image.',
             );
-            /** @var Tappable $photo until() waited for it */
-            $photo = $this->finder->firstPhoto($elements);
-            $this->touch($photo);
-            $confirm = $this->finder->photoConfirm($elements);
 
-            if ($confirm === null) {
-                $confirm = $this->finder->photoConfirm($this->read());
+            for ($attempt = 1; $attempt <= self::PICK_ATTEMPTS; $attempt++) {
+                $photo = $this->finder->firstPhoto($elements);
+
+                if ($photo === null) {
+                    return;
+                }
+
+                $this->note('taps', $attempt);
+                $this->tapQuickly($photo);
+
+                // A picker that takes one photo closes. One that takes several asks to be
+                // confirmed. Either says the tap was taken.
+                $deadline = microtime(true) + min(2.0, $this->timeoutSeconds);
+
+                do {
+                    try {
+                        $now = $this->read();
+                    } catch (SimulatorException) {
+                        $now = [];
+                    }
+
+                    // A read that failed or came back empty says nothing about the picker,
+                    // so the next try works from the last one that did.
+                    if ($now !== []) {
+                        $elements = $now;
+                        $confirm = $this->finder->photoConfirm($elements);
+
+                        if ($confirm !== null) {
+                            $this->touch($confirm);
+
+                            return;
+                        }
+
+                        if ($this->finder->firstPhoto($elements) === null) {
+                            return;
+                        }
+                    }
+
+                    if ($this->timeoutSeconds > 0) {
+                        usleep(200_000);
+                    }
+                } while (microtime(true) < $deadline);
             }
 
-            if ($confirm !== null) {
-                $this->touch($confirm);
-            }
+            $this->fail('The photo picker did not take a tap on its first photo, tapped '.self::PICK_ATTEMPTS.' times.', $elements);
         });
     }
 
@@ -781,6 +823,22 @@ final class Screen
         $this->driver->tap($x, $y);
     }
 
+    /**
+     * A tap with almost no hold. iOS 26's photo picker takes touch()'s usual hold on a photo
+     * as the start of a long press, which previews the photo instead of picking it: with a
+     * 50ms hold the same photo was picked.
+     *
+     * @param  array{center: array{0: float|int, 1: float|int}}  $element
+     */
+    private function tapQuickly(array $element): void
+    {
+        $this->presented();
+        $x = (float) $element['center'][0];
+        $y = (float) $element['center'][1];
+        $this->sent(['tap', $x, $y]);
+        $this->driver->press($x, $y, 0.05);
+    }
+
     private function erase(int $characters): void
     {
         $this->sent(['clear', $characters]);
@@ -945,7 +1003,8 @@ final class Screen
             $elements = $this->describe();
         }
 
-        $this->sheetSeen = $this->finder->hasSheet($elements) ? ($this->sheetSeen ?? microtime(true)) : null;
+        $presenting = $this->finder->hasSheet($elements) || $this->finder->hasAlert($elements);
+        $this->sheetSeen = $presenting ? ($this->sheetSeen ?? microtime(true)) : null;
 
         return $elements;
     }
@@ -976,6 +1035,9 @@ final class Screen
      *
      * Closing a sheet needs no wait: the tree keeps the sheet until it has slid away, and a
      * tap sent the moment it left the tree landed.
+     *
+     * An alert drops touches the same way while it fades in: a tap on an alert's button sent
+     * on the first read that had the alert did nothing, and the alert stayed up.
      *
      * Every touch waits, not only one at a control locate() found: goBack(), alert(),
      * share(), and the photo picker find their control their own way, and the system
