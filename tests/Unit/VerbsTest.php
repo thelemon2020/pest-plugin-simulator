@@ -231,6 +231,17 @@ it('backs away before a correction too short to count as a drag', function () {
         ->and($driver->swipes[2][2] - $driver->swipes[2][0])->toBeGreaterThan(24.0);
 });
 
+it('waits for a slider that drops out of one read after it moved', function () {
+    $slider = fn (string $value): array => [
+        verb('Volume', 'Slider', 200.0, 120.0, ['value' => $value, 'frame' => [0.0, 100.0, 400.0, 40.0], 'range' => [0.0, 100.0]]),
+    ];
+    $driver = new FakeDriver([$slider('20'), $slider('75'), [verb('Saving', 'StaticText', 200.0, 60.0)], $slider('75')]);
+
+    (new Screen($driver, timeoutSeconds: 2))->slide('Volume', 75);
+
+    expect($driver->taps)->toBe([[290.0, 120.0]]);
+});
+
 it('does not stop a step short of the value', function () {
     $slider = fn (string $value): array => [
         verb('Volume', 'Slider', 200.0, 120.0, ['value' => $value, 'frame' => [0.0, 100.0, 400.0, 40.0], 'range' => [0.0, 100.0]]),

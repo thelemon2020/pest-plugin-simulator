@@ -653,8 +653,8 @@ final class Screen
 
     /**
      * Closes the sheet that is up. On iOS it drags the sheet down by its grabber and waits
-     * until it has gone. Android presses Back, which closes a bottom sheet, and goes back
-     * a screen when none is open.
+     * until it has gone. Android presses Back, which closes a bottom sheet. With no iOS
+     * sheet in the tree it presses Back on either platform, which goes back a screen.
      */
     public function dismissSheet(): self
     {
@@ -769,7 +769,8 @@ final class Screen
             }
 
             $this->until(
-                fn (array $elements): bool => abs(($this->number($this->finder->match($elements, $label, $nth)['value'] ?? null) ?? INF) - $value) <= $close,
+                fn (array $elements): bool => $this->canMatch($elements, $label)
+                    && abs(($this->number($this->finder->match($elements, $label, $nth)['value'] ?? null) ?? INF) - $value) <= $close,
                 "[{$label}] stopped at {$current}, not {$value}.",
             );
         });

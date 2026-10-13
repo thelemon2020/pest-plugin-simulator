@@ -278,7 +278,7 @@ screen('/settings')
 
 `submit('Search…', 'Talk Talk')` types into the field, then presses the keyboard's return key. Leave the text off to press return in a field that has its text already. On Android, it performs the field's IME action. NativePHP 4.6 runs a field's `@submit` only from the keyboard's own Done key, which Gboard does not show to a test, so `submit()` does not submit a NativePHP field on Android yet.
 
-`dismissSheet()` closes the sheet that is up. On iOS it drags the sheet down by its grabber, and waits until the sheet has gone. Android presses Back, which closes a bottom sheet, and goes back a screen when no sheet is open.
+`dismissSheet()` closes the sheet that is up. On iOS it drags the sheet down by its grabber, and waits until the sheet has gone. Android presses Back, which closes a bottom sheet. When no sheet is open, it presses Back on either platform, which goes back a screen.
 
 `longPress()`, `input()`, and `pressBack()` are `press()`, `type()`, and `goBack()` under the harness's names.
 
