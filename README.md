@@ -297,6 +297,20 @@ screen('/settings')
 
 A failed assertion also writes its own `screen.png`, next to `tree.json`. That file is separate from a path you passed to `screenshot()`.
 
+`assertScreenshotMatches()` compares the screen with a baseline saved by an earlier run. The first run saves the baseline and passes. Commit the baseline. On CI, where the `CI` environment variable is `true`, a missing baseline fails instead, so a baseline is never made up on a machine nobody looks at.
+
+```php
+screen('/settings')
+    ->assertSee('Settings')
+    ->assertScreenshotMatches();
+```
+
+The baseline is `tests/.pest/simulator-screenshots/` plus the test, the platform, and the device: `shows-the-settings-ios-iphone-17-pro.png`. Each device has its own. Pass a name for a second baseline in the same test: `assertScreenshotMatches('empty')`.
+
+Before the screenshot, the status bar is fixed at 9:41 with full signal and battery, as `fixStatusBar()` does, so the clock is not a change. The screen is compared at half size, and a color less than 24 out of 255 away in every channel counts as the same, which absorbs antialiasing. Up to 0.1% of the pixels can differ. `assertScreenshotMatches(threshold: 0.01)` allows 1%. A screen still moving gets until the timeout to match.
+
+A mismatch fails with how much changed, and writes `screenshot-diff.png`, the new screen with the changed pixels in red, next to `screen.png` and `tree.json`. `vendor/bin/pest --update-screenshots` saves every baseline again. It needs PHP's `gd` extension.
+
 `record()` saves an mp4 of the device. `stopRecord()` ends that clip. Both work as their own call, and both work on the screen.
 
 ```php

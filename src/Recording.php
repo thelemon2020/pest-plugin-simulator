@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace NativePhp\Simulator;
 
 use NativePhp\Simulator\Exceptions\SimulatorException;
-use Pest\TestSuite;
-use PHPUnit\Framework\TestCase;
 
 final class Recording
 {
@@ -160,27 +158,10 @@ final class Recording
 
         return ($root === false ? '.' : $root)
             .'/simulator-recordings/'
-            .self::label()
+            .TestLabel::current('recording')
             .'-'
-            .self::slug($device->platform.'-'.$device->name)
+            .TestLabel::slug($device->platform.'-'.$device->name, 'recording')
             .'.mp4';
-    }
-
-    private static function label(): string
-    {
-        $current = TestSuite::getInstance()->test;
-        $name = $current instanceof TestCase ? $current->name() : 'recording';
-        $name = preg_replace('/^__pest_evaluable_/', '', $name) ?? $name;
-        $name = preg_replace('/^it_/', '', $name) ?? $name;
-
-        return self::slug(substr(self::slug($name), 0, 80));
-    }
-
-    private static function slug(string $value): string
-    {
-        $slug = strtolower(trim((string) preg_replace('/[^A-Za-z0-9]+/', '-', $value), '-'));
-
-        return $slug === '' ? 'recording' : $slug;
     }
 
     private static function ensureDirectory(string $path): void
