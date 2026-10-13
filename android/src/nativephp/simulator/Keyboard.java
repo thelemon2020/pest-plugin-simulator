@@ -347,6 +347,19 @@ final class Keyboard {
      * ACTION_IME_ENTER is all there is to try.
      */
     boolean enter() {
+        // A tap that has just focused the field opens the keyboard, which slides in: its
+        // action key is not on the glass, or not where it stops, for a moment. The sample
+        // app's submit tapped nothing when it looked 88ms after that tap.
+        long until = SystemClock.uptimeMillis() + 2000;
+
+        while (!keyboardUp() && SystemClock.uptimeMillis() < until) {
+            SystemClock.sleep(20);
+        }
+
+        if (keyboardUp()) {
+            SystemClock.sleep(SLIDE);
+        }
+
         AccessibilityNodeInfo key = actionKey();
 
         if (key != null) {
