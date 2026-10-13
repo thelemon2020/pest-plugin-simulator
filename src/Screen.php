@@ -2143,9 +2143,8 @@ final class Screen
 
     /**
      * @param  ?SimulatorException  $unread  why the last read failed, so a companion that stopped answering is not asked for the tree again
-     */
-    /**
-     * @param  list<string>  $saved
+     * @param  ?string  $root  where to save, when the failing step already chose it
+     * @param  list<string>  $saved  files the failing step wrote into $root itself
      */
     private function captureFailure(?SimulatorException $unread = null, ?string $root = null, array $saved = []): string
     {

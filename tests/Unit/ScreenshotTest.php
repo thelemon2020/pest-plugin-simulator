@@ -19,6 +19,9 @@ beforeEach(function () {
     $this->cwd = getcwd();
     chdir($this->root);
     $this->failures = $this->root.'/failures';
+    // A CI runner sets CI, which stops a baseline being saved. Each test sets it itself.
+    $this->ci = getenv('CI');
+    putenv('CI');
     Run::useDevice(new Device('ios', 'iPhone 17 Pro', true));
     DeviceState::beginTest();
 });
@@ -27,7 +30,7 @@ afterEach(function () {
     DeviceState::forgetRequest();
     Run::clear();
     Arguments::reset();
-    putenv('CI');
+    putenv($this->ci === false ? 'CI' : 'CI='.$this->ci);
     chdir($this->cwd);
     exec('rm -rf '.escapeshellarg($this->root));
 });
