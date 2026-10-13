@@ -113,7 +113,7 @@ public final class Reader {
     }
 
     /**
-     * "type <pause ms> <the UTF-8 text in base64>", "clear", or "hide".
+     * "type <pause ms> <the UTF-8 text in base64>", "clear", "hide", or "enter".
      */
     private static boolean input(Keyboard keyboard, String[] words) {
         try {
@@ -124,6 +124,8 @@ public final class Reader {
                     return keyboard.clear();
                 case "hide":
                     return keyboard.hide();
+                case "enter":
+                    return keyboard.enter();
                 default:
                     return false;
             }
@@ -219,6 +221,15 @@ public final class Reader {
         serializer.attribute("", "bounds", bounds(node, width, height).toShortString());
         serializer.attribute("", "drawing-order", Integer.toString(node.getDrawingOrder()));
         serializer.attribute("", "hint", text(node.getHintText()));
+
+        // A slider says where it is only through its range: no text, no description.
+        AccessibilityNodeInfo.RangeInfo range = node.getRangeInfo();
+
+        if (range != null) {
+            serializer.attribute("", "range-min", Float.toString(range.getMin()));
+            serializer.attribute("", "range-max", Float.toString(range.getMax()));
+            serializer.attribute("", "range-current", Float.toString(range.getCurrent()));
+        }
 
         for (int i = 0; i < node.getChildCount(); i++) {
             AccessibilityNodeInfo child = node.getChild(i);

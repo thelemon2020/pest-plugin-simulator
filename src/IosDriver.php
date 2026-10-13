@@ -422,6 +422,11 @@ final class IosDriver implements Driver
         $this->client()->stream('hid', Hid::backspace());
     }
 
+    public function enter(): void
+    {
+        $this->client()->stream('hid', Hid::enter());
+    }
+
     /**
      * `Hid::text()` turns a multi-character piece into many key down/up events (more per
      * character once Shift is involved), and `stream()` writes all of them onto the wire

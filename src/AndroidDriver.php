@@ -338,6 +338,20 @@ final class AndroidDriver implements Driver
         $this->keyboardLeftUp = true;
     }
 
+    /**
+     * The focused field's IME action, through the reader, as the keyboard's action key would
+     * send it, or a KEYCODE_ENTER key event when the reader is not running. NativePHP 4.6's
+     * Android fields submit from neither: see Keyboard.enter() in the reader.
+     */
+    public function enter(): void
+    {
+        if ($this->reader()->enter()) {
+            return;
+        }
+
+        $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'input', 'keyevent', '66']);
+    }
+
     private function deleteFromEnd(int $characters): void
     {
         // Select-all is Ctrl+A. On the emulator that modifier stays down, so the
@@ -1191,6 +1205,9 @@ final class AndroidDriver implements Driver
                 'password' => $child->getAttribute('password'),
                 'scrollable' => $child->getAttribute('scrollable'),
                 'scroll-axis' => $child->getAttribute('scroll-axis'),
+                'range-min' => $child->getAttribute('range-min'),
+                'range-max' => $child->getAttribute('range-max'),
+                'range-current' => $child->getAttribute('range-current'),
             ];
 
             if ($inherited !== null) {

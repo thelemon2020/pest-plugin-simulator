@@ -425,6 +425,396 @@ final class Screen
         });
     }
 
+    /**
+     * press(), by the name NativePHP's own test harness gives it.
+     */
+    public function longPress(string $label, float $seconds = 0.8): self
+    {
+        return $this->press($label, $seconds);
+    }
+
+    /**
+     * goBack(), by the name NativePHP's own test harness gives it.
+     */
+    public function pressBack(): self
+    {
+        return $this->goBack();
+    }
+
+    /**
+     * type(), by the name NativePHP's own test harness gives it.
+     */
+    public function input(string $label, string $text): self
+    {
+        return $this->type($label, $text);
+    }
+
+    /**
+     * Presses the keyboard's return key in a field, as a person does to send a search or a
+     * message. With $text, types it first.
+     */
+    public function submit(string $label, ?string $text = null): self
+    {
+        return $this->step('submit', $label, function () use ($label, $text): void {
+            $field = $this->locate($label, 'submit');
+
+            if ($text !== null) {
+                $this->type($label, $text);
+            }
+
+            // Android closes the keyboard once type() is done, which leaves the field without
+            // focus, and a return key pressed then goes nowhere. A tap gives it focus back.
+            // It goes where the field was found before typing: a field named by its
+            // placeholder has no name once text is in it.
+            $this->touch($field);
+            $this->sent(['enter']);
+            $this->driver->enter();
+        });
+    }
+
+    /**
+     * Flips a switch. toggle('Wi-Fi', true) turns it on, and taps only when it is off. Either
+     * way, it waits until the switch reads what it should.
+     */
+    public function toggle(string $label, ?bool $on = null): self
+    {
+        return $this->step('toggle', $label, fn () => $this->turn($label, $on, 'toggle'));
+    }
+
+    /**
+     * Checks a checkbox, or unchecks it with false, tapping only when it is the other way.
+     */
+    public function check(string $label, bool $checked = true): self
+    {
+        $action = $checked ? 'check' : 'uncheck';
+
+        return $this->step($action, $label, fn () => $this->turn($label, $checked, $action));
+    }
+
+    public function uncheck(string $label): self
+    {
+        return $this->check($label, false);
+    }
+
+    private function turn(string $label, ?bool $on, string $action): void
+    {
+        $match = $this->locate($label, $action);
+        $current = ($match['checked'] ?? false) === true;
+        $wanted = $on ?? ! $current;
+        $this->note('wanted', $wanted ? 'on' : 'off');
+
+        if ($current !== $wanted) {
+            $this->touch($match);
+        }
+
+        $this->until(
+            fn (array $elements): bool => $this->finder->isChecked($elements, $label, $wanted, $this->stepNth),
+            "[{$label}] stayed ".($wanted ? 'off' : 'on').'.',
+        );
+    }
+
+    /**
+     * Opens a picker and chooses an option: a `<native:select>`, or any control that opens
+     * a menu. The option is one that appeared when the picker opened, so the picker's own
+     * label for the current choice is never what gets tapped.
+     */
+    public function select(string $label, string $option): self
+    {
+        return $this->step('select', "{$label}: {$option}", function () use ($label, $option): void {
+            $picker = $this->locate($label, 'select from');
+            $before = array_map(fn (array $element): string => $this->placed($element), $this->screenElements);
+            $this->touch($picker);
+            $this->until(
+                fn (): bool => $this->appeared($before, $option) !== null,
+                "[{$label}] did not offer [{$option}].",
+            );
+
+            /** @var Tappable $choice until() waited for it */
+            $choice = $this->appeared($before, $option);
+            $this->touch($choice);
+        });
+    }
+
+    /**
+     * @param  Element  $element
+     */
+    private function placed(array $element): string
+    {
+        return $element['label'].'@'.json_encode($element['center'] ?? null);
+    }
+
+    /**
+     * The option named $option among what was not on the screen before the picker opened.
+     *
+     * @param  list<string>  $before
+     * @return Tappable|null
+     */
+    private function appeared(array $before, string $option): ?array
+    {
+        $fresh = array_values(array_filter(
+            $this->screenElements,
+            fn (array $element): bool => ! in_array($this->placed($element), $before, true),
+        ));
+
+        try {
+            return $this->finder->match($fresh, $option);
+        } catch (NoMatch|AmbiguousMatch) {
+            return null;
+        }
+    }
+
+    /**
+     * Picks a radio button: the option named $option nearest below the group's label. It
+     * waits until that option reads as selected.
+     */
+    public function selectRadio(string $group, string $option): self
+    {
+        return $this->step('selectRadio', "{$group}: {$option}", function () use ($group, $option): void {
+            $elements = $this->until(
+                fn (array $elements): bool => $this->radio($elements, $group, $option) !== null,
+                "Could not find [{$option}] under [{$group}].",
+            );
+
+            /** @var Tappable $radio until() waited for it */
+            $radio = $this->radio($elements, $group, $option);
+            $this->touch($radio);
+            $this->until(
+                fn (array $elements): bool => $this->radioSelected($elements, $group, $option),
+                "[{$option}] under [{$group}] was not selected.",
+            );
+        });
+    }
+
+    /**
+     * @param  list<Element>  $elements
+     * @return Tappable|null
+     */
+    private function radio(array $elements, string $group, string $option): ?array
+    {
+        $below = $this->below($elements, $group);
+
+        try {
+            return $below === null ? null : $this->finder->match($below, $option, 1);
+        } catch (NoMatch) {
+            return null;
+        }
+    }
+
+    /**
+     * Whether an option under the group with exactly that label reads as selected. On
+     * Android the words and the radio button are two nodes, and either can carry it.
+     *
+     * @param  list<Element>  $elements
+     */
+    private function radioSelected(array $elements, string $group, string $option): bool
+    {
+        foreach ($this->below($elements, $group) ?? [] as $element) {
+            if ($element['label'] === $option && ($element['selected'] ?? false) === true) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The elements below a label, or null when the label is not on screen.
+     *
+     * @param  list<Element>  $elements
+     * @return list<Element>|null
+     */
+    private function below(array $elements, string $label): ?array
+    {
+        try {
+            $top = $this->finder->match($elements, $label)['center'][1];
+        } catch (NoMatch|AmbiguousMatch) {
+            return null;
+        }
+
+        return array_values(array_filter(
+            $elements,
+            fn (array $element): bool => is_array($element['center'] ?? null) && $element['center'][1] > $top,
+        ));
+    }
+
+    /**
+     * Taps a tab in a `<native:tab-row>` or a tab bar, and waits until it is the active one.
+     */
+    public function changeTab(string $label): self
+    {
+        return $this->step('changeTab', $label, function () use ($label): void {
+            $this->touch($this->locate($label, 'change to'));
+            $this->until(
+                fn (array $elements): bool => $this->finder->tabActive($elements, $label),
+                "[{$label}] did not become the active tab.",
+            );
+        });
+    }
+
+    /**
+     * Closes the sheet that is up. On iOS it drags the sheet down by its grabber and waits
+     * until it has gone. Android presses Back, which closes a bottom sheet. With no iOS
+     * sheet in the tree it presses Back on either platform, which goes back a screen.
+     */
+    public function dismissSheet(): self
+    {
+        return $this->step('dismissSheet', null, function (): void {
+            $this->readRetrying();
+            $grabber = $this->finder->sheetTop($this->screenElements);
+
+            if ($grabber === null) {
+                $this->presented();
+                $this->sent(['back']);
+                $this->driver->back();
+                $this->settle();
+
+                return;
+            }
+
+            [, $height] = $this->driver->viewport();
+            $x = (float) $grabber['center'][0];
+            $y = (float) $grabber['center'][1];
+            $this->drag([$x, $y, $x, $height * 0.95], 0.4);
+            $this->until(
+                fn (): bool => ! $this->finder->hasSheet($this->screenElements),
+                'The sheet did not close.',
+            );
+        });
+    }
+
+    /**
+     * How many drags slide() makes to land on a value. Each one starts where the last one
+     * let go, and measures how far the value moved per point to aim the next.
+     */
+    private const SLIDE_ATTEMPTS = 5;
+
+    /**
+     * Drags a slider's thumb to a value. Android reports the slider's range. iOS does not,
+     * so pass the `min` and `max` the slider has: slide('Volume', 75, min: 0, max: 100).
+     */
+    public function slide(string $label, float $value, ?float $min = null, ?float $max = null): self
+    {
+        return $this->step('slide', "{$label}: {$value}", function () use ($label, $value, $min, $max): void {
+            $slider = $this->locate($label, 'slide');
+            $nth = $this->stepNth;
+            [$low, $high] = $this->range($slider, $label, $min, $max);
+
+            if ($value < $low || $value > $high) {
+                throw new SimulatorException("[{$value}] is outside [{$label}]'s range of {$low} to {$high}.");
+            }
+
+            $frame = $slider['frame'] ?? null;
+            $current = $this->number($slider['value'] ?? null);
+
+            if (! is_array($frame) || $current === null) {
+                throw new SimulatorException("[{$label}] reports no value or frame, so slide() cannot tell where its thumb is.");
+            }
+
+            [$left, , $width] = $frame;
+            $inset = min($frame[3] / 2, $width * 0.1);
+            $y = (float) $slider['center'][1];
+            $close = ($high - $low) / 200;
+            // A drag shorter than this can read as a tap, which leaves the thumb where it is:
+            // a slider in SwiftUI stayed one step short of the value on a correction of 3pt.
+            $shortest = $frame[3] * 0.6;
+            $along = fn (float $to): float => max($left, min($left + $width, $to));
+
+            // Where a drag lets go, and the value it leaves, is the one thing that holds on
+            // both platforms: iOS's thumb follows the finger from where it was grabbed, and
+            // Compose's jumps to where the finger first touches. Each drag adds a point, and
+            // the line through the last two aims the next. Until there are two, the line is
+            // the track's own: inset by half the thumb at each end.
+            $line = new SliderLine($left + $inset, $low, ($width - 2 * $inset) / ($high - $low));
+            $x = $along($line->at($current));
+            $seeks = null;
+
+            for ($drag = 1; $drag <= self::SLIDE_ATTEMPTS && abs($current - $value) > $close; $drag++) {
+                $target = $along($line->at($value));
+
+                // Compose's slider jumps to where it is touched, and a tap leaves exactly the
+                // value there. A drag only moves the thumb once it has gone a touch slop, so it
+                // stops short by an amount that depends on its direction: on an android-36
+                // emulator, drags swung the value between 61 and 83. iOS's slider ignores a
+                // tap on its track, which the first tap shows, and then it is dragged.
+                if ($seeks !== false && abs($target - $x) > 1) {
+                    $this->touch(['center' => [$target, $y]]);
+                    $moved = $this->sliderValue($label, $nth) ?? $current;
+                    $seeks ??= abs($moved - $current) > $close;
+
+                    if ($seeks) {
+                        $this->note('taps', $drag);
+                        $x = $target;
+                        $current = $moved;
+                        $line = $line->through($x, $current);
+
+                        continue;
+                    }
+                }
+
+                if (abs($target - $x) < $shortest) {
+                    // Back away first, so the drag onto the value is long enough to count.
+                    $away = $along($target >= $x ? $x - 2 * $shortest : $x + 2 * $shortest);
+                    $this->drag([$x, $y, $away, $y], 0.4);
+                    $x = $away;
+                    $current = $this->sliderValue($label, $nth) ?? $current;
+                    $line = $line->through($x, $current);
+                    $target = $along($line->at($value));
+                }
+
+                $this->drag([$x, $y, $target, $y], 0.5);
+                $this->note('drags', $drag);
+                $x = $target;
+                $current = $this->sliderValue($label, $nth) ?? $current;
+                $line = $line->through($x, $current);
+            }
+
+            $this->until(
+                fn (array $elements): bool => $this->canMatch($elements, $label)
+                    && abs(($this->number($this->finder->match($elements, $label, $nth)['value'] ?? null) ?? INF) - $value) <= $close,
+                "[{$label}] stopped at {$current}, not {$value}.",
+            );
+        });
+    }
+
+    private function sliderValue(string $label, ?int $nth): ?float
+    {
+        $elements = $this->until(fn (array $elements): bool => $this->canMatch($elements, $label), "Could not find [{$label}] after sliding it.");
+
+        return $this->number($this->finder->match($elements, $label, $nth)['value'] ?? null);
+    }
+
+    /**
+     * @param  Tappable  $slider
+     * @return array{0: float, 1: float}
+     */
+    private function range(array $slider, string $label, ?float $min, ?float $max): array
+    {
+        $reported = $slider['range'] ?? null;
+        $low = $min ?? (is_array($reported) ? $reported[0] : null);
+        $high = $max ?? (is_array($reported) ? $reported[1] : null);
+
+        if ($low === null || $high === null) {
+            throw new SimulatorException("[{$label}] does not say its range. Pass the slider's min and max: slide('{$label}', 50, min: 0, max: 100).");
+        }
+
+        if ($high <= $low) {
+            throw new SimulatorException("[{$label}]'s max [{$high}] is not above its min [{$low}].");
+        }
+
+        return [$low, $high];
+    }
+
+    private function number(mixed $value): ?float
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+
+        $value = trim(str_replace(['%', ','], ['', '.'], $value));
+
+        return is_numeric($value) ? (float) $value : null;
+    }
+
     public function alert(string $label): self
     {
         return $this->step('alert', $label, function () use ($label): void {

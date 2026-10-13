@@ -335,6 +335,22 @@ final class Keyboard {
     }
 
     /**
+     * Performs the focused field's IME action, ACTION_IME_ENTER: what a field's keyboard
+     * action key does.
+     *
+     * NativePHP 4.6 runs a Compose field's @submit only from KeyboardActions(onDone), and
+     * its fields declare no IME action, so this and a KEYCODE_ENTER key event both reach the
+     * field's default action, which onDone does not answer. Only a tap on the keyboard's
+     * own Done key submitted, and Gboard does not show its keys to accessibility without
+     * TalkBack. A field that declares ImeAction.Done, or answers onAny, submits from this.
+     */
+    boolean enter() {
+        AccessibilityNodeInfo field = focusedField();
+
+        return field != null && field.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.getId());
+    }
+
+    /**
      * The focused field, fetched fresh. Compose can answer findFocus() with the field that
      * was focused before the last tap, which then says it is not focused, and the tree is
      * searched instead.

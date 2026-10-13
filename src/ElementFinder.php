@@ -543,6 +543,39 @@ final class ElementFinder
     }
 
     /**
+     * The top of the iOS sheet that is up: the first control after the dimming view the
+     * sheet lays over the screen behind it, which is its grabber. Null with no sheet.
+     *
+     * @param  list<Element>  $elements
+     * @return Tappable|null
+     */
+    public function sheetTop(array $elements): ?array
+    {
+        $dimming = null;
+
+        foreach ($elements as $index => $element) {
+            if (($element['role'] ?? null) === 'UIDimmingView' || ($element['id'] ?? null) === 'PopoverDismissRegion') {
+                $dimming = $index;
+            }
+        }
+
+        if ($dimming === null) {
+            return null;
+        }
+
+        $top = null;
+
+        foreach (array_slice($elements, $dimming + 1) as $element) {
+            if (is_array($element['center'] ?? null) && ($top === null || $element['center'][1] < $top['center'][1])) {
+                /** @var Tappable $element */
+                $top = $element;
+            }
+        }
+
+        return $top;
+    }
+
+    /**
      * @param  list<Element>  $elements
      */
     public function describe(array $elements): string
@@ -710,10 +743,45 @@ final class ElementFinder
             }
         }
 
+        // A toggle and the caption beside it often say the same words. The toggle is the one
+        // that checks: Android's toggle row, or an iOS Switch.
+        if (count($pool) > 1) {
+            $checkable = array_values(array_filter(
+                $pool,
+                fn (array $element): bool => ($element['checkable'] ?? false) === true,
+            ));
+
+            if (count($checkable) === 1) {
+                return $checkable[0];
+            }
+        }
+
+        // Android draws a tab or a button's words as a node of their own on top of the
+        // control, in the same place. Matches that all sit on one spot are one control.
+        if (count($pool) > 1 && $this->samePlace($pool)) {
+            return $pool[0];
+        }
+
         if (count($pool) > 1) {
             throw new AmbiguousMatch($target);
         }
 
         return $pool[0];
+    }
+
+    /**
+     * @param  list<Tappable>  $matches
+     */
+    private function samePlace(array $matches): bool
+    {
+        [$x, $y] = $matches[0]['center'];
+
+        foreach ($matches as $match) {
+            if (abs($match['center'][0] - $x) > 2 || abs($match['center'][1] - $y) > 2) {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

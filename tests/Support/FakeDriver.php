@@ -158,6 +158,11 @@ final class FakeDriver implements Driver
         $this->cleared = $characters;
     }
 
+    public function enter(): void
+    {
+        $this->events[] = ['enter'];
+    }
+
     public function text(string $text): void
     {
         $this->texts[] = $text;
