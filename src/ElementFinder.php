@@ -14,10 +14,14 @@ use NativePhp\Simulator\Exceptions\NoMatch;
 final class ElementFinder
 {
     /**
+     * The control a label names: its accessibility id, then an exact label, then a label
+     * that contains the text. With $nth, the nth of those in reading order (top to bottom,
+     * then left to right), counting from 1, instead of one picked by role.
+     *
      * @param  list<Element>  $elements
      * @return Tappable
      */
-    public function match(array $elements, string $target): array
+    public function match(array $elements, string $target, ?int $nth = null): array
     {
         $tappable = array_values(array_filter(
             $elements,
@@ -61,7 +65,7 @@ final class ElementFinder
                     continue;
                 }
 
-                return $this->choose($matches, $target);
+                return $nth === null ? $this->choose($matches, $target) : $this->nth($matches, $target, $nth);
             }
         }
 
@@ -184,10 +188,10 @@ final class ElementFinder
     /**
      * @param  list<Element>  $elements
      */
-    public function hasValue(array $elements, string $target, string $value): bool
+    public function hasValue(array $elements, string $target, string $value, ?int $nth = null): bool
     {
         try {
-            return $this->valueOf($elements, $target) === $value;
+            return $this->valueOf($elements, $target, $nth) === $value;
         } catch (NoMatch) {
             return false;
         }
@@ -202,10 +206,10 @@ final class ElementFinder
      * @param  list<Element>  $elements
      * @param  Tappable  $field
      */
-    public function holds(array $elements, string $target, array $field, string $value): bool
+    public function holds(array $elements, string $target, array $field, string $value, ?int $nth = null): bool
     {
         try {
-            if ($this->shows($this->match($elements, $target), $value)) {
+            if ($this->shows($this->match($elements, $target, $nth), $value)) {
                 return true;
             }
         } catch (NoMatch) {
@@ -257,18 +261,18 @@ final class ElementFinder
     /**
      * @param  list<Element>  $elements
      */
-    public function valueOf(array $elements, string $target): string
+    public function valueOf(array $elements, string $target, ?int $nth = null): string
     {
-        return $this->value($this->match($elements, $target));
+        return $this->value($this->match($elements, $target, $nth));
     }
 
     /**
      * @param  list<Element>  $elements
      */
-    public function isEnabled(array $elements, string $target, bool $enabled): bool
+    public function isEnabled(array $elements, string $target, bool $enabled, ?int $nth = null): bool
     {
         try {
-            $match = $this->match($elements, $target);
+            $match = $this->match($elements, $target, $nth);
         } catch (NoMatch) {
             return false;
         }
@@ -279,10 +283,10 @@ final class ElementFinder
     /**
      * @param  list<Element>  $elements
      */
-    public function isChecked(array $elements, string $target, bool $checked): bool
+    public function isChecked(array $elements, string $target, bool $checked, ?int $nth = null): bool
     {
         try {
-            $match = $this->match($elements, $target);
+            $match = $this->match($elements, $target, $nth);
         } catch (NoMatch) {
             return false;
         }
@@ -298,10 +302,10 @@ final class ElementFinder
      *
      * @param  list<Element>  $elements
      */
-    public function isSelected(array $elements, string $target, bool $selected): bool
+    public function isSelected(array $elements, string $target, bool $selected, ?int $nth = null): bool
     {
         try {
-            $match = $this->match($elements, $target);
+            $match = $this->match($elements, $target, $nth);
         } catch (NoMatch) {
             return false;
         }
@@ -644,6 +648,23 @@ final class ElementFinder
     private const INTERACTIVE_ROLES = ['TextField', 'TextView', 'Switch'];
 
     private const TEXT_ROLES = ['TextField', 'TextView'];
+
+    /**
+     * @param  list<Tappable>  $matches
+     * @return Tappable
+     */
+    private function nth(array $matches, string $target, int $nth): array
+    {
+        usort($matches, function (array $left, array $right): int {
+            $vertical = $left['center'][1] <=> $right['center'][1];
+
+            return $vertical !== 0 ? $vertical : $left['center'][0] <=> $right['center'][0];
+        });
+
+        return $matches[$nth - 1] ?? throw new NoMatch($target, count($matches) === 1
+            ? "Found one [{$target}], so there is no number {$nth}."
+            : 'Found '.count($matches)." [{$target}], so there is no number {$nth}.");
+    }
 
     /**
      * @param  list<Tappable>  $matches

@@ -7,7 +7,7 @@ namespace NativePhp\Simulator;
 final class AccessibilityTree
 {
     /**
-     * @return list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}, value: ?string, enabled: bool, selected: bool, checked: bool, chrome: ?string, webview: bool, carousel: ?array{0: float, 1: float, 2: float, 3: float}, secure: bool}>
+     * @return list<array{label: string, role: ?string, id: ?string, center: ?array{0: float, 1: float}, value: ?string, enabled: bool, selected: bool, checked: bool, chrome: ?string, webview: bool, carousel: ?array{0: float, 1: float, 2: float, 3: float}, secure: bool, frame: ?array{0: float, 1: float, 2: float, 3: float}}>
      */
     public static function summarize(string $json): array
     {
@@ -84,6 +84,7 @@ final class AccessibilityTree
                 'webview' => $role === 'WebView',
                 'carousel' => self::carousel($node),
                 'secure' => self::secure($node),
+                'frame' => self::frame($node),
             ];
         }
 

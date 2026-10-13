@@ -231,6 +231,26 @@ The plugin only sees native controls. A `<webview>` is one node. Blade and Livew
 
 `tap()`, `press()`, `type()`, and the assertions look for an accessibility id first, then an exact label, then a label that contains the text. The label is what the phone reads aloud: the visible text, or the `a11y-label`. An icon button, chip, tab, or nav action has no label until that prop is set. `tap('save-button')` matches an accessibility id even when the control has no visible text. A field with no label is named by its placeholder, but only while it is empty: iOS reports the placeholder as the field's value, and typed text replaces it. A multiline field that draws its placeholder as text over itself is named by that text the same way. An icon in the field, like a `leadingIcon`, is not its name. `type()` checks the field where it tapped, so `type('Search…', 'Talk')` works. `assertValue('Search…', 'Talk')` cannot find that field. Give it a label to assert its value.
 
+When a label matches more than one button, the call fails and names the label. Two calls choose between them.
+
+`within()` looks inside one control: an alert, a sheet, or a row, named by its label or accessibility id. The closure gets the screen narrowed to the controls whose center is inside that control. The control is found again on every read, so it can scroll. The screen `within()` returns still sees everything.
+
+```php
+screen('/orders')
+    ->within('order-42', fn ($order) => $order->tap('Pay')->assertSee('Paid'))
+    ->assertSee('1 order paid');
+```
+
+`nth()` picks one match for the next call, counting from 1 from the top of the screen, then left to right. It works with any call that looks up one control, including the assertions that read a control's state.
+
+```php
+screen('/basket')
+    ->nth(2)->tap('Remove')
+    ->nth(1)->assertChecked('Gift wrap');
+```
+
+`within()` needs a container the platform shows as one element: an alert, a sheet, a list row, or a view an app gives its own accessibility container. NativePHP does not do that for a `<native:column>` yet, even with an `a11y-label`: its children are read on their own, and the label goes nowhere. On those screens, `nth()` picks between the repeated controls instead.
+
 ## Screenshots and recordings
 
 These calls go inside a test that is wrapped in `mobile()`.
