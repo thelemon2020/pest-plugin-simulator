@@ -356,11 +356,22 @@ final class Keyboard {
             SystemClock.sleep(20);
         }
 
-        if (keyboardUp()) {
-            SystemClock.sleep(SLIDE);
-        }
-
+        // Then until the key stops moving: two looks 50ms apart that find it in one place.
         AccessibilityNodeInfo key = actionKey();
+        Rect last = null;
+
+        while (key != null && SystemClock.uptimeMillis() < until + SLIDE) {
+            Rect bounds = new Rect();
+            key.getBoundsInScreen(bounds);
+
+            if (bounds.equals(last)) {
+                break;
+            }
+
+            last = bounds;
+            SystemClock.sleep(50);
+            key = actionKey();
+        }
 
         if (key != null) {
             Rect bounds = new Rect();
