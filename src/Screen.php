@@ -1977,8 +1977,8 @@ final class Screen
     /**
      * Where a control is off screen, and the drag that brings it toward the middle, or null
      * when it is already on screen. A nav bar or tab bar's own controls never move, so they
-     * are never scrolled toward. Nor is a key on the software keyboard, which is below the
-     * part of the screen a tap is trusted to, but on screen whenever it is in the tree.
+     * are never scrolled toward. Nor is a key on the software keyboard: on the glass it is
+     * below the part of the screen a tap is trusted to, and no scroll moves a parked one.
      *
      * Up and down come first. A card past the edge of the carousel it sits in is then
      * dragged sideways inside that carousel. A control past the edge of the screen in
@@ -2103,7 +2103,9 @@ final class Screen
      * An iOS software keyboard covers the screen from its top row of keys down, with its
      * suggestions bar above them. It shows when no hardware keyboard is connected, which is
      * how a Simulator booted without Simulator.app runs: on the sample app's form, a tap on
-     * Save under the keyboard typed a "w" into the field instead.
+     * Save under the keyboard typed a "w" into the field instead. With a hardware keyboard
+     * connected, the keyboard stays in the tree, parked with its keys below the display,
+     * and covers nothing.
      *
      * @param  list<Element>  $elements
      * @return array{0: float, 1: float}
@@ -2115,7 +2117,7 @@ final class Screen
         $bottom = $height - $this->driver->homeIndicator();
         $keys = array_filter(
             $elements,
-            fn (array $element): bool => ($element['role'] ?? null) === 'Key' && is_array($element['center'] ?? null),
+            fn (array $element): bool => ($element['role'] ?? null) === 'Key' && is_array($element['center'] ?? null) && (float) $element['center'][1] < $height,
         );
 
         if ($keys !== []) {
