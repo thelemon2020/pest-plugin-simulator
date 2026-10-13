@@ -279,3 +279,27 @@ it('taps an android dialog button drawn in capitals, not the title that names it
 
     expect($driver->taps)->toBe([[883.5, 1369.0]]);
 });
+
+it('finds the photos in android 16 photo picker', function () {
+    $elements = readSystemAndroid(<<<'XML'
+        <hierarchy rotation="0">
+            <node class="android.widget.FrameLayout" package="com.google.android.photopicker" bounds="[0,0][1080,2400]">
+                <node text="Photos" class="android.widget.TextView" package="com.google.android.photopicker" bounds="[379,723][493,776]" />
+                <node content-desc="Photo taken on Oct 12, 2026 9:35 AM" class="android.view.View" package="com.google.android.photopicker" bounds="[361,1226][719,1584]" />
+                <node content-desc="Photo taken on Oct 12, 2026 9:35 AM" class="android.view.View" package="com.google.android.photopicker" bounds="[0,1226][358,1584]" />
+            </node>
+        </hierarchy>
+        XML);
+
+    expect((new ElementFinder)->firstPhoto($elements)['center'] ?? null)->toBe([179.0, 1405.0]);
+});
+
+function readSystemAndroid(string $xml): array
+{
+    $command = new RecordingCommand;
+    $command->outputs['uiautomator'] = $xml;
+    $driver = new AndroidDriver(new Device('android', 'Pixel', true), Configuration::resolve(), $command);
+    (new ReflectionProperty(AndroidDriver::class, 'serial'))->setValue($driver, 'emulator-5554');
+
+    return $driver->describe();
+}

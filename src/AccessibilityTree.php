@@ -973,6 +973,8 @@ final class AccessibilityTree
         // whose tiles carry PXGGridLayout ids. Neither is translated.
         if (
             str_contains($package, 'providers.media')
+            // Android 16's picker is its own app, com.google.android.photopicker.
+            || str_contains($package, 'photopicker')
             || str_contains($role, 'pxphotosgrid')
             || str_contains($id, 'photosview_content_scroll_view')
             || str_starts_with($id, 'pxggridlayout')
