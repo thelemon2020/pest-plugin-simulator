@@ -113,7 +113,7 @@ public final class Reader {
     }
 
     /**
-     * "type <pause ms> <the UTF-8 text in base64>", "clear", or "hide".
+     * "type <pause ms> <the UTF-8 text in base64>", "clear", "hide", or "enter".
      */
     private static boolean input(Keyboard keyboard, String[] words) {
         try {
@@ -124,6 +124,8 @@ public final class Reader {
                     return keyboard.clear();
                 case "hide":
                     return keyboard.hide();
+                case "enter":
+                    return keyboard.enter();
                 default:
                     return false;
             }

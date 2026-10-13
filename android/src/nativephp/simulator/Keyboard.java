@@ -335,6 +335,17 @@ final class Keyboard {
     }
 
     /**
+     * Presses the focused field's IME action, as the keyboard's action key does. Compose runs
+     * a text field's keyboard action, NativePHP's @submit, from it: a KEYCODE_ENTER key
+     * event sent to the same field did nothing.
+     */
+    boolean enter() {
+        AccessibilityNodeInfo field = focusedField();
+
+        return field != null && field.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.getId());
+    }
+
+    /**
      * The focused field, fetched fresh. Compose can answer findFocus() with the field that
      * was focused before the last tap, which then says it is not focused, and the tree is
      * searched instead.

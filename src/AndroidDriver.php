@@ -338,8 +338,17 @@ final class AndroidDriver implements Driver
         $this->keyboardLeftUp = true;
     }
 
+    /**
+     * The field's IME action, through the reader: Compose runs a text field's keyboard
+     * action from that, and not from a KEYCODE_ENTER key event. The key event is what is
+     * left when the reader is not running.
+     */
     public function enter(): void
     {
+        if ($this->reader()->enter()) {
+            return;
+        }
+
         $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'input', 'keyevent', '66']);
     }
 

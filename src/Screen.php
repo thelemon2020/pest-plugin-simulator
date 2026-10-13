@@ -712,8 +712,6 @@ final class Screen
 
             [$left, , $width] = $frame;
             $inset = min($frame[3] / 2, $width * 0.1);
-            $perUnit = ($width - 2 * $inset) / ($high - $low);
-            $x = $left + $inset + ($current - $low) * $perUnit;
             $y = (float) $slider['center'][1];
             $close = ($high - $low) / 200;
             // A drag shorter than this can read as a tap, which leaves the thumb where it is:
@@ -721,8 +719,16 @@ final class Screen
             $shortest = $frame[3] * 0.6;
             $along = fn (float $to): float => max($left, min($left + $width, $to));
 
+            // Where a drag lets go, and the value it leaves, is the one thing that holds on
+            // both platforms: iOS's thumb follows the finger from where it was grabbed, and
+            // Compose's jumps to where the finger first touches. Each drag adds a point, and
+            // the line through the last two aims the next. Until there are two, the line is
+            // the track's own: inset by half the thumb at each end.
+            $line = new SliderLine($left + $inset, $low, ($width - 2 * $inset) / ($high - $low));
+            $x = $along($line->at($current));
+
             for ($drag = 1; $drag <= self::SLIDE_ATTEMPTS && abs($current - $value) > $close; $drag++) {
-                $target = $along($x + ($value - $current) * $perUnit);
+                $target = $along($line->at($value));
 
                 if (abs($target - $x) < $shortest) {
                     // Back away first, so the drag onto the value is long enough to count.
@@ -730,19 +736,15 @@ final class Screen
                     $this->drag([$x, $y, $away, $y], 0.4);
                     $x = $away;
                     $current = $this->sliderValue($label, $nth) ?? $current;
-                    $target = $along($x + ($value - $current) * $perUnit);
+                    $line = $line->through($x, $current);
+                    $target = $along($line->at($value));
                 }
 
                 $this->drag([$x, $y, $target, $y], 0.5);
                 $this->note('drags', $drag);
-                $moved = $this->sliderValue($label, $nth) ?? $current;
-
-                if (abs($moved - $current) > $close && abs($target - $x) > 1) {
-                    $perUnit = abs($target - $x) / abs($moved - $current);
-                }
-
                 $x = $target;
-                $current = $moved;
+                $current = $this->sliderValue($label, $nth) ?? $current;
+                $line = $line->through($x, $current);
             }
 
             $this->until(

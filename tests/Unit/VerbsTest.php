@@ -189,7 +189,7 @@ it('drags a slider from where its thumb is to where the value sits', function ()
     expect($driver->swipes)->toBe([[92.0, 120.0, 290.0, 120.0, 0.5]]);
 });
 
-it('aims the next drag by how far the last one moved the value', function () {
+it('aims the next drag from where the last one let go', function () {
     $slider = fn (string $value): array => [
         verb('Volume', 'Slider', 200.0, 105.0, ['value' => $value, 'frame' => [0.0, 100.0, 400.0, 10.0], 'range' => [0.0, 100.0]]),
     ];
@@ -197,10 +197,10 @@ it('aims the next drag by how far the last one moved the value', function () {
 
     (new Screen($driver, timeoutSeconds: 0))->slide('Volume', 75);
 
-    // From 83 to 297.5 moved the value 50, so 5 more is 21.45 points on from where it let go.
+    // It let go at 297.5 with the value at 70: 5 more, at the track's 3.9 points a unit.
     expect($driver->swipes)->toHaveCount(2)
         ->and($driver->swipes[1][0])->toBe(297.5)
-        ->and($driver->swipes[1][2])->toEqualWithDelta(318.95, 0.001);
+        ->and($driver->swipes[1][2])->toEqualWithDelta(317.0, 0.001);
 });
 
 it('backs away before a correction too short to count as a drag', function () {
@@ -303,4 +303,19 @@ it('taps a field named by its placeholder again where it was, once text has repl
 
     expect(end($driver->taps))->toBe([215.0, 395.0])
         ->and(end($driver->events))->toBe(['enter']);
+});
+
+it('aims by the line through the last two places a drag let go', function () {
+    // A Compose slider jumps to where the finger lands: what counts is where each drag let
+    // go. 290 left 74 and 242 left 62, so a unit is 4 points, and 75 is at 294.
+    $slider = fn (string $value): array => [
+        verb('Volume', 'Slider', 200.0, 120.0, ['value' => $value, 'frame' => [0.0, 100.0, 400.0, 40.0], 'range' => [0.0, 100.0]]),
+    ];
+    $driver = new FakeDriver([$slider('20'), $slider('74'), $slider('62'), $slider('75')]);
+
+    (new Screen($driver, timeoutSeconds: 0))->slide('Volume', 75);
+
+    expect($driver->swipes)->toHaveCount(3)
+        ->and($driver->swipes[2][0])->toBe(242.0)
+        ->and($driver->swipes[2][2])->toEqualWithDelta(294.0, 0.001);
 });
