@@ -1095,7 +1095,8 @@ final class Screen
     /**
      * Where a control is off screen, and the drag that brings it toward the middle, or null
      * when it is already on screen. A nav bar or tab bar's own controls never move, so they
-     * are never scrolled toward.
+     * are never scrolled toward. Nor is a key on the software keyboard, which is below the
+     * part of the screen a tap is trusted to, but on screen whenever it is in the tree.
      *
      * Up and down come first. A card past the edge of the carousel it sits in is then
      * dragged sideways inside that carousel. A control past the edge of the screen in
@@ -1108,7 +1109,7 @@ final class Screen
      */
     private function toward(array $match, array $elements): ?array
     {
-        if (($match['chrome'] ?? null) !== null) {
+        if (($match['chrome'] ?? null) !== null || ($match['role'] ?? null) === 'Key') {
             return null;
         }
 
