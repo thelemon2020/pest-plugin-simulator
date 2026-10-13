@@ -28,24 +28,48 @@ final class SchemeApproval
     private const PLACEHOLDER = '/%(?:\d+\$)?(?:\[[^\]]*\])?@/';
 
     /**
+     * One JSON object as plutil writes it for a strings file, which holds only strings.
+     */
+    private const OBJECT = '/\{(?:[^{}"]++|"(?:[^"\\\\]++|\\\\.)*+")*+\}/s';
+
+    /** @var array<string, string> each title's pattern, built the first time it is matched */
+    private static array $patterns = [];
+
+    /**
+     * Every language in one plutil call. A file plutil cannot read fails that call, so then
+     * each file is read on its own and that one is skipped.
+     *
      * @return list<OpenPrompt>
      */
-    public static function read(Command $command, string $runtimeRoot): array
+    public static function read(Command $command, string $runtimeRoot, ?float $timeout = null): array
     {
         if ($runtimeRoot === '' || ! is_dir($runtimeRoot)) {
             return [];
         }
 
+        $files = glob($runtimeRoot.self::STRINGS) ?: [];
+
+        if ($files === []) {
+            return [];
+        }
+
+        try {
+            $tables = self::objects($command->run('plutil', ['-convert', 'json', '-o', '-', ...$files], null, $timeout));
+        } catch (SimulatorException) {
+            $tables = [];
+
+            foreach ($files as $file) {
+                try {
+                    $tables = [...$tables, ...self::objects($command->run('plutil', ['-convert', 'json', '-o', '-', $file], null, $timeout))];
+                } catch (SimulatorException) {
+                }
+            }
+        }
+
         $prompts = [];
 
-        foreach (glob($runtimeRoot.self::STRINGS) ?: [] as $file) {
-            try {
-                $strings = json_decode($command->run('plutil', ['-convert', 'json', '-o', '-', $file]), true);
-            } catch (SimulatorException) {
-                continue;
-            }
-
-            $prompt = is_array($strings) ? self::prompt($strings) : null;
+        foreach ($tables as $strings) {
+            $prompt = self::prompt($strings);
 
             if ($prompt !== null) {
                 $prompts[] = $prompt;
@@ -85,9 +109,32 @@ final class SchemeApproval
      */
     public static function titled(string $label, string $title): bool
     {
-        $parts = preg_split(self::PLACEHOLDER, $title) ?: [$title];
-        $pattern = implode('.+', array_map(fn (string $part): string => preg_quote($part, '/'), $parts));
+        if (! isset(self::$patterns[$title])) {
+            $parts = preg_split(self::PLACEHOLDER, $title) ?: [$title];
+            self::$patterns[$title] = '/^'.implode('.+', array_map(fn (string $part): string => preg_quote($part, '/'), $parts)).'$/us';
+        }
 
-        return preg_match('/^'.$pattern.'$/us', $label) === 1;
+        return preg_match(self::$patterns[$title], $label) === 1;
+    }
+
+    /**
+     * plutil writes one object per file, one straight after another.
+     *
+     * @return list<array<mixed>>
+     */
+    private static function objects(string $output): array
+    {
+        preg_match_all(self::OBJECT, $output, $matches);
+        $objects = [];
+
+        foreach ($matches[0] as $object) {
+            $decoded = json_decode($object, true);
+
+            if (is_array($decoded)) {
+                $objects[] = $decoded;
+            }
+        }
+
+        return $objects;
     }
 }

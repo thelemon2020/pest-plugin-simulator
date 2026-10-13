@@ -150,13 +150,21 @@ it('finds the Open button only while the system dialog is up', function () use (
     $finder = new ElementFinder;
 
     $dialog = $finder->openDialogButton([
-        $button('Open in “CollectShine”?', null, [200, 400], 'StaticText'),
-        $button('Open', null, [275, 474]),
-        $button('Cancel', null, [120, 474]),
+        [...$button('Open in “CollectShine”?', null, [200, 400], 'StaticText'), 'chrome' => 'alert'],
+        [...$button('Open', null, [275, 474]), 'chrome' => 'alert'],
+        [...$button('Cancel', null, [120, 474]), 'chrome' => 'alert'],
     ]);
 
-    expect($dialog['center'])->toBe([275, 474])
+    expect($dialog['center'] ?? null)->toBe([275, 474])
         ->and($finder->openDialogButton([$button('Open')]))->toBeNull();
+});
+
+it('leaves the app\'s own Open button alone when its text mentions opening in something', function () use ($button) {
+    // The app's own screen, with no alert up: a row and a button of its own.
+    expect((new ElementFinder)->openDialogButton([
+        $button('Open in Maps', null, [200, 300], 'StaticText'),
+        $button('Open', null, [200, 360]),
+    ], fn (): array => [['titles' => ['Open in “%@”?'], 'open' => 'Open']]))->toBeNull();
 });
 
 // What iOS 26.5's CoreServices.framework/{en,de}.lproj/SchemeApproval.strings say.

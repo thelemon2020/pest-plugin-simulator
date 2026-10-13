@@ -75,12 +75,19 @@ final class ElementFinder
     }
 
     /**
+     * What the prompt says in English, for when the device's own text can't be read.
+     *
+     * @var OpenPrompt
+     */
+    private const ENGLISH_PROMPT = ['titles' => ['Open in “%@”?'], 'open' => 'Open'];
+
+    /**
      * The Open button of iOS's deep-link prompt, "Open in “App”?", while it is up.
      *
-     * In English it is found by its words. In any other language, by the device's own text
-     * for it (see SchemeApproval): an alert with one of that language's titles, the app's name
-     * filled in, and a Button in it with that language's Open. That text is only asked for
-     * once an alert is up, since reading it the first time takes a moment.
+     * It is an alert with the prompt's title, the app's name filled in, and a Button in it
+     * labelled Open. In English its words are known here. In any other language they come
+     * from the device (see SchemeApproval), asked for only once an alert is up that the
+     * English words don't match, since reading them the first time takes a moment.
      *
      * @param  list<Element>  $elements
      * @param  (Closure(): list<OpenPrompt>)|null  $prompts
@@ -88,14 +95,29 @@ final class ElementFinder
      */
     public function openDialogButton(array $elements, ?Closure $prompts = null): ?array
     {
-        $english = $this->englishOpenButton($elements);
         $alert = $this->within($elements, 'alert');
 
-        if ($english !== null || $prompts === null || $alert === []) {
+        if ($alert === []) {
+            return null;
+        }
+
+        $english = $this->promptButton($alert, [self::ENGLISH_PROMPT]);
+
+        if ($english !== null || $prompts === null) {
             return $english;
         }
 
-        foreach ($prompts() as $prompt) {
+        return $this->promptButton($alert, $prompts());
+    }
+
+    /**
+     * @param  list<Element>  $alert
+     * @param  list<OpenPrompt>  $prompts
+     * @return Tappable|null
+     */
+    private function promptButton(array $alert, array $prompts): ?array
+    {
+        foreach ($prompts as $prompt) {
             if (! $this->titledBy($alert, $prompt['titles'])) {
                 continue;
             }
@@ -116,34 +138,6 @@ final class ElementFinder
         }
 
         return null;
-    }
-
-    /**
-     * @param  list<Element>  $elements
-     * @return Tappable|null
-     */
-    private function englishOpenButton(array $elements): ?array
-    {
-        $prompt = false;
-
-        foreach ($elements as $element) {
-            if (str_contains($element['label'], 'Open in')) {
-                $prompt = true;
-                break;
-            }
-        }
-
-        if (! $prompt) {
-            return null;
-        }
-
-        try {
-            $match = $this->match($elements, 'Open');
-        } catch (NoMatch|AmbiguousMatch) {
-            return null;
-        }
-
-        return $match['role'] === 'Button' ? $match : null;
     }
 
     /**

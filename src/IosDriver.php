@@ -48,6 +48,9 @@ final class IosDriver implements Driver
     /** @var array<string, list<OpenPrompt>> keyed by Simulator */
     private array $openPrompts = [];
 
+    /** @var array<string, int> keyed by Simulator */
+    private array $promptLookupFailures = [];
+
     public function __construct(
         private readonly Device $device,
         private readonly Configuration $configuration,
@@ -858,8 +861,20 @@ final class IosDriver implements Driver
     }
 
     /**
-     * Read from the runtime the Simulator boots, once per Simulator: one simctl call and, on
-     * iOS 26.5, 53 plutil calls, about half a second.
+     * The prompt's text is read inside a read, while a step waits on it: simctl getenv took
+     * 0.2–0.8 seconds and plutil 0.02 on iOS 26.5, so anything near this is stuck.
+     */
+    private const PROMPT_TEXT_TIMEOUT = 10.0;
+
+    /**
+     * Failed lookups before the English text is all there is for the rest of the run.
+     */
+    private const PROMPT_TEXT_ATTEMPTS = 3;
+
+    /**
+     * Read from the runtime the Simulator boots, once per Simulator: one simctl call and one
+     * plutil call. A lookup that fails is tried again at the next alert, since one slow
+     * simctl call says nothing about the next.
      */
     public function openPrompts(): array
     {
@@ -870,12 +885,22 @@ final class IosDriver implements Driver
         }
 
         try {
-            $root = trim($this->command->run('xcrun', ['simctl', 'getenv', $simulator, 'SIMULATOR_ROOT']));
+            $root = trim($this->command->run('xcrun', ['simctl', 'getenv', $simulator, 'SIMULATOR_ROOT'], null, self::PROMPT_TEXT_TIMEOUT));
         } catch (SimulatorException) {
             $root = '';
         }
 
-        return $this->openPrompts[$simulator] = SchemeApproval::read($this->command, $root);
+        if ($root === '') {
+            $this->promptLookupFailures[$simulator] = ($this->promptLookupFailures[$simulator] ?? 0) + 1;
+
+            if ($this->promptLookupFailures[$simulator] >= self::PROMPT_TEXT_ATTEMPTS) {
+                $this->openPrompts[$simulator] = [];
+            }
+
+            return [];
+        }
+
+        return $this->openPrompts[$simulator] = SchemeApproval::read($this->command, $root, self::PROMPT_TEXT_TIMEOUT);
     }
 
     private function buildOnce(): void

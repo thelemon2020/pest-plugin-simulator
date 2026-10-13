@@ -10,9 +10,9 @@ use Tests\Support\FakeDriver;
 it('dismisses the open dialog and then sees the app', function () {
     $driver = new FakeDriver([
         [
-            ['label' => 'Open in “CollectShine”?', 'role' => 'StaticText', 'id' => null, 'center' => [200, 400]],
-            ['label' => 'Open', 'role' => 'Button', 'id' => null, 'center' => [275, 474]],
-            ['label' => 'Cancel', 'role' => 'Button', 'id' => null, 'center' => [120, 474]],
+            ['label' => 'Open in “CollectShine”?', 'role' => 'StaticText', 'id' => null, 'center' => [200, 400], 'chrome' => 'alert'],
+            ['label' => 'Open', 'role' => 'Button', 'id' => null, 'center' => [275, 474], 'chrome' => 'alert'],
+            ['label' => 'Cancel', 'role' => 'Button', 'id' => null, 'center' => [120, 474], 'chrome' => 'alert'],
         ],
         [
             ['label' => 'Turn the lights on', 'role' => 'Button', 'id' => null, 'center' => [200, 500]],
@@ -23,6 +23,24 @@ it('dismisses the open dialog and then sees the app', function () {
 
     expect($driver->taps)->toBe([[275.0, 474.0]])
         ->and($driver->promptReads)->toBe(0);
+});
+
+it('waits for the open dialog to finish sliding in before tapping Open', function () {
+    // iOS drops a tap while an alert presents. The read that first shows the prompt is
+    // when it started, so the tap waits out the rest of the slide-in.
+    $driver = new FakeDriver([
+        AccessibilityTree::summarize((string) file_get_contents(dirname(__DIR__).'/Fixtures/ios-open-in-prompt-en.json')),
+        [
+            ['label' => 'Controls', 'role' => 'StaticText', 'id' => null, 'center' => [48, 192]],
+        ],
+    ]);
+    $start = microtime(true);
+
+    (new Screen($driver, timeoutSeconds: 5))->assertSee('Controls');
+
+    // 0.8 seconds of slide-in before the tap, then the 0.8 read() leaves for the app to come up.
+    expect(microtime(true) - $start)->toBeGreaterThan(1.5)
+        ->and($driver->taps)->toBe([[275.0, 474.0]]);
 });
 
 it('dismisses the open dialog in the device\'s language', function () {
