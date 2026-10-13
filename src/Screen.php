@@ -44,7 +44,20 @@ final class Screen
     private const SHEET_SECONDS = 0.8;
 
     /**
-     * When a read first had the sheet that is up now, or null when the last read had none.
+     * How many events the app has sent to PHP that PHP has not taken, as the last read's
+     * IdleMarker said. Null when the app shows no marker, and every wait is by looking.
+     */
+    private ?int $pending = null;
+
+    /**
+     * Whether idle() is waiting. read() taps iOS's "Open in" prompt through touch(), which
+     * waits through idle(), which reads: one wait is enough.
+     */
+    private bool $idling = false;
+
+    /**
+     * When a read first had the sheet or alert that is up now, or null when the last read
+     * had neither.
      */
     private ?float $sheetSeen = null;
 
@@ -54,6 +67,70 @@ final class Screen
      * @var array<string, mixed>|null
      */
     private ?array $step = null;
+
+    /**
+     * The controls this screen looks inside, outermost first (see within()).
+     *
+     * @var list<string>
+     */
+    private array $scopes = [];
+
+    /**
+     * Everything the last read had, before within() narrowed it.
+     *
+     * @var list<Element>
+     */
+    private array $screenElements = [];
+
+    /**
+     * The within() control the last read could not find, if one was missing.
+     */
+    private ?string $scopeMissing = null;
+
+    /**
+     * nth() for the next call, then for the call under way, and whether that call used it.
+     */
+    private ?int $nth = null;
+
+    private ?int $stepNth = null;
+
+    private bool $nthUsed = false;
+
+    /**
+     * Look only inside one control. $callback gets this screen narrowed to the controls whose
+     * center sits inside that control's frame: a card, a row, or a sheet, named by its label
+     * or accessibility id. The control is found again on every read, so it can move as the
+     * screen scrolls. This screen, which within() returns, still looks at everything.
+     *
+     * @param  Closure(self): mixed  $callback
+     */
+    public function within(string $container, Closure $callback): self
+    {
+        if ($this->nth !== null) {
+            throw new SimulatorException('nth() counts the controls the next call matches. Call it inside within(), on the call it is for.');
+        }
+
+        $scoped = clone $this;
+        $scoped->scopes[] = $container;
+        $callback($scoped);
+
+        return $this;
+    }
+
+    /**
+     * The next call takes the nth control its label matches, counting from 1 in reading
+     * order (top to bottom, then left to right), instead of failing when several match.
+     */
+    public function nth(int $index): self
+    {
+        if ($index < 1) {
+            throw new SimulatorException("nth() counts from 1, not [{$index}].");
+        }
+
+        $this->nth = $index;
+
+        return $this;
+    }
 
     public function tap(string $label): self
     {
@@ -107,7 +184,16 @@ final class Screen
 
                 // A password stays out of the trace, as it stays masked in tree.json.
                 $this->sent(['text', ($match['secure'] ?? false) === true ? str_repeat('•', mb_strlen($text)) : $text]);
-                $this->driver->text($text);
+
+                // A burst first, as fields take it best. Only a retry, for an app that says how
+                // far behind PHP is, goes a key at a time: the burst lost keys to a late answer.
+                if ($attempt > 1 && $this->pending !== null) {
+                    $this->note('paced', true);
+                    $this->paced($label, $match, $text);
+                } else {
+                    $this->driver->text($text);
+                }
+
                 $settled = $this->settled($label, $match, $text);
                 $this->note('attempts', $attempt);
                 $this->note('settled', $settled);
@@ -117,6 +203,45 @@ final class Screen
                 }
             }
         });
+    }
+
+    /**
+     * Types one character at a time, each once the field shows the one before and PHP has
+     * taken every event the app sent it, for an app that shows the IdleMarker. type() does
+     * this only after a burst lost keys: an ordinary field took about two seconds to show
+     * each key typed one at a time on iOS, where a burst settled at once.
+     *
+     * A `native:model` field sends PHP an event for each keystroke and writes back what PHP
+     * answers. Typed in one burst, an answer that comes back after the next keystroke writes
+     * an older value over the field: the sample app's field, whose PHP takes 300ms an
+     * event, kept one letter of "hello there" in three tries. With nothing still on its way
+     * to PHP when a key goes in, there is no older answer to write back.
+     *
+     * @param  Tappable  $field
+     */
+    private function paced(string $label, array $field, string $text): void
+    {
+        $typed = '';
+
+        foreach (mb_str_split($text) as $character) {
+            $typed .= $character;
+            $this->driver->text($character);
+            $deadline = microtime(true) + min(10.0, $this->timeoutSeconds);
+
+            do {
+                try {
+                    $elements = $this->read();
+                } catch (SimulatorException) {
+                    $elements = [];
+                }
+
+                if (! $this->busy() && $elements !== [] && $this->finder->holds($elements, $label, $field, $typed)) {
+                    break;
+                }
+
+                usleep(50_000);
+            } while (microtime(true) < $deadline);
+        }
     }
 
     /**
@@ -157,9 +282,11 @@ final class Screen
                 $elements = [];
             }
 
-            $matches = $elements !== [] && $this->finder->holds($elements, $label, $field, $text);
+            $matches = $elements !== [] && $this->finder->holds($elements, $label, $field, $text, $this->stepNth);
 
-            if ($matches && $confirmed) {
+            // With the app's marker saying PHP has taken everything it was sent, there is no
+            // answer still on its way to change the field again: one read is enough.
+            if ($matches && ($confirmed || ($this->pending !== null && ! $this->busy()))) {
                 return true;
             }
 
@@ -290,12 +417,12 @@ final class Screen
         try {
             while (microtime(true) < $deadline) {
                 try {
-                    $current = $this->driver->describe();
+                    [$current, $this->pending] = IdleMarker::split($this->driver->describe());
                 } catch (SimulatorException) {
                     return;
                 }
 
-                if ($previous !== null && $current === $previous) {
+                if ($previous !== null && $current === $previous && ! $this->busy()) {
                     return;
                 }
 
@@ -360,6 +487,456 @@ final class Screen
         });
     }
 
+    /**
+     * press(), by the name NativePHP's own test harness gives it.
+     */
+    public function longPress(string $label, float $seconds = 0.8): self
+    {
+        return $this->press($label, $seconds);
+    }
+
+    /**
+     * goBack(), by the name NativePHP's own test harness gives it.
+     */
+    public function pressBack(): self
+    {
+        return $this->goBack();
+    }
+
+    /**
+     * type(), by the name NativePHP's own test harness gives it.
+     */
+    public function input(string $label, string $text): self
+    {
+        return $this->type($label, $text);
+    }
+
+    /**
+     * Presses the keyboard's return key in a field, as a person does to send a search or a
+     * message. With $text, types it first.
+     */
+    public function submit(string $label, ?string $text = null): self
+    {
+        return $this->step('submit', $label, function () use ($label, $text): void {
+            $field = $this->locate($label, 'submit');
+
+            if ($text !== null) {
+                $this->type($label, $text);
+            }
+
+            // Android closes the keyboard once type() is done, which leaves the field without
+            // focus, and a return key pressed then goes nowhere. A tap gives it focus back.
+            // It goes where the field was found before typing: a field named by its
+            // placeholder has no name once text is in it.
+            $this->touch($field);
+            $this->sent(['enter']);
+            $this->driver->enter();
+        });
+    }
+
+    /**
+     * Flips a switch. toggle('Wi-Fi', true) turns it on, and taps only when it is off. Either
+     * way, it waits until the switch reads what it should.
+     */
+    public function toggle(string $label, ?bool $on = null): self
+    {
+        return $this->step('toggle', $label, fn () => $this->turn($label, $on, 'toggle'));
+    }
+
+    /**
+     * Checks a checkbox, or unchecks it with false, tapping only when it is the other way.
+     */
+    public function check(string $label, bool $checked = true): self
+    {
+        $action = $checked ? 'check' : 'uncheck';
+
+        return $this->step($action, $label, fn () => $this->turn($label, $checked, $action));
+    }
+
+    public function uncheck(string $label): self
+    {
+        return $this->check($label, false);
+    }
+
+    private function turn(string $label, ?bool $on, string $action): void
+    {
+        $match = $this->locate($label, $action);
+        $current = ($match['checked'] ?? false) === true;
+        $wanted = $on ?? ! $current;
+        $this->note('wanted', $wanted ? 'on' : 'off');
+
+        if ($current !== $wanted) {
+            $this->touch($match);
+        }
+
+        $this->until(
+            fn (array $elements): bool => $this->finder->isChecked($elements, $label, $wanted, $this->stepNth),
+            "[{$label}] stayed ".($wanted ? 'off' : 'on').'.',
+        );
+    }
+
+    /**
+     * Opens a picker and chooses an option: a `<native:select>`, or any control that opens
+     * a menu. The option is one that appeared when the picker opened, so the picker's own
+     * label for the current choice is never what gets tapped.
+     */
+    public function select(string $label, string $option): self
+    {
+        return $this->step('select', "{$label}: {$option}", function () use ($label, $option): void {
+            $picker = $this->locate($label, 'select from');
+            $before = array_map(fn (array $element): string => $this->placed($element), $this->screenElements);
+            $this->touch($picker);
+            $this->until(
+                fn (): bool => $this->appeared($before, $option) !== null,
+                "[{$label}] did not offer [{$option}].",
+            );
+
+            /** @var Tappable $choice until() waited for it */
+            $choice = $this->appeared($before, $option);
+            $this->touch($choice);
+        });
+    }
+
+    /**
+     * @param  Element  $element
+     */
+    private function placed(array $element): string
+    {
+        return $element['label'].'@'.json_encode($element['center'] ?? null);
+    }
+
+    /**
+     * The option named $option among what was not on the screen before the picker opened.
+     *
+     * @param  list<string>  $before
+     * @return Tappable|null
+     */
+    private function appeared(array $before, string $option): ?array
+    {
+        $fresh = array_values(array_filter(
+            $this->screenElements,
+            fn (array $element): bool => ! in_array($this->placed($element), $before, true),
+        ));
+
+        try {
+            return $this->finder->match($fresh, $option);
+        } catch (NoMatch|AmbiguousMatch) {
+            return null;
+        }
+    }
+
+    /**
+     * Picks a radio button: the option named $option nearest below the group's label. It
+     * waits until that option reads as selected.
+     */
+    public function selectRadio(string $group, string $option): self
+    {
+        return $this->step('selectRadio', "{$group}: {$option}", function () use ($group, $option): void {
+            $elements = $this->until(
+                fn (array $elements): bool => $this->radio($elements, $group, $option) !== null,
+                "Could not find [{$option}] under [{$group}].",
+            );
+
+            /** @var Tappable $radio until() waited for it */
+            $radio = $this->radio($elements, $group, $option);
+            $this->touch($radio);
+            $this->until(
+                fn (array $elements): bool => $this->radioSelected($elements, $group, $option),
+                "[{$option}] under [{$group}] was not selected.",
+            );
+        });
+    }
+
+    /**
+     * @param  list<Element>  $elements
+     * @return Tappable|null
+     */
+    private function radio(array $elements, string $group, string $option): ?array
+    {
+        $below = $this->below($elements, $group);
+
+        try {
+            return $below === null ? null : $this->finder->match($below, $option, 1);
+        } catch (NoMatch) {
+            return null;
+        }
+    }
+
+    /**
+     * Whether an option under the group with exactly that label reads as selected. On
+     * Android the words and the radio button are two nodes, and either can carry it.
+     *
+     * @param  list<Element>  $elements
+     */
+    private function radioSelected(array $elements, string $group, string $option): bool
+    {
+        foreach ($this->below($elements, $group) ?? [] as $element) {
+            if ($element['label'] === $option && ($element['selected'] ?? false) === true) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The elements below a label, or null when the label is not on screen.
+     *
+     * @param  list<Element>  $elements
+     * @return list<Element>|null
+     */
+    private function below(array $elements, string $label): ?array
+    {
+        try {
+            $top = $this->finder->match($elements, $label)['center'][1];
+        } catch (NoMatch|AmbiguousMatch) {
+            return null;
+        }
+
+        return array_values(array_filter(
+            $elements,
+            fn (array $element): bool => is_array($element['center'] ?? null) && $element['center'][1] > $top,
+        ));
+    }
+
+    /**
+     * Taps a tab in a `<native:tab-row>` or a tab bar, and waits until it is the active one.
+     */
+    public function changeTab(string $label): self
+    {
+        return $this->step('changeTab', $label, function () use ($label): void {
+            $this->touch($this->locate($label, 'change to'));
+            $this->until(
+                fn (array $elements): bool => $this->finder->tabActive($elements, $label),
+                "[{$label}] did not become the active tab.",
+            );
+        });
+    }
+
+    /**
+     * Closes the sheet that is up. On iOS it drags the sheet down by its grabber and waits
+     * until it has gone. Android presses Back, which closes a bottom sheet. With no iOS
+     * sheet in the tree it presses Back on either platform, which goes back a screen.
+     */
+    public function dismissSheet(): self
+    {
+        return $this->step('dismissSheet', null, function (): void {
+            $this->readRetrying();
+            $grabber = $this->finder->sheetTop($this->screenElements);
+
+            if ($grabber === null) {
+                $this->presented();
+                $this->sent(['back']);
+                $this->driver->back();
+                $this->settle();
+
+                return;
+            }
+
+            [, $height] = $this->driver->viewport();
+            $x = (float) $grabber['center'][0];
+            $y = (float) $grabber['center'][1];
+            $this->drag([$x, $y, $x, $height * 0.95], 0.4);
+            $this->until(
+                fn (): bool => ! $this->finder->hasSheet($this->screenElements),
+                'The sheet did not close.',
+            );
+        });
+    }
+
+    /**
+     * How many drags slide() makes to land on a value. Each one starts where the last one
+     * let go, and measures how far the value moved per point to aim the next.
+     */
+    private const SLIDE_ATTEMPTS = 5;
+
+    /**
+     * Drags a slider's thumb to a value. Android reports the slider's range. iOS does not,
+     * so pass the `min` and `max` the slider has: slide('Volume', 75, min: 0, max: 100).
+     */
+    public function slide(string $label, float $value, ?float $min = null, ?float $max = null): self
+    {
+        return $this->step('slide', "{$label}: {$value}", function () use ($label, $value, $min, $max): void {
+            $slider = $this->locate($label, 'slide');
+            $nth = $this->stepNth;
+            [$low, $high] = $this->range($slider, $label, $min, $max);
+
+            if ($value < $low || $value > $high) {
+                throw new SimulatorException("[{$value}] is outside [{$label}]'s range of {$low} to {$high}.");
+            }
+
+            $frame = $slider['frame'] ?? null;
+            $current = $this->number($slider['value'] ?? null);
+
+            if (! is_array($frame) || $current === null) {
+                throw new SimulatorException("[{$label}] reports no value or frame, so slide() cannot tell where its thumb is.");
+            }
+
+            [$left, , $width] = $frame;
+            $inset = min($frame[3] / 2, $width * 0.1);
+            $y = (float) $slider['center'][1];
+            $close = ($high - $low) / 200;
+            // A drag shorter than this can read as a tap, which leaves the thumb where it is:
+            // a slider in SwiftUI stayed one step short of the value on a correction of 3pt.
+            $shortest = $frame[3] * 0.6;
+            $along = fn (float $to): float => max($left, min($left + $width, $to));
+
+            // Where a drag lets go, and the value it leaves, is the one thing that holds on
+            // both platforms: iOS's thumb follows the finger from where it was grabbed, and
+            // Compose's jumps to where the finger first touches. Each drag adds a point, and
+            // the line through the last two aims the next. Until there are two, the line is
+            // the track's own: inset by half the thumb at each end.
+            $line = new SliderLine($left + $inset, $low, ($width - 2 * $inset) / ($high - $low));
+            $x = $along($line->at($current));
+            $seeks = null;
+
+            for ($drag = 1; $drag <= self::SLIDE_ATTEMPTS && abs($current - $value) > $close; $drag++) {
+                $target = $along($line->at($value));
+
+                // Compose's slider jumps to where it is touched, and a tap leaves exactly the
+                // value there. A drag only moves the thumb once it has gone a touch slop, so it
+                // stops short by an amount that depends on its direction: on an android-36
+                // emulator, drags swung the value between 61 and 83. iOS's slider ignores a
+                // tap on its track, which the first tap shows, and then it is dragged.
+                if ($seeks !== false && abs($target - $x) > 1) {
+                    $this->touch(['center' => [$target, $y]]);
+                    $moved = $this->sliderValue($label, $nth) ?? $current;
+                    $seeks ??= abs($moved - $current) > $close;
+
+                    if ($seeks) {
+                        $this->note('taps', $drag);
+                        $x = $target;
+                        $current = $moved;
+                        $line = $line->through($x, $current);
+
+                        continue;
+                    }
+                }
+
+                if (abs($target - $x) < $shortest) {
+                    // Back away first, so the drag onto the value is long enough to count.
+                    $away = $along($target >= $x ? $x - 2 * $shortest : $x + 2 * $shortest);
+                    $this->drag([$x, $y, $away, $y], 0.4);
+                    $x = $away;
+                    $current = $this->sliderValue($label, $nth) ?? $current;
+                    $line = $line->through($x, $current);
+                    $target = $along($line->at($value));
+                }
+
+                $this->drag([$x, $y, $target, $y], 0.5);
+                $this->note('drags', $drag);
+                $x = $target;
+                $current = $this->sliderValue($label, $nth) ?? $current;
+                $line = $line->through($x, $current);
+            }
+
+            $this->until(
+                fn (array $elements): bool => $this->canMatch($elements, $label)
+                    && abs(($this->number($this->finder->match($elements, $label, $nth)['value'] ?? null) ?? INF) - $value) <= $close,
+                "[{$label}] stopped at {$current}, not {$value}.",
+            );
+        });
+    }
+
+    private function sliderValue(string $label, ?int $nth): ?float
+    {
+        $elements = $this->until(fn (array $elements): bool => $this->canMatch($elements, $label), "Could not find [{$label}] after sliding it.");
+
+        return $this->number($this->finder->match($elements, $label, $nth)['value'] ?? null);
+    }
+
+    /**
+     * @param  Tappable  $slider
+     * @return array{0: float, 1: float}
+     */
+    private function range(array $slider, string $label, ?float $min, ?float $max): array
+    {
+        $reported = $slider['range'] ?? null;
+        $low = $min ?? (is_array($reported) ? $reported[0] : null);
+        $high = $max ?? (is_array($reported) ? $reported[1] : null);
+
+        if ($low === null || $high === null) {
+            throw new SimulatorException("[{$label}] does not say its range. Pass the slider's min and max: slide('{$label}', 50, min: 0, max: 100).");
+        }
+
+        if ($high <= $low) {
+            throw new SimulatorException("[{$label}]'s max [{$high}] is not above its min [{$low}].");
+        }
+
+        return [$low, $high];
+    }
+
+    private function number(mixed $value): ?float
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+
+        $value = trim(str_replace(['%', ','], ['', '.'], $value));
+
+        return is_numeric($value) ? (float) $value : null;
+    }
+
+    /**
+     * Adds an image or video to the device's photo library, for pickPhoto() to choose. It
+     * stays in the library until --wipe.
+     */
+    public function addPhoto(string $path): self
+    {
+        return $this->step('addPhoto', $path, function () use ($path): void {
+            $file = Photo::file($path);
+            $this->sent(['addMedia', $file]);
+            $this->driver->addMedia($file);
+        });
+    }
+
+    /**
+     * Makes sure the device has a face or finger enrolled. Call it before the screen that
+     * offers Face ID or a fingerprint: an app checks before it shows the option.
+     */
+    public function enrollBiometrics(): self
+    {
+        return $this->biometric('enrollBiometrics', 'enroll');
+    }
+
+    /**
+     * Answers the Face ID or fingerprint prompt on screen with a match.
+     */
+    public function matchBiometric(): self
+    {
+        return $this->biometric('matchBiometric', 'match');
+    }
+
+    /**
+     * Answers the Face ID or fingerprint prompt on screen with a face or finger it does
+     * not know.
+     */
+    public function failBiometric(): self
+    {
+        return $this->biometric('failBiometric', 'fail');
+    }
+
+    private function biometric(string $step, string $action): self
+    {
+        return $this->step($step, null, function () use ($action): void {
+            $this->sent(['biometric', $action]);
+            $this->driver->biometric($action);
+        });
+    }
+
+    /**
+     * Delivers a push notification to the app, as APNs would. iOS only.
+     *
+     * @param  array<string, mixed>  $data  custom keys beside `aps`, for the app to read
+     */
+    public function push(string $title, string $body = '', array $data = []): self
+    {
+        return $this->step('push', $title, function () use ($title, $body, $data): void {
+            $this->sent(['push', $title]);
+            $this->driver->push(PushNotification::payload($title, $body, $data));
+        });
+    }
+
     public function alert(string $label): self
     {
         return $this->step('alert', $label, function () use ($label): void {
@@ -406,6 +983,13 @@ final class Screen
         });
     }
 
+    /**
+     * How many times pickPhoto() taps a photo. iOS 26's picker draws its grid before it
+     * takes touches: a tap 1.5 seconds after the grid showed did nothing, and the same tap
+     * 3 seconds after it picked the photo.
+     */
+    private const PICK_ATTEMPTS = 3;
+
     public function pickPhoto(): self
     {
         return $this->step('pickPhoto', null, function (): void {
@@ -413,18 +997,52 @@ final class Screen
                 fn (array $elements): bool => $this->finder->firstPhoto($elements) !== null,
                 'The photo picker had no image.',
             );
-            /** @var Tappable $photo until() waited for it */
-            $photo = $this->finder->firstPhoto($elements);
-            $this->touch($photo);
-            $confirm = $this->finder->photoConfirm($elements);
 
-            if ($confirm === null) {
-                $confirm = $this->finder->photoConfirm($this->read());
+            for ($attempt = 1; $attempt <= self::PICK_ATTEMPTS; $attempt++) {
+                $photo = $this->finder->firstPhoto($elements);
+
+                if ($photo === null) {
+                    return;
+                }
+
+                $this->note('taps', $attempt);
+                $this->tapQuickly($photo);
+
+                // A picker that takes one photo closes. One that takes several asks to be
+                // confirmed. Either says the tap was taken.
+                $deadline = microtime(true) + min(2.0, $this->timeoutSeconds);
+
+                do {
+                    try {
+                        $now = $this->read();
+                    } catch (SimulatorException) {
+                        $now = [];
+                    }
+
+                    // A read that failed or came back empty says nothing about the picker,
+                    // so the next try works from the last one that did.
+                    if ($now !== []) {
+                        $elements = $now;
+                        $confirm = $this->finder->photoConfirm($elements);
+
+                        if ($confirm !== null) {
+                            $this->touch($confirm);
+
+                            return;
+                        }
+
+                        if ($this->finder->firstPhoto($elements) === null) {
+                            return;
+                        }
+                    }
+
+                    if ($this->timeoutSeconds > 0) {
+                        usleep(200_000);
+                    }
+                } while (microtime(true) < $deadline);
             }
 
-            if ($confirm !== null) {
-                $this->touch($confirm);
-            }
+            $this->fail('The photo picker did not take a tap on its first photo, tapped '.self::PICK_ATTEMPTS.' times.', $elements);
         });
     }
 
@@ -444,48 +1062,52 @@ final class Screen
     public function assertValue(string $label, string $value): self
     {
         return $this->step('assertValue', $label, function () use ($label, $value): void {
+            $nth = $this->index();
             $elements = $this->until(
-                fn (array $elements): bool => $this->finder->hasValue($elements, $label, $value),
+                fn (array $elements): bool => $this->finder->hasValue($elements, $label, $value, $nth),
                 "[{$label}] did not have value [{$value}].",
             );
 
-            Assert::assertTrue($this->finder->hasValue($elements, $label, $value));
+            Assert::assertTrue($this->finder->hasValue($elements, $label, $value, $nth));
         });
     }
 
     public function assertEnabled(string $label): self
     {
         return $this->step('assertEnabled', $label, function () use ($label): void {
+            $nth = $this->index();
             $elements = $this->until(
-                fn (array $elements): bool => $this->finder->isEnabled($elements, $label, true),
+                fn (array $elements): bool => $this->finder->isEnabled($elements, $label, true, $nth),
                 "[{$label}] was disabled.",
             );
 
-            Assert::assertTrue($this->finder->isEnabled($elements, $label, true));
+            Assert::assertTrue($this->finder->isEnabled($elements, $label, true, $nth));
         });
     }
 
     public function assertDisabled(string $label): self
     {
         return $this->step('assertDisabled', $label, function () use ($label): void {
+            $nth = $this->index();
             $elements = $this->until(
-                fn (array $elements): bool => $this->finder->isEnabled($elements, $label, false),
+                fn (array $elements): bool => $this->finder->isEnabled($elements, $label, false, $nth),
                 "[{$label}] was enabled.",
             );
 
-            Assert::assertTrue($this->finder->isEnabled($elements, $label, false));
+            Assert::assertTrue($this->finder->isEnabled($elements, $label, false, $nth));
         });
     }
 
     public function assertChecked(string $label): self
     {
         return $this->step('assertChecked', $label, function () use ($label): void {
+            $nth = $this->index();
             $elements = $this->until(
-                fn (array $elements): bool => $this->finder->isChecked($elements, $label, true),
+                fn (array $elements): bool => $this->finder->isChecked($elements, $label, true, $nth),
                 "[{$label}] was unchecked.",
             );
 
-            Assert::assertTrue($this->finder->isChecked($elements, $label, true));
+            Assert::assertTrue($this->finder->isChecked($elements, $label, true, $nth));
         });
     }
 
@@ -496,12 +1118,13 @@ final class Screen
     public function assertNotChecked(string $label): self
     {
         return $this->step('assertNotChecked', $label, function () use ($label): void {
+            $nth = $this->index();
             $elements = $this->until(
-                fn (array $elements): bool => $this->finder->isChecked($elements, $label, false),
+                fn (array $elements): bool => $this->finder->isChecked($elements, $label, false, $nth),
                 "[{$label}] was checked.",
             );
 
-            Assert::assertTrue($this->finder->isChecked($elements, $label, false));
+            Assert::assertTrue($this->finder->isChecked($elements, $label, false, $nth));
         });
     }
 
@@ -512,12 +1135,13 @@ final class Screen
     public function assertSelected(string $label): self
     {
         return $this->step('assertSelected', $label, function () use ($label): void {
+            $nth = $this->index();
             $elements = $this->until(
-                fn (array $elements): bool => $this->finder->isSelected($elements, $label, true),
+                fn (array $elements): bool => $this->finder->isSelected($elements, $label, true, $nth),
                 "[{$label}] was not selected.",
             );
 
-            Assert::assertTrue($this->finder->isSelected($elements, $label, true));
+            Assert::assertTrue($this->finder->isSelected($elements, $label, true, $nth));
         });
     }
 
@@ -528,12 +1152,13 @@ final class Screen
     public function assertNotSelected(string $label): self
     {
         return $this->step('assertNotSelected', $label, function () use ($label): void {
+            $nth = $this->index();
             $elements = $this->until(
-                fn (array $elements): bool => $this->finder->isSelected($elements, $label, false),
+                fn (array $elements): bool => $this->finder->isSelected($elements, $label, false, $nth),
                 "[{$label}] was selected.",
             );
 
-            Assert::assertTrue($this->finder->isSelected($elements, $label, false));
+            Assert::assertTrue($this->finder->isSelected($elements, $label, false, $nth));
         });
     }
 
@@ -612,6 +1237,84 @@ final class Screen
             }
 
             $this->driver->screenshot($path);
+        });
+    }
+
+    /**
+     * Compares the screen with a baseline saved from an earlier run. The first run saves
+     * the baseline and passes; --update-screenshots saves it again. The status bar is fixed
+     * at 9:41 first, so the clock does not count as a change. A screen still moving gets
+     * until the timeout to match.
+     *
+     * $threshold is the share of pixels that may differ: 0.001 is a tenth of a percent.
+     */
+    public function assertScreenshotMatches(?string $name = null, float $threshold = 0.001): self
+    {
+        if (! Run::inside()) {
+            throw new SimulatorException('assertScreenshotMatches() only works inside a mobile() suite.');
+        }
+
+        return $this->step('assertScreenshotMatches', $name, function () use ($name, $threshold): void {
+            $device = Run::device();
+            DeviceState::change($this->driver, $device->key(), 'statusBar', true);
+            $baseline = Screenshots::baseline($device, $name);
+            $this->settle();
+            $elements = $this->readRetrying();
+
+            if (! is_file($baseline) || Arguments::wantsScreenshotUpdate()) {
+                if (! is_file($baseline) && in_array(strtolower((string) getenv('CI')), ['1', 'true'], true)) {
+                    throw new AssertionFailedError("There is no baseline at [{$baseline}]. Run the test outside CI once to save it, and commit it.");
+                }
+
+                if (! is_dir(dirname($baseline))) {
+                    mkdir(dirname($baseline), 0777, true);
+                }
+
+                $this->driver->screenshot($baseline);
+                $this->note('baseline', 'saved');
+
+                return;
+            }
+
+            $actual = sys_get_temp_dir().'/pest-simulator-screenshot-'.uniqid('', true).'.png';
+            $deadline = microtime(true) + $this->timeoutSeconds;
+
+            try {
+                do {
+                    $this->driver->screenshot($actual);
+                    [$share, $marked] = Screenshots::compare($baseline, $actual);
+                    $this->note('different', round($share, 5));
+
+                    if ($share <= $threshold) {
+                        return;
+                    }
+
+                    if ($this->timeoutSeconds > 0) {
+                        usleep(500_000);
+                    }
+                } while ($this->timeoutSeconds > 0 && microtime(true) < $deadline);
+
+                $root = $this->failureDirectory !== '' ? $this->failureDirectory : FailureCapture::directory();
+
+                if (! is_dir($root)) {
+                    mkdir($root, 0777, true);
+                }
+
+                $saved = [];
+
+                if ($marked !== null && imagepng($marked, $root.'/screenshot-diff.png')) {
+                    $saved[] = $root.'/screenshot-diff.png';
+                }
+
+                $percent = fn (float $share): string => rtrim(rtrim(number_format($share * 100, 2), '0'), '.').'%';
+                $message = $marked === null
+                    ? "The screenshot is not the size of the baseline [{$baseline}]."
+                    : 'The screen differs from the baseline in '.$percent($share).' of its pixels, more than '.$percent($threshold).". Baseline: [{$baseline}].";
+
+                $this->fail($message, $elements, null, $root, $saved);
+            } finally {
+                @unlink($actual);
+            }
         });
     }
 
@@ -705,14 +1408,31 @@ final class Screen
             return $this;
         }
 
+        $this->stepNth = $this->nth;
+        $this->nth = null;
+        $this->nthUsed = false;
         $this->step = ['action' => $action, 'target' => $target, 'started' => microtime(true), 'reads' => 0, 'failedReads' => 0];
+
+        if ($this->stepNth !== null) {
+            $this->step['nth'] = $this->stepNth;
+        }
+
+        if ($this->scopes !== []) {
+            $this->step['within'] = $this->scopes;
+        }
 
         try {
             $body();
+
+            if ($this->stepNth !== null && ! $this->nthUsed) {
+                throw new SimulatorException("nth() picks one of the controls a label matches. {$action}() does not look one up, so there is nothing to count.");
+            }
         } catch (Throwable $exception) {
             $this->endStep($exception instanceof AssertionFailedError ? 'failed' : 'error', $exception->getMessage());
 
             throw $exception;
+        } finally {
+            $this->stepNth = null;
         }
 
         $this->endStep('ok');
@@ -738,6 +1458,18 @@ final class Screen
         Trace::add($step);
     }
 
+    /**
+     * nth() for the call under way, marked as used.
+     */
+    private function index(): ?int
+    {
+        if ($this->stepNth !== null) {
+            $this->nthUsed = true;
+        }
+
+        return $this->stepNth;
+    }
+
     private function note(string $key, mixed $value): void
     {
         if ($this->step !== null) {
@@ -752,7 +1484,7 @@ final class Screen
         }
     }
 
-    private function push(string $key, mixed $value): void
+    private function append(string $key, mixed $value): void
     {
         if ($this->step !== null) {
             $this->step[$key][] = $value;
@@ -764,7 +1496,7 @@ final class Screen
      */
     private function sent(array $action): void
     {
-        $this->push('sent', $action);
+        $this->append('sent', $action);
     }
 
     /**
@@ -774,11 +1506,28 @@ final class Screen
      */
     private function touch(array $element): void
     {
+        $this->idle();
         $this->presented();
         $x = (float) $element['center'][0];
         $y = (float) $element['center'][1];
         $this->sent(['tap', $x, $y]);
         $this->driver->tap($x, $y);
+    }
+
+    /**
+     * A tap with almost no hold. iOS 26's photo picker takes touch()'s usual hold on a photo
+     * as the start of a long press, which previews the photo instead of picking it: with a
+     * 50ms hold the same photo was picked.
+     *
+     * @param  array{center: array{0: float|int, 1: float|int}}  $element
+     */
+    private function tapQuickly(array $element): void
+    {
+        $this->presented();
+        $x = (float) $element['center'][0];
+        $y = (float) $element['center'][1];
+        $this->sent(['tap', $x, $y]);
+        $this->driver->press($x, $y, 0.05);
     }
 
     private function erase(int $characters): void
@@ -851,6 +1600,14 @@ final class Screen
                 continue;
             }
 
+            // The app is still answering the last thing it was sent: what is on screen now
+            // may change, so it is not the answer yet.
+            if ($this->busy() && microtime(true) < $deadline) {
+                usleep(50_000);
+
+                continue;
+            }
+
             try {
                 if ($predicate($last)) {
                     return $last;
@@ -867,6 +1624,16 @@ final class Screen
         } while (microtime(true) < $deadline);
 
         $message = $failure instanceof Closure ? $failure($last) : $failure;
+
+        if ($this->scopes !== []) {
+            $message .= $this->scopeMissing !== null
+                ? "\n\nCould not find [{$this->scopeMissing}] to look within."
+                : "\n\nLooked only within [".implode('] then [', $this->scopes).'].';
+        }
+
+        if ($this->busy()) {
+            $message .= "\n\nThe app was still busy: PHP had not taken {$this->pending} ".($this->pending === 1 ? 'event' : 'events').' it was sent.';
+        }
 
         if ($unread !== null) {
             $message .= "\n\nThe last attempt to read the screen failed: ".$unread->getMessage();
@@ -900,12 +1667,13 @@ final class Screen
 
     /**
      * @param  list<Element>  $elements
+     * @param  list<string>  $saved  files the failing step wrote into $root itself
      */
-    private function fail(string $failure, array $elements, ?SimulatorException $unread = null): never
+    private function fail(string $failure, array $elements, ?SimulatorException $unread = null, ?string $root = null, array $saved = []): never
     {
         $this->endStep('failed', $failure);
 
-        throw new AssertionFailedError($failure."\n\n".$this->listing($elements).$this->captureFailure($unread));
+        throw new AssertionFailedError($failure."\n\n".$this->listing($this->scopes === [] ? $elements : $this->screenElements).$this->captureFailure($unread, $root, $saved));
     }
 
     /**
@@ -945,7 +1713,49 @@ final class Screen
             $elements = $this->describe();
         }
 
-        $this->sheetSeen = $this->finder->hasSheet($elements) ? ($this->sheetSeen ?? microtime(true)) : null;
+        $presenting = $this->finder->hasSheet($elements) || $this->finder->hasAlert($elements);
+        $this->sheetSeen = $presenting ? ($this->sheetSeen ?? microtime(true)) : null;
+        $this->screenElements = $elements;
+
+        return $this->scoped($elements);
+    }
+
+    /**
+     * The elements inside every within() control, found again in this read. None when one
+     * of them is not on the screen, so until() keeps waiting for it.
+     *
+     * @param  list<Element>  $elements
+     * @return list<Element>
+     */
+    private function scoped(array $elements): array
+    {
+        $this->scopeMissing = null;
+
+        foreach ($this->scopes as $scope) {
+            try {
+                $frame = $this->finder->match($elements, $scope)['frame'] ?? null;
+            } catch (NoMatch) {
+                $frame = null;
+            } catch (AmbiguousMatch) {
+                // Fails now: thrown as a SimulatorException, until() would take it for a
+                // read that failed and retry it until the timeout.
+                $this->fail("within('{$scope}') matches more than one control. Give the one to look inside an accessibility id, and name that.", $elements);
+            }
+
+            if (! is_array($frame)) {
+                $this->scopeMissing = $scope;
+
+                return [];
+            }
+
+            [$x, $y, $width, $height] = $frame;
+            $elements = array_values(array_filter(
+                $elements,
+                fn (array $element): bool => is_array($element['center'] ?? null)
+                    && $element['center'][0] >= $x && $element['center'][0] <= $x + $width
+                    && $element['center'][1] >= $y && $element['center'][1] <= $y + $height,
+            ));
+        }
 
         return $elements;
     }
@@ -958,12 +1768,56 @@ final class Screen
         $this->tally('reads');
 
         try {
-            return $this->driver->describe();
+            [$elements, $this->pending] = IdleMarker::split($this->driver->describe());
         } catch (SimulatorException $exception) {
             $this->tally('failedReads');
 
             throw $exception;
         }
+
+        if ($this->busy()) {
+            $this->tally('busyReads');
+        }
+
+        return $elements;
+    }
+
+    /**
+     * Whether the last read's marker said PHP still had events to take.
+     */
+    private function busy(): bool
+    {
+        return $this->pending !== null && $this->pending > 0;
+    }
+
+    /**
+     * Reads until the app's marker says PHP has taken every event it was sent, or the time
+     * runs out. Returns at once for an app that shows no marker.
+     */
+    private function idle(?float $deadline = null): void
+    {
+        if (! $this->busy() || $this->timeoutSeconds <= 0 || $this->idling) {
+            return;
+        }
+
+        $deadline ??= microtime(true) + $this->timeoutSeconds;
+        $started = microtime(true);
+        $this->idling = true;
+
+        try {
+            do {
+                usleep(50_000);
+
+                try {
+                    $this->read();
+                } catch (SimulatorException) {
+                }
+            } while ($this->pending > 0 && microtime(true) < $deadline);
+        } finally {
+            $this->idling = false;
+        }
+
+        $this->tally('idleWait', microtime(true) - $started);
     }
 
     /**
@@ -976,6 +1830,9 @@ final class Screen
      *
      * Closing a sheet needs no wait: the tree keeps the sheet until it has slid away, and a
      * tap sent the moment it left the tree landed.
+     *
+     * An alert drops touches the same way while it fades in: a tap on an alert's button sent
+     * on the first read that had the alert did nothing, and the alert stayed up.
      *
      * Every touch waits, not only one at a control locate() found: goBack(), alert(),
      * share(), and the photo picker find their control their own way, and the system
@@ -1001,7 +1858,7 @@ final class Screen
     private function canMatch(array $elements, string $label): bool
     {
         try {
-            $this->finder->match($elements, $label);
+            $this->finder->match($elements, $label, $this->stepNth);
 
             return true;
         } catch (NoMatch) {
@@ -1028,16 +1885,17 @@ final class Screen
     {
         $deadline = microtime(true) + $this->timeoutSeconds;
         $scrolls = 0;
+        $nth = $this->index();
 
         while (true) {
             $elements = $this->until(
                 fn (array $visible): bool => $search !== null || $this->canMatch($visible, $label),
-                "Could not find [{$label}] to {$action}.",
+                fn (array $visible): string => $this->notFound($label, $action, $visible, $nth),
                 $deadline,
             );
 
             try {
-                $match = $this->finder->match($elements, $label);
+                $match = $this->finder->match($elements, $label, $nth);
             } catch (NoMatch) {
                 $match = null;
             } catch (AmbiguousMatch $ambiguous) {
@@ -1056,7 +1914,7 @@ final class Screen
                     ? Gesture::scroll($search, $width, $height)
                     : Gesture::sideways($search, ...$row)];
             } else {
-                $scroll = $this->toward($match, $elements);
+                $scroll = $this->toward($match);
             }
 
             if ($scroll === null) {
@@ -1080,7 +1938,7 @@ final class Screen
                 );
             }
 
-            $this->push('scrolls', match ($where) {
+            $this->append('scrolls', match ($where) {
                 'below' => 'down',
                 'above' => 'up',
                 'to the right of' => 'right',
@@ -1093,9 +1951,34 @@ final class Screen
     }
 
     /**
+     * Why locate() found nothing: with nth(), how many the label did match.
+     *
+     * @param  list<Element>  $elements
+     */
+    private function notFound(string $label, string $action, array $elements, ?int $nth): string
+    {
+        $message = "Could not find [{$label}] to {$action}.";
+
+        if ($nth === null) {
+            return $message;
+        }
+
+        try {
+            $this->finder->match($elements, $label, $nth);
+        } catch (NoMatch $missing) {
+            if ($missing->getMessage() !== (new NoMatch($label))->getMessage()) {
+                return $message.' '.$missing->getMessage();
+            }
+        }
+
+        return $message;
+    }
+
+    /**
      * Where a control is off screen, and the drag that brings it toward the middle, or null
      * when it is already on screen. A nav bar or tab bar's own controls never move, so they
-     * are never scrolled toward.
+     * are never scrolled toward. Nor is a key on the software keyboard, which is below the
+     * part of the screen a tap is trusted to, but on screen whenever it is in the tree.
      *
      * Up and down come first. A card past the edge of the carousel it sits in is then
      * dragged sideways inside that carousel. A control past the edge of the screen in
@@ -1103,17 +1986,16 @@ final class Screen
      * list row can open its swipe actions.
      *
      * @param  Tappable  $match
-     * @param  list<Element>  $elements
      * @return array{0: string, 1: array{0: float, 1: float, 2: float, 3: float}|null}|null
      */
-    private function toward(array $match, array $elements): ?array
+    private function toward(array $match): ?array
     {
-        if (($match['chrome'] ?? null) !== null) {
+        if (($match['chrome'] ?? null) !== null || ($match['role'] ?? null) === 'Key') {
             return null;
         }
 
         [$width, $height] = $this->driver->viewport();
-        [$top, $bottom] = $this->visibleBand($elements, $height);
+        [$top, $bottom] = $this->visibleBand($this->screenElements, $height);
         $x = (float) $match['center'][0];
         $y = (float) $match['center'][1];
 
@@ -1174,7 +2056,7 @@ final class Screen
     private function onlyCarousel(string $label, string $direction, array $elements): array
     {
         [, $height] = $this->driver->viewport();
-        [$top, $bottom] = $this->visibleBand($elements, $height);
+        [$top, $bottom] = $this->visibleBand($this->screenElements, $height);
         $rows = [];
 
         foreach ($elements as $element) {
@@ -1218,6 +2100,11 @@ final class Screen
      * The tree has a bar's controls, not the bar's frame. Their centers sit about half a bar
      * from its edge, which is the inset.
      *
+     * An iOS software keyboard covers the screen from its top row of keys down, with its
+     * suggestions bar above them. It shows when no hardware keyboard is connected, which is
+     * how a Simulator booted without Simulator.app runs: on the sample app's form, a tap on
+     * Save under the keyboard typed a "w" into the field instead.
+     *
      * @param  list<Element>  $elements
      * @return array{0: float, 1: float}
      */
@@ -1226,6 +2113,16 @@ final class Screen
         $inset = $height * 0.03;
         $top = 0.0;
         $bottom = $height - $this->driver->homeIndicator();
+        $keys = array_filter(
+            $elements,
+            fn (array $element): bool => ($element['role'] ?? null) === 'Key' && is_array($element['center'] ?? null),
+        );
+
+        if ($keys !== []) {
+            // The top row's centers are half a key below the keyboard's edge, and the
+            // suggestions bar sits above that edge: about 8% of the screen in all.
+            $bottom = min($bottom, min(array_map(fn (array $key): float => (float) $key['center'][1], $keys)) - $height * 0.08);
+        }
 
         foreach ($elements as $element) {
             if (! in_array($element['chrome'] ?? null, ['navigation', 'tab'], true) || ! is_array($element['center'] ?? null)) {
@@ -1246,11 +2143,13 @@ final class Screen
 
     /**
      * @param  ?SimulatorException  $unread  why the last read failed, so a companion that stopped answering is not asked for the tree again
+     * @param  ?string  $root  where to save, when the failing step already chose it
+     * @param  list<string>  $saved  files the failing step wrote into $root itself
      */
-    private function captureFailure(?SimulatorException $unread = null): string
+    private function captureFailure(?SimulatorException $unread = null, ?string $root = null, array $saved = []): string
     {
-        $root = $this->failureDirectory !== '' ? $this->failureDirectory : FailureCapture::directory();
+        $root ??= $this->failureDirectory !== '' ? $this->failureDirectory : FailureCapture::directory();
 
-        return FailureCapture::listing($root, FailureCapture::save($this->driver, $root, $unread));
+        return FailureCapture::listing($root, [...FailureCapture::save($this->driver, $root, $unread), ...$saved]);
     }
 }

@@ -128,6 +128,15 @@ final class AndroidReader
         return $this->ask('hide', $this->readSeconds, 'hide the keyboard');
     }
 
+    /**
+     * Presses the focused field's IME action. False when no field is focused or the reader
+     * is not running.
+     */
+    public function enter(): bool
+    {
+        return $this->ask('enter', $this->readSeconds, 'press the IME action');
+    }
+
     public function stop(): void
     {
         $this->process?->close();

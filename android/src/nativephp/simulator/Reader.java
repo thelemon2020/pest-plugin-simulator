@@ -51,6 +51,13 @@ public final class Reader {
     // When the app last sent an accessibility event, in uptime milliseconds.
     private static volatile long lastEvent;
 
+    /**
+     * The element an app shows to say how many events PHP has not taken yet (IdleMarker in
+     * the plugin). It is one or a few pixels square, and Compose reports a node that small
+     * as not visible to the user, which every other node needs to be read.
+     */
+    private static final String IDLE_MARKER = "nativephp-pending";
+
     private Reader() {
     }
 
@@ -113,7 +120,7 @@ public final class Reader {
     }
 
     /**
-     * "type <pause ms> <the UTF-8 text in base64>", "clear", or "hide".
+     * "type <pause ms> <the UTF-8 text in base64>", "clear", "hide", or "enter".
      */
     private static boolean input(Keyboard keyboard, String[] words) {
         try {
@@ -124,6 +131,8 @@ public final class Reader {
                     return keyboard.clear();
                 case "hide":
                     return keyboard.hide();
+                case "enter":
+                    return keyboard.enter();
                 default:
                     return false;
             }
@@ -220,6 +229,15 @@ public final class Reader {
         serializer.attribute("", "drawing-order", Integer.toString(node.getDrawingOrder()));
         serializer.attribute("", "hint", text(node.getHintText()));
 
+        // A slider says where it is only through its range: no text, no description.
+        AccessibilityNodeInfo.RangeInfo range = node.getRangeInfo();
+
+        if (range != null) {
+            serializer.attribute("", "range-min", Float.toString(range.getMin()));
+            serializer.attribute("", "range-max", Float.toString(range.getMax()));
+            serializer.attribute("", "range-current", Float.toString(range.getCurrent()));
+        }
+
         for (int i = 0; i < node.getChildCount(); i++) {
             AccessibilityNodeInfo child = node.getChild(i);
 
@@ -227,7 +245,7 @@ public final class Reader {
             // the events an app sends, and Compose sends them in batches, so a row still
             // gliding could read twice in the same place. A fresh process, like
             // `uiautomator dump`, has no cache to read from.
-            if (child != null && child.refresh() && child.isVisibleToUser()) {
+            if (child != null && child.refresh() && (child.isVisibleToUser() || IDLE_MARKER.equals(child.getViewIdResourceName()))) {
                 node(child, serializer, i, width, height);
             }
         }

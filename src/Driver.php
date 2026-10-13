@@ -13,8 +13,8 @@ namespace NativePhp\Simulator;
  * An OpenPrompt is what iOS's deep-link prompt says in one language: its titles as format
  * strings, with a placeholder such as `%@` where the app's name goes, and its Open button.
  *
- * @phpstan-type Element array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}, value?: ?string, enabled?: bool, selected?: bool, checked?: bool, chrome?: ?string, webview?: bool, carousel?: ?array{0: float, 1: float, 2: float, 3: float}, secure?: bool}
- * @phpstan-type Tappable array{label: string, role: ?string, id: ?string, center: array{0: float|int, 1: float|int}, value?: ?string, enabled?: bool, selected?: bool, checked?: bool, chrome?: ?string, webview?: bool, carousel?: ?array{0: float, 1: float, 2: float, 3: float}, secure?: bool}
+ * @phpstan-type Element array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}, value?: ?string, enabled?: bool, selected?: bool, checked?: bool, chrome?: ?string, webview?: bool, carousel?: ?array{0: float, 1: float, 2: float, 3: float}, secure?: bool, frame?: ?array{0: float, 1: float, 2: float, 3: float}, range?: ?array{0: float, 1: float}, checkable?: bool}
+ * @phpstan-type Tappable array{label: string, role: ?string, id: ?string, center: array{0: float|int, 1: float|int}, value?: ?string, enabled?: bool, selected?: bool, checked?: bool, chrome?: ?string, webview?: bool, carousel?: ?array{0: float, 1: float, 2: float, 3: float}, secure?: bool, frame?: ?array{0: float, 1: float, 2: float, 3: float}, range?: ?array{0: float, 1: float}, checkable?: bool}
  * @phpstan-type OpenPrompt array{titles: list<string>, open: string}
  */
 interface Driver
@@ -37,6 +37,11 @@ interface Driver
     public function back(): void;
 
     public function clear(int $characters = 40): void;
+
+    /**
+     * Presses the keyboard's return key in the focused field.
+     */
+    public function enter(): void;
 
     public function text(string $text): void;
 
@@ -104,6 +109,24 @@ interface Driver
      * Stops the app and starts it again.
      */
     public function relaunch(): void;
+
+    /**
+     * Adds an image or video file to the device's photo library.
+     */
+    public function addMedia(string $path): void;
+
+    /**
+     * Answers the Face ID or fingerprint prompt on screen: `match` or `fail`. `enroll` makes
+     * sure the device has a face or finger enrolled, which an app checks before it asks.
+     */
+    public function biometric(string $action): void;
+
+    /**
+     * Delivers a push notification to the app.
+     *
+     * @param  array<string, mixed>  $payload  an APNs payload, with its `aps` key
+     */
+    public function push(array $payload): void;
 
     /**
      * What the "Open in “App”?" prompt says in each language the device can show it in, or

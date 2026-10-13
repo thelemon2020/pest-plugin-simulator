@@ -23,8 +23,10 @@ final class Configuration
 
     private static bool $recordFailures = false;
 
+    private static bool $copyDatabase = true;
+
     /**
-     * @param  array{scheme?: string, host?: string, bundle_id?: string, timeout?: float, app_directory?: string, permissions?: list<string>|null, record_failures?: bool}  $values
+     * @param  array{scheme?: string, host?: string, bundle_id?: string, timeout?: float, app_directory?: string, permissions?: list<string>|null, record_failures?: bool, copy_database?: bool}  $values
      */
     public static function configure(array $values): void
     {
@@ -55,6 +57,10 @@ final class Configuration
         if (isset($values['record_failures'])) {
             self::$recordFailures = $values['record_failures'];
         }
+
+        if (isset($values['copy_database'])) {
+            self::$copyDatabase = $values['copy_database'];
+        }
     }
 
     public static function reset(): void
@@ -66,6 +72,7 @@ final class Configuration
         self::$appDirectory = null;
         self::$permissions = null;
         self::$recordFailures = false;
+        self::$copyDatabase = true;
     }
 
     public static function resolve(): self
@@ -78,6 +85,7 @@ final class Configuration
             resolvedAppDirectory: self::$appDirectory ?? (getcwd() ?: null),
             resolvedPermissions: self::$permissions,
             resolvedRecordFailures: self::$recordFailures,
+            resolvedCopyDatabase: self::$copyDatabase,
         );
     }
 
@@ -92,6 +100,7 @@ final class Configuration
         private readonly ?string $resolvedAppDirectory,
         private readonly ?array $resolvedPermissions,
         private readonly bool $resolvedRecordFailures,
+        private readonly bool $resolvedCopyDatabase = true,
     ) {}
 
     public function scheme(): string
@@ -150,6 +159,15 @@ final class Configuration
     public function recordFailures(): bool
     {
         return $this->resolvedRecordFailures || Arguments::wantsFailureRecordings();
+    }
+
+    /**
+     * Whether each test copies the host's test database into the app before its first
+     * screen(). keepDatabase() turns it off for one test.
+     */
+    public function copiesDatabase(): bool
+    {
+        return $this->resolvedCopyDatabase;
     }
 
     public function urlFor(string $path): string

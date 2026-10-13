@@ -338,6 +338,20 @@ final class AndroidDriver implements Driver
         $this->keyboardLeftUp = true;
     }
 
+    /**
+     * The focused field's IME action, through the reader, as the keyboard's action key would
+     * send it, or a KEYCODE_ENTER key event when the reader is not running. NativePHP 4.6's
+     * Android fields submit from neither: see Keyboard.enter() in the reader.
+     */
+    public function enter(): void
+    {
+        if ($this->reader()->enter()) {
+            return;
+        }
+
+        $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'input', 'keyevent', '66']);
+    }
+
     private function deleteFromEnd(int $characters): void
     {
         // Select-all is Ctrl+A. On the emulator that modifier stays down, so the
@@ -826,6 +840,52 @@ final class AndroidDriver implements Driver
     }
 
     /**
+     * Pushed to the shared Pictures folder, then scanned so the photo picker lists it. The
+     * name keeps a copy pushed in an earlier test from being replaced by one with the same
+     * file name. adb shell runs the scan as one command line on the device, so the name
+     * keeps only characters that line can't split or quote.
+     */
+    public function addMedia(string $path): void
+    {
+        $name = (string) preg_replace('/[^A-Za-z0-9._-]/', '-', basename($path));
+        $remote = '/sdcard/Pictures/pest-'.bin2hex(random_bytes(4)).'-'.$name;
+
+        $this->recovering(function () use ($path, $remote): void {
+            $this->command->run($this->adb(), ['-s', $this->serial(), 'push', $path, $remote]);
+            $this->command->run($this->adb(), [
+                '-s', $this->serial(), 'shell', 'am', 'broadcast',
+                '-a', 'android.intent.action.MEDIA_SCANNER_SCAN_FILE',
+                '-d', 'file://'.$remote,
+            ]);
+        });
+    }
+
+    /**
+     * The emulator touches a fingerprint sensor with `emu finger touch`. Finger 1 is the one
+     * enrolled in the emulator's settings; finger 99 was never enrolled, so it fails. adb
+     * cannot enroll a finger: that needs a screen lock and the settings flow, once per AVD.
+     */
+    private const ENROLLED_FINGER = '1';
+
+    private const UNKNOWN_FINGER = '99';
+
+    public function biometric(string $action): void
+    {
+        if ($action === 'enroll') {
+            return;
+        }
+
+        $this->recovering(fn () => $this->command->run($this->adb(), [
+            '-s', $this->serial(), 'emu', 'finger', 'touch', $action === 'match' ? self::ENROLLED_FINGER : self::UNKNOWN_FINGER,
+        ]));
+    }
+
+    public function push(array $payload): void
+    {
+        throw new SimulatorException('push() only works on the iOS Simulator. Android delivers push notifications through Firebase, and the emulator has no way to fake one.');
+    }
+
+    /**
      * Android opens a deep link without asking.
      */
     public function openPrompts(): array
@@ -1086,7 +1146,29 @@ final class AndroidDriver implements Driver
             $this->command->run('php', $arguments, $this->configuration->appDirectory());
         }
 
+        $this->forgetUnpackedApp($bundle);
         self::$built[$key] = true;
+    }
+
+    /**
+     * NativePHP's Android app unpacks its Laravel bundle on launch only when the app's
+     * version or build number changed, or when the version is DEBUG. A rebuild at the same
+     * version installs new PHP that never runs: the sample app, at 1.0.0, kept answering a
+     * route it had since gained with a 404, from code it unpacked hours before. Removing the
+     * unpacked copy after a build makes the next launch unpack the new one. The database and
+     * storage are in persisted_data, beside it, and stay.
+     */
+    private function forgetUnpackedApp(?string $bundle): void
+    {
+        if ($bundle === null || $this->serial === null) {
+            return;
+        }
+
+        try {
+            $this->command->run($this->adb(), ['-s', $this->serial, 'shell', 'am', 'force-stop', $bundle]);
+            $this->command->run($this->adb(), ['-s', $this->serial, 'shell', 'run-as', $bundle, 'rm', '-rf', 'app_storage/laravel']);
+        } catch (SimulatorException) {
+        }
     }
 
     private function debugInstalled(string $bundle): bool
@@ -1177,6 +1259,9 @@ final class AndroidDriver implements Driver
                 'password' => $child->getAttribute('password'),
                 'scrollable' => $child->getAttribute('scrollable'),
                 'scroll-axis' => $child->getAttribute('scroll-axis'),
+                'range-min' => $child->getAttribute('range-min'),
+                'range-max' => $child->getAttribute('range-max'),
+                'range-current' => $child->getAttribute('range-current'),
             ];
 
             if ($inherited !== null) {

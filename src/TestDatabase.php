@@ -12,6 +12,8 @@ final class TestDatabase
 {
     private static bool $published = false;
 
+    private static bool $keep = false;
+
     private static ?Closure $snapshot = null;
 
     private static ?Closure $connection = null;
@@ -19,12 +21,27 @@ final class TestDatabase
     public static function begin(): void
     {
         self::$published = false;
+        self::$keep = false;
     }
 
     public static function end(): void
     {
         self::$published = false;
+        self::$keep = false;
         self::$connection = null;
+    }
+
+    /**
+     * This test leaves the app's database as it is. The app is not stopped for a copy, so
+     * the first screen() opens a route in the app that is already running.
+     */
+    public static function keep(): void
+    {
+        if (self::$published) {
+            throw new SimulatorException('keepDatabase() has to come before the first screen() in the test. That screen() already copied the database.');
+        }
+
+        self::$keep = true;
     }
 
     public static function fake(?Closure $snapshot): void
@@ -39,7 +56,7 @@ final class TestDatabase
 
     public static function publish(Driver $driver): void
     {
-        if (self::$published) {
+        if (self::$published || self::$keep || ! Configuration::resolve()->copiesDatabase()) {
             return;
         }
 
