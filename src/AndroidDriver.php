@@ -1078,7 +1078,29 @@ final class AndroidDriver implements Driver
             $this->command->run('php', $arguments, $this->configuration->appDirectory());
         }
 
+        $this->forgetUnpackedApp($bundle);
         self::$built[$key] = true;
+    }
+
+    /**
+     * NativePHP's Android app unpacks its Laravel bundle on launch only when the app's
+     * version or build number changed, or when the version is DEBUG. A rebuild at the same
+     * version installs new PHP that never runs: the sample app, at 1.0.0, kept answering a
+     * route it had since gained with a 404, from code it unpacked hours before. Removing the
+     * unpacked copy after a build makes the next launch unpack the new one. The database and
+     * storage are in persisted_data, beside it, and stay.
+     */
+    private function forgetUnpackedApp(?string $bundle): void
+    {
+        if ($bundle === null || $this->serial === null) {
+            return;
+        }
+
+        try {
+            $this->command->run($this->adb(), ['-s', $this->serial, 'shell', 'am', 'force-stop', $bundle]);
+            $this->command->run($this->adb(), ['-s', $this->serial, 'shell', 'run-as', $bundle, 'rm', '-rf', 'app_storage/laravel']);
+        } catch (SimulatorException) {
+        }
     }
 
     private function debugInstalled(string $bundle): bool
