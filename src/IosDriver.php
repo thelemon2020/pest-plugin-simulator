@@ -10,6 +10,9 @@ use NativePhp\Simulator\Exceptions\SimulatorException;
 use NativePhp\Simulator\Grpc\Client;
 use NativePhp\Simulator\Grpc\Protobuf;
 
+/**
+ * @phpstan-import-type OpenPrompt from Driver
+ */
 final class IosDriver implements Driver
 {
     use RemembersReadiness;
@@ -41,6 +44,9 @@ final class IosDriver implements Driver
 
     /** @var array{0: float, 1: float} */
     private array $viewport = [390.0, 844.0];
+
+    /** @var array<string, list<OpenPrompt>> keyed by Simulator */
+    private array $openPrompts = [];
 
     public function __construct(
         private readonly Device $device,
@@ -788,6 +794,27 @@ final class IosDriver implements Driver
         $this->command->run('xcrun', [
             'simctl', 'launch', '--terminate-running-process', $this->udid(), $this->configuration->bundleId(),
         ]);
+    }
+
+    /**
+     * Read from the runtime the Simulator boots, once per Simulator: one simctl call and, on
+     * iOS 26.5, 53 plutil calls, about half a second.
+     */
+    public function openPrompts(): array
+    {
+        $simulator = $this->udid();
+
+        if (isset($this->openPrompts[$simulator])) {
+            return $this->openPrompts[$simulator];
+        }
+
+        try {
+            $root = trim($this->command->run('xcrun', ['simctl', 'getenv', $simulator, 'SIMULATOR_ROOT']));
+        } catch (SimulatorException) {
+            $root = '';
+        }
+
+        return $this->openPrompts[$simulator] = SchemeApproval::read($this->command, $root);
     }
 
     private function buildOnce(): void

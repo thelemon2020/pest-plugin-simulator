@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace NativePhp\Simulator;
 
+use Closure;
 use NativePhp\Simulator\Exceptions\AmbiguousMatch;
 use NativePhp\Simulator\Exceptions\NoMatch;
 
 /**
  * @phpstan-import-type Element from Driver
  * @phpstan-import-type Tappable from Driver
+ * @phpstan-import-type OpenPrompt from Driver
  */
 final class ElementFinder
 {
@@ -65,10 +67,54 @@ final class ElementFinder
     }
 
     /**
+     * The Open button of iOS's deep-link prompt, "Open in “App”?", while it is up.
+     *
+     * In English it is found by its words. In any other language, by the device's own text
+     * for it (see SchemeApproval): an alert with one of that language's titles, the app's name
+     * filled in, and a Button in it with that language's Open. That text is only asked for
+     * once an alert is up, since reading it the first time takes a moment.
+     *
+     * @param  list<Element>  $elements
+     * @param  (Closure(): list<OpenPrompt>)|null  $prompts
+     * @return Tappable|null
+     */
+    public function openDialogButton(array $elements, ?Closure $prompts = null): ?array
+    {
+        $english = $this->englishOpenButton($elements);
+        $alert = $this->within($elements, 'alert');
+
+        if ($english !== null || $prompts === null || $alert === []) {
+            return $english;
+        }
+
+        foreach ($prompts() as $prompt) {
+            if (! $this->titledBy($alert, $prompt['titles'])) {
+                continue;
+            }
+
+            $buttons = array_values(array_filter(
+                $alert,
+                fn (array $element): bool => ($element['role'] ?? null) === 'Button'
+                    && $element['label'] === $prompt['open']
+                    && is_array($element['center'] ?? null),
+            ));
+
+            if (count($buttons) === 1) {
+                /** @var Tappable $button */
+                $button = $buttons[0];
+
+                return $button;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * @param  list<Element>  $elements
      * @return Tappable|null
      */
-    public function openDialogButton(array $elements): ?array
+    private function englishOpenButton(array $elements): ?array
     {
         $prompt = false;
 
@@ -90,6 +136,23 @@ final class ElementFinder
         }
 
         return $match['role'] === 'Button' ? $match : null;
+    }
+
+    /**
+     * @param  list<Element>  $elements
+     * @param  list<string>  $titles
+     */
+    private function titledBy(array $elements, array $titles): bool
+    {
+        foreach ($elements as $element) {
+            foreach ($titles as $title) {
+                if (SchemeApproval::titled($element['label'], $title)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**

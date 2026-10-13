@@ -159,6 +159,72 @@ it('finds the Open button only while the system dialog is up', function () use (
         ->and($finder->openDialogButton([$button('Open')]))->toBeNull();
 });
 
+// What iOS 26.5's CoreServices.framework/{en,de}.lproj/SchemeApproval.strings say.
+$openPrompts = fn (): array => [
+    ['titles' => ['Open in “%@”?', '“%@” wants to open “%@”'], 'open' => 'Open'],
+    ['titles' => ['In „%@“ öffnen?', 'Die App „%@“ möchte „%@“ öffnen'], 'open' => 'Öffnen'],
+];
+
+it('confirms the Open in prompt by its English text without reading the device\'s', function () {
+    // Captured from the sample app on an iOS 26.5 Simulator set to English, the first time
+    // simctl opened its scheme.
+    $elements = AccessibilityTree::summarize((string) file_get_contents(dirname(__DIR__).'/Fixtures/ios-open-in-prompt-en.json'));
+    $asked = 0;
+    $button = (new ElementFinder)->openDialogButton($elements, function () use (&$asked): array {
+        $asked++;
+
+        return [];
+    });
+
+    expect($button['label'] ?? null)->toBe('Open')
+        ->and($button['center'] ?? null)->toBe([275.0, 474.0])
+        ->and($asked)->toBe(0);
+});
+
+it('confirms the Open in prompt in the device\'s language from the device\'s own text for it', function () use ($openPrompts) {
+    // The same prompt with the Simulator set to German (AppleLanguages de-DE, AppleLocale
+    // de_DE): "In „Simulator Sample“ öffnen?" with Abbrechen and Öffnen. Nothing in it has an
+    // identifier, and apart from the words it is the English tree.
+    $elements = AccessibilityTree::summarize((string) file_get_contents(dirname(__DIR__).'/Fixtures/ios-open-in-prompt-de.json'));
+    $finder = new ElementFinder;
+
+    $button = $finder->openDialogButton($elements, $openPrompts);
+
+    expect($button['label'] ?? null)->toBe('Öffnen')
+        ->and($button['center'] ?? null)->toBe([275.0, 474.0])
+        ->and($finder->openDialogButton($elements))->toBeNull();
+});
+
+it('leaves an alert alone that has the prompt\'s shape but not its words', function () use ($openPrompts) {
+    // A permission prompt also names the app and has two buttons, the second one allowing.
+    $alert = fn (string $label, string $role, array $center): array => ['label' => $label, 'role' => $role, 'id' => null, 'center' => $center, 'chrome' => 'alert'];
+    $finder = new ElementFinder;
+
+    expect($finder->openDialogButton([
+        $alert('„Simulator Sample“ möchte dir Mitteilungen senden', 'StaticText', [201, 420]),
+        $alert('Nicht erlauben', 'Button', [127, 474]),
+        $alert('Erlauben', 'Button', [275, 474]),
+    ], $openPrompts))->toBeNull()
+        ->and($finder->openDialogButton([
+            $alert('In „Simulator Sample“ öffnen?', 'StaticText', [201, 420]),
+            ['label' => 'Öffnen', 'role' => 'Button', 'id' => null, 'center' => [200, 700]],
+        ], $openPrompts))->toBeNull();
+});
+
+it('does not read the device\'s text for the prompt while no alert is up', function () {
+    $asked = 0;
+
+    (new ElementFinder)->openDialogButton([
+        ['label' => 'Öffnen', 'role' => 'Button', 'id' => null, 'center' => [200, 700]],
+    ], function () use (&$asked): array {
+        $asked++;
+
+        return [];
+    });
+
+    expect($asked)->toBe(0);
+});
+
 it('finds a field named only by its placeholder where it was tapped, once text replaces the placeholder', function () {
     // Captured from CollectShine's collection screen on an iOS 26.5 Simulator. The search
     // field has no label or identifier; iOS reports its placeholder as the value while it

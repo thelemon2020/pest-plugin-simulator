@@ -930,7 +930,7 @@ final class Screen
         $elements = $this->describe();
 
         for ($attempt = 0; $attempt < 2; $attempt++) {
-            $button = $this->finder->openDialogButton($elements);
+            $button = $this->finder->openDialogButton($elements, $this->driver->openPrompts(...));
 
             if ($button === null) {
                 break;

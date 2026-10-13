@@ -21,7 +21,26 @@ it('dismisses the open dialog and then sees the app', function () {
 
     (new Screen($driver, timeoutSeconds: 0))->assertSee('Turn the lights on');
 
-    expect($driver->taps)->toBe([[275.0, 474.0]]);
+    expect($driver->taps)->toBe([[275.0, 474.0]])
+        ->and($driver->promptReads)->toBe(0);
+});
+
+it('dismisses the open dialog in the device\'s language', function () {
+    $driver = new FakeDriver([
+        AccessibilityTree::summarize((string) file_get_contents(dirname(__DIR__).'/Fixtures/ios-open-in-prompt-de.json')),
+        [
+            ['label' => 'Form', 'role' => 'StaticText', 'id' => null, 'center' => [35, 140]],
+        ],
+    ]);
+    $driver->openPrompts = [
+        ['titles' => ['Open in “%@”?'], 'open' => 'Open'],
+        ['titles' => ['In „%@“ öffnen?'], 'open' => 'Öffnen'],
+    ];
+
+    (new Screen($driver, timeoutSeconds: 0))->assertSee('Form');
+
+    expect($driver->taps)->toBe([[275.0, 474.0]])
+        ->and($driver->promptReads)->toBe(1);
 });
 
 it('taps the center of the named control', function () {

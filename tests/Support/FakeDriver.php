@@ -8,6 +8,9 @@ use Closure;
 use NativePhp\Simulator\Driver;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 
+/**
+ * @phpstan-import-type OpenPrompt from Driver
+ */
 final class FakeDriver implements Driver
 {
     /**
@@ -83,6 +86,15 @@ final class FakeDriver implements Driver
     public int $relaunches = 0;
 
     public int $descriptions = 0;
+
+    /**
+     * What openPrompts() answers.
+     *
+     * @var list<OpenPrompt>
+     */
+    public array $openPrompts = [];
+
+    public int $promptReads = 0;
 
     /** @var array{0: float, 1: float} */
     public array $viewport = [390.0, 844.0];
@@ -250,6 +262,13 @@ final class FakeDriver implements Driver
     {
         $this->relaunches++;
         $this->events[] = ['relaunch'];
+    }
+
+    public function openPrompts(): array
+    {
+        $this->promptReads++;
+
+        return $this->openPrompts;
     }
 
     private function setting(string $name, mixed $value): void
