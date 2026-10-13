@@ -89,6 +89,9 @@ final class FakeDriver implements Driver
 
     public float $homeIndicator = 0.0;
 
+    /** @var list<array<string, mixed>> */
+    public array $pushes = [];
+
     private int $reads = 0;
 
     /**
@@ -255,6 +258,22 @@ final class FakeDriver implements Driver
     {
         $this->relaunches++;
         $this->events[] = ['relaunch'];
+    }
+
+    public function addMedia(string $path): void
+    {
+        $this->events[] = ['addMedia', $path];
+    }
+
+    public function biometric(string $action): void
+    {
+        $this->events[] = ['biometric', $action];
+    }
+
+    public function push(array $payload): void
+    {
+        $this->pushes[] = $payload;
+        $this->events[] = ['push'];
     }
 
     private function setting(string $name, mixed $value): void

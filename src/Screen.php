@@ -815,6 +815,66 @@ final class Screen
         return is_numeric($value) ? (float) $value : null;
     }
 
+    /**
+     * Adds an image or video to the device's photo library, for pickPhoto() to choose. It
+     * stays in the library until --wipe.
+     */
+    public function addPhoto(string $path): self
+    {
+        return $this->step('addPhoto', $path, function () use ($path): void {
+            $file = Photo::file($path);
+            $this->sent(['addMedia', $file]);
+            $this->driver->addMedia($file);
+        });
+    }
+
+    /**
+     * Makes sure the device has a face or finger enrolled. Call it before the screen that
+     * offers Face ID or a fingerprint: an app checks before it shows the option.
+     */
+    public function enrollBiometrics(): self
+    {
+        return $this->biometric('enrollBiometrics', 'enroll');
+    }
+
+    /**
+     * Answers the Face ID or fingerprint prompt on screen with a match.
+     */
+    public function matchBiometric(): self
+    {
+        return $this->biometric('matchBiometric', 'match');
+    }
+
+    /**
+     * Answers the Face ID or fingerprint prompt on screen with a face or finger it does
+     * not know.
+     */
+    public function failBiometric(): self
+    {
+        return $this->biometric('failBiometric', 'fail');
+    }
+
+    private function biometric(string $step, string $action): self
+    {
+        return $this->step($step, null, function () use ($action): void {
+            $this->sent(['biometric', $action]);
+            $this->driver->biometric($action);
+        });
+    }
+
+    /**
+     * Delivers a push notification to the app, as APNs would. iOS only.
+     *
+     * @param  array<string, mixed>  $data  custom keys beside `aps`, for the app to read
+     */
+    public function push(string $title, string $body = '', array $data = []): self
+    {
+        return $this->step('push', $title, function () use ($title, $body, $data): void {
+            $this->sent(['push', $title]);
+            $this->driver->push(PushNotification::payload($title, $body, $data));
+        });
+    }
+
     public function alert(string $label): self
     {
         return $this->step('alert', $label, function () use ($label): void {
@@ -1284,7 +1344,7 @@ final class Screen
         }
     }
 
-    private function push(string $key, mixed $value): void
+    private function append(string $key, mixed $value): void
     {
         if ($this->step !== null) {
             $this->step[$key][] = $value;
@@ -1296,7 +1356,7 @@ final class Screen
      */
     private function sent(array $action): void
     {
-        $this->push('sent', $action);
+        $this->append('sent', $action);
     }
 
     /**
@@ -1680,7 +1740,7 @@ final class Screen
                 );
             }
 
-            $this->push('scrolls', match ($where) {
+            $this->append('scrolls', match ($where) {
                 'below' => 'down',
                 'above' => 'up',
                 'to the right of' => 'right',

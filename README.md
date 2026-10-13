@@ -461,6 +461,47 @@ screen('/settings')
 
 The iOS "Open in…" dialog and Android's "Wait" button are closed automatically.
 
+## Photos, Face ID, and push
+
+`addPhoto()` puts an image or video in the device's photo library, so `pickPhoto()` has a known picture to choose. Call it before the first `screen()`, or on the screen. A relative path is read from the directory the tests run in. The photo stays in the library until `--wipe`.
+
+```php
+addPhoto('tests/fixtures/cat.jpg');
+
+screen('/profile')
+    ->tap('Change photo')
+    ->pickPhoto();
+```
+
+iOS runs `xcrun simctl addmedia`. Android pushes the file to `/sdcard/Pictures` and asks the media scanner to list it.
+
+`matchBiometric()` answers the Face ID or fingerprint prompt on screen with a match. `failBiometric()` answers it with a face or finger the device does not know. Tap the control that asks first.
+
+```php
+screen('/vault')
+    ->tap('Unlock')
+    ->matchBiometric()
+    ->assertSee('Unlocked');
+```
+
+On iOS, both calls first enroll a face and a finger, then post the Simulator's own match or no-match notification for both sensors with `notifyutil`. An app often checks that something is enrolled before it offers Face ID at all. Call `enrollBiometrics()` before the first `screen()` for that app. Enrollment stays until `--wipe`.
+
+On Android, `matchBiometric()` touches finger 1 with `adb emu finger touch`, and `failBiometric()` touches finger 99, which was never enrolled. adb cannot enroll a finger. Set a screen lock and enroll one in the emulator's Settings once, and the AVD keeps it.
+
+`push()` delivers a push notification to the app, the way APNs would. It takes a title, a body, and custom keys for the app to read. It works on the iOS Simulator only. Android delivers push notifications through Firebase, and the emulator cannot fake one.
+
+```php
+screen('/orders')
+    ->push('Order shipped', 'It arrives Tuesday', ['order' => 42])
+    ->assertSee('Order 42 shipped');
+```
+
+iOS runs `xcrun simctl push` with this payload:
+
+```json
+{"aps": {"alert": {"title": "Order shipped", "body": "It arrives Tuesday"}, "sound": "default"}, "order": 42}
+```
+
 ## When an assertion fails
 
 A failed assertion writes `tree.json`, `screen.png`, `trace.json`, and `trace.txt`. A recording that is still running is stopped and kept. It also copies `laravel.log` out of the app: `Library/Application Support/storage/logs/laravel.log` on iOS, and `app_storage/persisted_data/storage/logs/laravel.log` on Android. Android also writes `logcat.txt` for that app id. The failure message lists each file it wrote, and it lists the controls on screen. When the last attempt to read the screen failed, for example because the app stopped answering, the message says so. A control with no label is named by its role, and by its accessibility id when it has one.
