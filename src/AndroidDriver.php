@@ -842,11 +842,13 @@ final class AndroidDriver implements Driver
     /**
      * Pushed to the shared Pictures folder, then scanned so the photo picker lists it. The
      * name keeps a copy pushed in an earlier test from being replaced by one with the same
-     * file name.
+     * file name. adb shell runs the scan as one command line on the device, so the name
+     * keeps only characters that line can't split or quote.
      */
     public function addMedia(string $path): void
     {
-        $remote = '/sdcard/Pictures/pest-'.bin2hex(random_bytes(4)).'-'.basename($path);
+        $name = (string) preg_replace('/[^A-Za-z0-9._-]/', '-', basename($path));
+        $remote = '/sdcard/Pictures/pest-'.bin2hex(random_bytes(4)).'-'.$name;
 
         $this->recovering(function () use ($path, $remote): void {
             $this->command->run($this->adb(), ['-s', $this->serial(), 'push', $path, $remote]);

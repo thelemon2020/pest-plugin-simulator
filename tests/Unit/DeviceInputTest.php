@@ -190,6 +190,15 @@ it('pushes media to the android pictures folder and scans it', function () {
         ]);
 });
 
+it('gives android media a name the device shell will not split', function () {
+    $command = new RecordingCommand;
+
+    inputAndroidDriver($command)->addMedia("/tmp/my cat's (1).jpg");
+
+    expect($command->calls[0][1][3])->toBe("/tmp/my cat's (1).jpg")
+        ->and($command->calls[0][1][4])->toMatch('#^/sdcard/Pictures/pest-[0-9a-f]{8}-my-cat-s--1-\.jpg$#');
+});
+
 it('touches the enrolled finger to match on android, and an unknown one to fail', function () {
     $command = new RecordingCommand;
     $adb = AndroidSdk::binary('platform-tools/adb', 'adb');
