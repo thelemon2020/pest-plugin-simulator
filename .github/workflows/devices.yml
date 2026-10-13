@@ -47,9 +47,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The PHP that sample-app/nativephp.lock bundles into the app. With any other, the
+      # build stops to ask whether to bundle that one instead, and nothing answers it.
       - uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.4'
+          php-version: '8.5'
           extensions: exif, gd, sodium, sqlite3, pdo_sqlite, zip
           ini-values: memory_limit=2G
           coverage: none
@@ -126,9 +128,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The PHP that sample-app/nativephp.lock bundles into the app. With any other, the
+      # build stops to ask whether to bundle that one instead, and nothing answers it.
       - uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.4'
+          php-version: '8.5'
           extensions: exif, gd, sodium, sqlite3, pdo_sqlite, zip
           ini-values: memory_limit=2G
           coverage: none
