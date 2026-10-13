@@ -1133,7 +1133,9 @@ final class Screen
             } catch (NoMatch) {
                 $frame = null;
             } catch (AmbiguousMatch) {
-                throw new SimulatorException("within('{$scope}') matches more than one control. Give the one to look inside an accessibility id, and name that.");
+                // Fails now: thrown as a SimulatorException, until() would take it for a
+                // read that failed and retry it until the timeout.
+                $this->fail("within('{$scope}') matches more than one control. Give the one to look inside an accessibility id, and name that.", $elements);
             }
 
             if (! is_array($frame)) {

@@ -196,3 +196,15 @@ it('refuses nth() left pending before within()', function () {
         ->nth(2)->within('Order 1', fn (Screen $card) => $card->tap('Pay')))
         ->toThrow(SimulatorException::class, 'Call it inside within()');
 });
+
+it('fails at once when the container matches more than one control', function () {
+    $cards = array_map(fn (array $element): array => array_merge($element, ['label' => 'Order']), [orderCards()[0], orderCards()[2]]);
+    $driver = new FakeDriver([[...$cards, scopedControl('Pay', 300.0, 170.0)]]);
+    $started = microtime(true);
+
+    expect(fn () => (new Screen($driver, timeoutSeconds: 5, failureDirectory: $this->failures))
+        ->within('Order', fn (Screen $card) => $card->tap('Pay')))
+        ->toThrow(AssertionFailedError::class, "within('Order') matches more than one control.");
+
+    expect(microtime(true) - $started)->toBeLessThan(2.0);
+});
