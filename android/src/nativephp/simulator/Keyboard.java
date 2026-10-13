@@ -1,12 +1,14 @@
 package nativephp.simulator;
 
 import android.app.UiAutomation;
+import android.graphics.Rect;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.view.InputDevice;
 import android.view.InputEvent;
 import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
 
@@ -335,14 +337,107 @@ final class Keyboard {
     }
 
     /**
-     * Presses the focused field's IME action, as the keyboard's action key does. Compose runs
-     * a text field's keyboard action, NativePHP's @submit, from it: a KEYCODE_ENTER key
-     * event sent to the same field did nothing.
+     * Taps the software keyboard's action key (Done, Search, Go), as a person does. NativePHP
+     * runs a Compose field's @submit from KeyboardActions(onDone), which only the IME's own
+     * action reaches: a KEYCODE_ENTER key event and ACTION_IME_ENTER on the focused field both
+     * did nothing, and a tap on the keyboard's Done key submitted.
+     *
+     * Gboard names that key key_pos_ime_action. Another keyboard's is found where keyboards
+     * put it: the key furthest down and to the right. With no keyboard up, the field's
+     * ACTION_IME_ENTER is all there is to try.
      */
     boolean enter() {
+        AccessibilityNodeInfo key = actionKey();
+
+        if (key != null) {
+            Rect bounds = new Rect();
+            key.getBoundsInScreen(bounds);
+
+            return touch(bounds.exactCenterX(), bounds.exactCenterY());
+        }
+
         AccessibilityNodeInfo field = focusedField();
 
         return field != null && field.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.getId());
+    }
+
+    private AccessibilityNodeInfo actionKey() {
+        for (AccessibilityWindowInfo window : automation.getWindows()) {
+            if (window.getType() != AccessibilityWindowInfo.TYPE_INPUT_METHOD) {
+                continue;
+            }
+
+            AccessibilityNodeInfo root = window.getRoot();
+
+            if (root == null) {
+                continue;
+            }
+
+            List<AccessibilityNodeInfo> keys = new ArrayList<>();
+            collectKeys(root, keys);
+            AccessibilityNodeInfo corner = null;
+            Rect best = null;
+
+            for (AccessibilityNodeInfo key : keys) {
+                String id = key.getViewIdResourceName();
+
+                if (id != null && id.endsWith("key_pos_ime_action")) {
+                    return key;
+                }
+
+                Rect bounds = new Rect();
+                key.getBoundsInScreen(bounds);
+
+                if (best == null || bounds.bottom > best.bottom + bounds.height() / 2
+                    || (Math.abs(bounds.bottom - best.bottom) <= bounds.height() / 2 && bounds.right > best.right)) {
+                    best = bounds;
+                    corner = key;
+                }
+            }
+
+            return corner;
+        }
+
+        return null;
+    }
+
+    /**
+     * The keys in the keyboard's window: the nodes with something to say, and a size a key
+     * has. The row of navigation buttons under some keyboards has no description.
+     */
+    private static void collectKeys(AccessibilityNodeInfo node, List<AccessibilityNodeInfo> keys) {
+        Rect bounds = new Rect();
+        node.getBoundsInScreen(bounds);
+        CharSequence description = node.getContentDescription();
+        CharSequence text = node.getText();
+
+        if (node.getChildCount() == 0 && bounds.width() > 0 && bounds.height() > 0
+            && ((description != null && description.length() > 0) || (text != null && text.length() > 0) || node.getViewIdResourceName() != null)) {
+            keys.add(node);
+        }
+
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+
+            if (child != null) {
+                collectKeys(child, keys);
+            }
+        }
+    }
+
+    private boolean touch(float x, float y) {
+        long now = SystemClock.uptimeMillis();
+        MotionEvent down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, x, y, 0);
+        down.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+        boolean pressed = automation.injectInputEvent(down, true);
+        down.recycle();
+        SystemClock.sleep(50);
+        MotionEvent up = MotionEvent.obtain(now, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, x, y, 0);
+        up.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+        boolean released = automation.injectInputEvent(up, true);
+        up.recycle();
+
+        return pressed && released;
     }
 
     /**

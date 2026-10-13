@@ -726,9 +726,30 @@ final class Screen
             // the track's own: inset by half the thumb at each end.
             $line = new SliderLine($left + $inset, $low, ($width - 2 * $inset) / ($high - $low));
             $x = $along($line->at($current));
+            $seeks = null;
 
             for ($drag = 1; $drag <= self::SLIDE_ATTEMPTS && abs($current - $value) > $close; $drag++) {
                 $target = $along($line->at($value));
+
+                // Compose's slider jumps to where it is touched, and a tap leaves exactly the
+                // value there. A drag only moves the thumb once it has gone a touch slop, so it
+                // stops short by an amount that depends on its direction: on an android-36
+                // emulator, drags swung the value between 61 and 83. iOS's slider ignores a
+                // tap on its track, which the first tap shows, and then it is dragged.
+                if ($seeks !== false && abs($target - $x) > 1) {
+                    $this->touch(['center' => [$target, $y]]);
+                    $moved = $this->sliderValue($label, $nth) ?? $current;
+                    $seeks ??= abs($moved - $current) > $close;
+
+                    if ($seeks) {
+                        $this->note('taps', $drag);
+                        $x = $target;
+                        $current = $moved;
+                        $line = $line->through($x, $current);
+
+                        continue;
+                    }
+                }
 
                 if (abs($target - $x) < $shortest) {
                     // Back away first, so the drag onto the value is long enough to count.

@@ -177,11 +177,24 @@ it('types and then presses return to submit a field', function () {
         ->and(end($driver->events))->toBe(['enter']);
 });
 
-it('drags a slider from where its thumb is to where the value sits', function () {
+it('taps a slider that jumps to where it is touched', function () {
     $slider = fn (string $value): array => [
         verb('Volume', 'Slider', 200.0, 120.0, ['value' => $value, 'frame' => [0.0, 100.0, 400.0, 40.0], 'range' => [0.0, 100.0]]),
     ];
     $driver = new FakeDriver([$slider('20'), $slider('75')]);
+
+    (new Screen($driver, timeoutSeconds: 0))->slide('Volume', 75);
+
+    // The value sits 20 points in, plus 75 units of 3.6 points.
+    expect($driver->taps)->toBe([[290.0, 120.0]])
+        ->and($driver->swipes)->toBe([]);
+});
+
+it('drags a slider that ignores a tap, from where its thumb is to where the value sits', function () {
+    $slider = fn (string $value): array => [
+        verb('Volume', 'Slider', 200.0, 120.0, ['value' => $value, 'frame' => [0.0, 100.0, 400.0, 40.0], 'range' => [0.0, 100.0]]),
+    ];
+    $driver = new FakeDriver([$slider('20'), $slider('20'), $slider('75')]);
 
     (new Screen($driver, timeoutSeconds: 0))->slide('Volume', 75);
 
@@ -193,7 +206,7 @@ it('aims the next drag from where the last one let go', function () {
     $slider = fn (string $value): array => [
         verb('Volume', 'Slider', 200.0, 105.0, ['value' => $value, 'frame' => [0.0, 100.0, 400.0, 10.0], 'range' => [0.0, 100.0]]),
     ];
-    $driver = new FakeDriver([$slider('20'), $slider('70'), $slider('75')]);
+    $driver = new FakeDriver([$slider('20'), $slider('20'), $slider('70'), $slider('75')]);
 
     (new Screen($driver, timeoutSeconds: 0))->slide('Volume', 75);
 
@@ -207,8 +220,8 @@ it('backs away before a correction too short to count as a drag', function () {
     $slider = fn (string $value): array => [
         verb('Volume', 'Slider', 200.0, 120.0, ['value' => $value, 'frame' => [0.0, 100.0, 400.0, 40.0], 'range' => [0.0, 100.0]]),
     ];
-    // 74 after the first drag, 61 after backing away 48 points, then 75.
-    $driver = new FakeDriver([$slider('20'), $slider('74'), $slider('61'), $slider('75')]);
+    // The tap does nothing; 74 after the first drag, 61 after backing away 48 points, then 75.
+    $driver = new FakeDriver([$slider('20'), $slider('20'), $slider('74'), $slider('61'), $slider('75')]);
 
     (new Screen($driver, timeoutSeconds: 0))->slide('Volume', 75);
 
@@ -311,7 +324,7 @@ it('aims by the line through the last two places a drag let go', function () {
     $slider = fn (string $value): array => [
         verb('Volume', 'Slider', 200.0, 120.0, ['value' => $value, 'frame' => [0.0, 100.0, 400.0, 40.0], 'range' => [0.0, 100.0]]),
     ];
-    $driver = new FakeDriver([$slider('20'), $slider('74'), $slider('62'), $slider('75')]);
+    $driver = new FakeDriver([$slider('20'), $slider('20'), $slider('74'), $slider('62'), $slider('75')]);
 
     (new Screen($driver, timeoutSeconds: 0))->slide('Volume', 75);
 
