@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace NativePhp\Simulator;
 
+use Closure;
 use NativePhp\Simulator\Exceptions\AmbiguousMatch;
 use NativePhp\Simulator\Exceptions\NoMatch;
 
 /**
  * @phpstan-import-type Element from Driver
  * @phpstan-import-type Tappable from Driver
+ * @phpstan-import-type OpenPrompt from Driver
  */
 final class ElementFinder
 {
@@ -73,31 +75,86 @@ final class ElementFinder
     }
 
     /**
+     * What the prompt says in English, for when the device's own text can't be read.
+     *
+     * @var OpenPrompt
+     */
+    private const ENGLISH_PROMPT = ['titles' => ['Open in “%@”?'], 'open' => 'Open'];
+
+    /**
+     * The Open button of iOS's deep-link prompt, "Open in “App”?", while it is up.
+     *
+     * It is an alert with the prompt's title, the app's name filled in, and a Button in it
+     * labelled Open. In English its words are known here. In any other language they come
+     * from the device (see SchemeApproval), asked for only once an alert is up that the
+     * English words don't match, since reading them the first time takes a moment.
+     *
      * @param  list<Element>  $elements
+     * @param  (Closure(): list<OpenPrompt>)|null  $prompts
      * @return Tappable|null
      */
-    public function openDialogButton(array $elements): ?array
+    public function openDialogButton(array $elements, ?Closure $prompts = null): ?array
     {
-        $prompt = false;
+        $alert = $this->within($elements, 'alert');
 
-        foreach ($elements as $element) {
-            if (str_contains($element['label'], 'Open in')) {
-                $prompt = true;
-                break;
+        if ($alert === []) {
+            return null;
+        }
+
+        $english = $this->promptButton($alert, [self::ENGLISH_PROMPT]);
+
+        if ($english !== null || $prompts === null) {
+            return $english;
+        }
+
+        return $this->promptButton($alert, $prompts());
+    }
+
+    /**
+     * @param  list<Element>  $alert
+     * @param  list<OpenPrompt>  $prompts
+     * @return Tappable|null
+     */
+    private function promptButton(array $alert, array $prompts): ?array
+    {
+        foreach ($prompts as $prompt) {
+            if (! $this->titledBy($alert, $prompt['titles'])) {
+                continue;
+            }
+
+            $buttons = array_values(array_filter(
+                $alert,
+                fn (array $element): bool => ($element['role'] ?? null) === 'Button'
+                    && $element['label'] === $prompt['open']
+                    && is_array($element['center'] ?? null),
+            ));
+
+            if (count($buttons) === 1) {
+                /** @var Tappable $button */
+                $button = $buttons[0];
+
+                return $button;
             }
         }
 
-        if (! $prompt) {
-            return null;
+        return null;
+    }
+
+    /**
+     * @param  list<Element>  $elements
+     * @param  list<string>  $titles
+     */
+    private function titledBy(array $elements, array $titles): bool
+    {
+        foreach ($elements as $element) {
+            foreach ($titles as $title) {
+                if (SchemeApproval::titled($element['label'], $title)) {
+                    return true;
+                }
+            }
         }
 
-        try {
-            $match = $this->match($elements, 'Open');
-        } catch (NoMatch|AmbiguousMatch) {
-            return null;
-        }
-
-        return $match['role'] === 'Button' ? $match : null;
+        return false;
     }
 
     /**

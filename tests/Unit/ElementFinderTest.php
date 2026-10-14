@@ -150,13 +150,87 @@ it('finds the Open button only while the system dialog is up', function () use (
     $finder = new ElementFinder;
 
     $dialog = $finder->openDialogButton([
-        $button('Open in “CollectShine”?', null, [200, 400], 'StaticText'),
-        $button('Open', null, [275, 474]),
-        $button('Cancel', null, [120, 474]),
+        [...$button('Open in “CollectShine”?', null, [200, 400], 'StaticText'), 'chrome' => 'alert'],
+        [...$button('Open', null, [275, 474]), 'chrome' => 'alert'],
+        [...$button('Cancel', null, [120, 474]), 'chrome' => 'alert'],
     ]);
 
-    expect($dialog['center'])->toBe([275, 474])
+    expect($dialog['center'] ?? null)->toBe([275, 474])
         ->and($finder->openDialogButton([$button('Open')]))->toBeNull();
+});
+
+it('leaves the app\'s own Open button alone when its text mentions opening in something', function () use ($button) {
+    // The app's own screen, with no alert up: a row and a button of its own.
+    expect((new ElementFinder)->openDialogButton([
+        $button('Open in Maps', null, [200, 300], 'StaticText'),
+        $button('Open', null, [200, 360]),
+    ], fn (): array => [['titles' => ['Open in “%@”?'], 'open' => 'Open']]))->toBeNull();
+});
+
+// What iOS 26.5's CoreServices.framework/{en,de}.lproj/SchemeApproval.strings say.
+$openPrompts = fn (): array => [
+    ['titles' => ['Open in “%@”?', '“%@” wants to open “%@”'], 'open' => 'Open'],
+    ['titles' => ['In „%@“ öffnen?', 'Die App „%@“ möchte „%@“ öffnen'], 'open' => 'Öffnen'],
+];
+
+it('confirms the Open in prompt by its English text without reading the device\'s', function () {
+    // Captured from the sample app on an iOS 26.5 Simulator set to English, the first time
+    // simctl opened its scheme.
+    $elements = AccessibilityTree::summarize((string) file_get_contents(dirname(__DIR__).'/Fixtures/ios-open-in-prompt-en.json'));
+    $asked = 0;
+    $button = (new ElementFinder)->openDialogButton($elements, function () use (&$asked): array {
+        $asked++;
+
+        return [];
+    });
+
+    expect($button['label'] ?? null)->toBe('Open')
+        ->and($button['center'] ?? null)->toBe([275.0, 474.0])
+        ->and($asked)->toBe(0);
+});
+
+it('confirms the Open in prompt in the device\'s language from the device\'s own text for it', function () use ($openPrompts) {
+    // The same prompt with the Simulator set to German (AppleLanguages de-DE, AppleLocale
+    // de_DE): "In „Simulator Sample“ öffnen?" with Abbrechen and Öffnen. Nothing in it has an
+    // identifier, and apart from the words it is the English tree.
+    $elements = AccessibilityTree::summarize((string) file_get_contents(dirname(__DIR__).'/Fixtures/ios-open-in-prompt-de.json'));
+    $finder = new ElementFinder;
+
+    $button = $finder->openDialogButton($elements, $openPrompts);
+
+    expect($button['label'] ?? null)->toBe('Öffnen')
+        ->and($button['center'] ?? null)->toBe([275.0, 474.0])
+        ->and($finder->openDialogButton($elements))->toBeNull();
+});
+
+it('leaves an alert alone that has the prompt\'s shape but not its words', function () use ($openPrompts) {
+    // A permission prompt also names the app and has two buttons, the second one allowing.
+    $alert = fn (string $label, string $role, array $center): array => ['label' => $label, 'role' => $role, 'id' => null, 'center' => $center, 'chrome' => 'alert'];
+    $finder = new ElementFinder;
+
+    expect($finder->openDialogButton([
+        $alert('„Simulator Sample“ möchte dir Mitteilungen senden', 'StaticText', [201, 420]),
+        $alert('Nicht erlauben', 'Button', [127, 474]),
+        $alert('Erlauben', 'Button', [275, 474]),
+    ], $openPrompts))->toBeNull()
+        ->and($finder->openDialogButton([
+            $alert('In „Simulator Sample“ öffnen?', 'StaticText', [201, 420]),
+            ['label' => 'Öffnen', 'role' => 'Button', 'id' => null, 'center' => [200, 700]],
+        ], $openPrompts))->toBeNull();
+});
+
+it('does not read the device\'s text for the prompt while no alert is up', function () {
+    $asked = 0;
+
+    (new ElementFinder)->openDialogButton([
+        ['label' => 'Öffnen', 'role' => 'Button', 'id' => null, 'center' => [200, 700]],
+    ], function () use (&$asked): array {
+        $asked++;
+
+        return [];
+    });
+
+    expect($asked)->toBe(0);
 });
 
 it('finds a field named only by its placeholder where it was tapped, once text replaces the placeholder', function () {

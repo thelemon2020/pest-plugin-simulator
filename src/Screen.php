@@ -1696,9 +1696,10 @@ final class Screen
     private function read(): array
     {
         $elements = $this->describe();
+        $this->notePresenting($elements);
 
         for ($attempt = 0; $attempt < 2; $attempt++) {
-            $button = $this->finder->openDialogButton($elements);
+            $button = $this->finder->openDialogButton($elements, $this->driver->openPrompts(...));
 
             if ($button === null) {
                 break;
@@ -1711,13 +1712,24 @@ final class Screen
             }
 
             $elements = $this->describe();
+            $this->notePresenting($elements);
         }
 
-        $presenting = $this->finder->hasSheet($elements) || $this->finder->hasAlert($elements);
-        $this->sheetSeen = $presenting ? ($this->sheetSeen ?? microtime(true)) : null;
         $this->screenElements = $elements;
 
         return $this->scoped($elements);
+    }
+
+    /**
+     * Notes when a sheet or alert first showed up, for presented(). read() notes it before it
+     * answers the "Open in" prompt, so that tap waits out the prompt's slide-in too.
+     *
+     * @param  list<Element>  $elements
+     */
+    private function notePresenting(array $elements): void
+    {
+        $presenting = $this->finder->hasSheet($elements) || $this->finder->hasAlert($elements);
+        $this->sheetSeen = $presenting ? ($this->sheetSeen ?? microtime(true)) : null;
     }
 
     /**

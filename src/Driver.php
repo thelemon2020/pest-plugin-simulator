@@ -10,8 +10,12 @@ namespace NativePhp\Simulator;
  * that builds elements another way, like the tests' fakes, can leave them out, so read
  * them with a default. A Tappable is an element with a center, which is what a match is.
  *
+ * An OpenPrompt is what iOS's deep-link prompt says in one language: its titles as format
+ * strings, with a placeholder such as `%@` where the app's name goes, and its Open button.
+ *
  * @phpstan-type Element array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}, value?: ?string, enabled?: bool, selected?: bool, checked?: bool, chrome?: ?string, webview?: bool, carousel?: ?array{0: float, 1: float, 2: float, 3: float}, secure?: bool, frame?: ?array{0: float, 1: float, 2: float, 3: float}, range?: ?array{0: float, 1: float}, checkable?: bool}
  * @phpstan-type Tappable array{label: string, role: ?string, id: ?string, center: array{0: float|int, 1: float|int}, value?: ?string, enabled?: bool, selected?: bool, checked?: bool, chrome?: ?string, webview?: bool, carousel?: ?array{0: float, 1: float, 2: float, 3: float}, secure?: bool, frame?: ?array{0: float, 1: float, 2: float, 3: float}, range?: ?array{0: float, 1: float}, checkable?: bool}
+ * @phpstan-type OpenPrompt array{titles: list<string>, open: string}
  */
 interface Driver
 {
@@ -123,4 +127,12 @@ interface Driver
      * @param  array<string, mixed>  $payload  an APNs payload, with its `aps` key
      */
     public function push(array $payload): void;
+
+    /**
+     * What the "Open in “App”?" prompt says in each language the device can show it in, or
+     * nothing when the device has no such prompt or its text could not be read.
+     *
+     * @return list<OpenPrompt>
+     */
+    public function openPrompts(): array;
 }
