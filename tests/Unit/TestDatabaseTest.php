@@ -158,6 +158,29 @@ it('copies no database when the suite turns copying off', function () {
     }
 });
 
+it('says whether the next screen stops the app to copy the database', function () {
+    $snapshot = tempnam(sys_get_temp_dir(), 'snapshot-');
+    TestDatabase::fake(fn (): string => $snapshot);
+    TestDatabase::begin();
+
+    try {
+        $first = TestDatabase::stopsApp();
+        TestDatabase::publish(new FakeDriver([]));
+        $second = TestDatabase::stopsApp();
+        TestDatabase::begin();
+        TestDatabase::keep();
+        $kept = TestDatabase::stopsApp();
+        TestDatabase::begin();
+        Configuration::configure(['copy_database' => false]);
+        $off = TestDatabase::stopsApp();
+
+        expect([$first, $second, $kept, $off])->toBe([true, false, false, false]);
+    } finally {
+        Configuration::reset();
+        TestDatabase::fake(null);
+    }
+});
+
 it('refuses keepDatabase() after the database was already copied', function () {
     TestDatabase::fake(fn (): string => tempnam(sys_get_temp_dir(), 'snapshot-'));
     TestDatabase::begin();

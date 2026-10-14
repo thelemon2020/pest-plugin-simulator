@@ -9,6 +9,7 @@ use NativePhp\Simulator\Permissions;
 use NativePhp\Simulator\Platforms;
 use NativePhp\Simulator\Recording;
 use NativePhp\Simulator\SuiteRegistration;
+use NativePhp\Simulator\SystemUi;
 use NativePhp\Simulator\Trace;
 use Tests\Support\FakeMachine;
 
@@ -18,6 +19,7 @@ Platforms::use(new FakeMachine);
 uses()->afterEach(function () {
     Permissions::reset();
     DeviceState::reset();
+    SystemUi::beginTest();
     Recording::reset();
     Trace::reset();
     Platforms::use(new FakeMachine);

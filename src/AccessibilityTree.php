@@ -176,6 +176,25 @@ final class AccessibilityTree
     }
 
     /**
+     * The alert, share sheet, or photo picker on screen, by the chrome summarize() gave its
+     * elements, or null when there is none.
+     *
+     * @param  list<array{chrome?: ?string}>  $elements
+     */
+    public static function systemUi(array $elements): ?string
+    {
+        foreach ($elements as $element) {
+            $chrome = $element['chrome'] ?? null;
+
+            if (self::isSystem($chrome)) {
+                return $chrome;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * @return array{0: float, 1: float}
      */
     public static function viewport(string $json): array

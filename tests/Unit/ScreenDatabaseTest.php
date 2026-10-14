@@ -32,6 +32,7 @@ mobile(function () {
 
         expect($this->driver->events)->toBe([
             ['ready'],
+            ['close-system-ui', 'stopping'],
             ['install', $this->path],
             ['open', 'myapp://lights'],
         ]);
@@ -40,6 +41,7 @@ mobile(function () {
 
         expect($this->driver->events)->toBe([
             ['ready'],
+            ['close-system-ui', 'stopping'],
             ['install', $this->path],
             ['open', 'myapp://lights'],
             ['ready'],
@@ -52,7 +54,20 @@ mobile(function () {
 
         expect($this->driver->events)->toBe([
             ['ready'],
+            ['close-system-ui', 'stopping'],
             ['install', $this->path],
+            ['open', 'myapp://lights'],
+        ]);
+    });
+
+    it('tells the driver the app keeps running when the test keeps its database', function () {
+        keepDatabase();
+
+        screen('/lights');
+
+        expect($this->driver->events)->toBe([
+            ['ready'],
+            ['close-system-ui', 'running'],
             ['open', 'myapp://lights'],
         ]);
     });

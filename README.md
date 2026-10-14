@@ -190,6 +190,11 @@ it('shows the settings title', function () {
 
 The database must be a file. Set `DB_CONNECTION=sqlite`. An in-memory database cannot be copied, so the test stops.
 
+A test that fails with a photo picker, a permission dialog, an alert, or a share sheet open would leave it in front of the next test. Each test's first `screen()` closes it first:
+
+- On Android, the photo picker, the documents picker, the permission dialog, and the share sheet are their own apps, and stopping your app does not close them. The one in front is force-stopped. Anything else left on top of your app's screens gets Back.
+- On iOS, stopping the app for the database copy closes what it presented. When the test keeps the app running, with `keepDatabase()` or with `copy_database` off, an alert, a share sheet, or the photo picker in front stops the app, and the screen opens on a cold launch.
+
 ## Drive the screen
 
 These calls go inside a test that is wrapped in `mobile()`.

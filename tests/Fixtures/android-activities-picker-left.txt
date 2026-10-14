@@ -1,0 +1,16 @@
+  * Task{1fb828a #9 type=standard A=10213:com.thelemon2020.simulatorsample U=0 visible=true visibleRequested=true mode=fullscreen translucent=true sz=1}
+    topResumedActivity=ActivityRecord{14169199 u0 com.google.android.photopicker/com.android.photopicker.MainActivity t9}
+  * Task{a78eac8 #1 type=home U=0 visible=true visibleRequested=true mode=fullscreen translucent=false sz=1}
+    * Task{18bc569 #6 type=home I=com.google.android.apps.nexuslauncher/.NexusLauncherActivity U=0 rootTaskId=1 visible=true visibleRequested=true mode=fullscreen translucent=false sz=2}
+      * TaskFragment{4e2d492 mode=multi-window organizerUid=10185 organizerProc=com.google.android.apps.nexuslauncher}
+  * Task{ab3f8f0 #3 type=undefined U=0 visible=false visibleRequested=false mode=fullscreen translucent=true sz=2}
+    * Task{98f986d #5 type=undefined U=0 rootTaskId=3 visible=false visibleRequested=false mode=multi-window translucent=true sz=0}
+    * Task{e1a4e69 #4 type=undefined U=0 rootTaskId=3 visible=false visibleRequested=false mode=multi-window translucent=true sz=0}
+  ResumedActivity: ActivityRecord{14169199 u0 com.google.android.photopicker/com.android.photopicker.MainActivity t9}
+      * Task{1fb828a #9 type=standard A=10213:com.thelemon2020.simulatorsample U=0 visible=true visibleRequested=true mode=fullscreen translucent=true sz=1}
+      * Task{a78eac8 #1 type=home U=0 visible=true visibleRequested=true mode=fullscreen translucent=false sz=1}
+        * Task{18bc569 #6 type=home I=com.google.android.apps.nexuslauncher/.NexusLauncherActivity U=0 rootTaskId=1 visible=true visibleRequested=true mode=fullscreen translucent=false sz=2}
+          * TaskFragment{4e2d492 mode=multi-window organizerUid=10185 organizerProc=com.google.android.apps.nexuslauncher}
+      * Task{ab3f8f0 #3 type=undefined U=0 visible=false visibleRequested=false mode=fullscreen translucent=true sz=2}
+        * Task{98f986d #5 type=undefined U=0 rootTaskId=3 visible=false visibleRequested=false mode=multi-window translucent=true sz=0}
+        * Task{e1a4e69 #4 type=undefined U=0 rootTaskId=3 visible=false visibleRequested=false mode=multi-window translucent=true sz=0}

@@ -75,6 +75,7 @@ mobile(function () {
                 ['ready'],
                 ['record', $this->video],
                 ['ready'],
+                ['close-system-ui', 'stopping'],
                 ['install', $this->database],
                 ['open', 'myapp://lights'],
             ]);
@@ -128,6 +129,7 @@ mobile(function () {
         expect($screen)->toBeInstanceOf(Screen::class)
             ->and($this->driver->events)->toBe([
                 ['ready'],
+                ['close-system-ui', 'stopping'],
                 ['install', $this->database],
                 ['open', 'myapp://lights'],
                 ['record', $this->video],

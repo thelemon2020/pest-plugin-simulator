@@ -44,6 +44,17 @@ final class TestDatabase
         self::$keep = true;
     }
 
+    /**
+     * Whether the next publish() copies the database, which stops the app first.
+     */
+    public static function stopsApp(): bool
+    {
+        return ! self::$published
+            && ! self::$keep
+            && Configuration::resolve()->copiesDatabase()
+            && (self::$snapshot !== null || self::host() !== null);
+    }
+
     public static function fake(?Closure $snapshot): void
     {
         self::$snapshot = $snapshot;

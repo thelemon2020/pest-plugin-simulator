@@ -24,6 +24,14 @@ interface Driver
     public function open(string $url): void;
 
     /**
+     * Closes system UI the last test left over the app, such as a photo picker or a
+     * permission dialog, so the app comes to the front when the next test opens it.
+     *
+     * @param  bool  $stopping  whether the app is about to be stopped to copy the database
+     */
+    public function closeSystemUi(bool $stopping): void;
+
+    /**
      * @return list<Element>
      */
     public function describe(?string $treePath = null): array;
