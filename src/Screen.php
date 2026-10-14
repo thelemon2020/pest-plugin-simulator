@@ -268,12 +268,18 @@ final class Screen
      * field's read occasionally matched once and then changed again right after, consistent
      * with a render still catching up even after the text first looked right.
      *
+     * A read trims what a field holds, so text with a space at either end only ever reads
+     * back trimmed: "Ada " never matched, and type() used all three attempts on it. The
+     * trimmed text counts, on two reads in a row even when the app's marker says PHP has
+     * caught up, because it is also what the field showed before the space went in.
+     *
      * @param  Tappable  $field
      */
     private function settled(string $label, array $field, string $text): bool
     {
         $deadline = microtime(true) + min(10.0, $this->timeoutSeconds);
         $confirmed = false;
+        $trimmed = trim($text);
 
         do {
             try {
@@ -282,11 +288,12 @@ final class Screen
                 $elements = [];
             }
 
-            $matches = $elements !== [] && $this->finder->holds($elements, $label, $field, $text, $this->stepNth);
+            $exact = $elements !== [] && $this->finder->holds($elements, $label, $field, $text, $this->stepNth);
+            $matches = $exact || ($trimmed !== $text && $elements !== [] && $this->finder->holds($elements, $label, $field, $trimmed, $this->stepNth));
 
             // With the app's marker saying PHP has taken everything it was sent, there is no
             // answer still on its way to change the field again: one read is enough.
-            if ($matches && ($confirmed || ($this->pending !== null && ! $this->busy()))) {
+            if ($matches && ($confirmed || ($exact && $this->pending !== null && ! $this->busy()))) {
                 return true;
             }
 
