@@ -185,9 +185,10 @@ final class Screen
                 // A password stays out of the trace, as it stays masked in tree.json.
                 $this->sent(['text', ($match['secure'] ?? false) === true ? str_repeat('•', mb_strlen($text)) : $text]);
 
-                // An app that says how far behind PHP is gets a key at a time, each once PHP has
-                // answered the last: on iOS a burst that outruns PHP never settles (paced()).
-                if ($this->pending !== null) {
+                // For an app that says how far behind PHP is, a key at a time, each once PHP has
+                // answered the last: from the start where a burst that outruns PHP can never
+                // settle (paced()), and on a retry where it only lost keys, as a burst is quicker.
+                if ($this->pending !== null && ($attempt > 1 || $this->driver->resendsLateAnswers())) {
                     $this->note('paced', true);
                     $this->paced($label, $match, $text);
                 } else {
@@ -221,9 +222,10 @@ final class Screen
      * without sending it, so a burst there only loses keys. With nothing still on its way to
      * PHP when a key goes in, there is no older answer to write back.
      *
-     * Nothing says how long a field's PHP takes before it is typed into, so every field of
-     * an app that shows the marker is typed this way. A key whose answer is back by the next
-     * read costs that one read.
+     * Nothing says how long a field's PHP takes before it is typed into, so on iOS every
+     * field of an app that shows the marker is typed this way. A key whose answer is back by
+     * the next read costs that one read, about 0.25 seconds there. On Android, where a read
+     * costs more and a burst that lost keys can be typed again, only a retry is.
      *
      * @param  Tappable  $field
      */

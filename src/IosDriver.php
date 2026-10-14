@@ -572,6 +572,11 @@ final class IosDriver implements Driver
         $this->typing = true;
     }
 
+    public function resendsLateAnswers(): bool
+    {
+        return true;
+    }
+
     /**
      * A field that was just tapped spends about half a second taking focus, and the app
      * answers nothing until it has: on an iPhone 17 Pro Simulator the first accessibility

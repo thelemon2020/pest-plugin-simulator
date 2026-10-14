@@ -126,6 +126,27 @@ it('does not wait out a space that a read trims off the field', function () {
         ->and(microtime(true) - $started)->toBeLessThan(5.0);
 });
 
+it('types in one burst first where a late answer only loses keys', function () {
+    $field = fn (string $value): array => ['label' => 'Echo', 'role' => 'TextField', 'id' => null, 'center' => [200.0, 175.0], 'value' => $value];
+    $driver = new FakeDriver([[$field('hey'), marker(0)]]);
+    $driver->resends = false;
+
+    (new Screen($driver, timeoutSeconds: 1))->type('Echo', 'hey');
+
+    expect($driver->texts)->toBe(['hey']);
+});
+
+it('retries a key at a time where a late answer only loses keys, once the burst lost some', function () {
+    $field = fn (string $value): array => ['label' => 'Echo', 'role' => 'TextField', 'id' => null, 'center' => [200.0, 175.0], 'value' => $value];
+    $driver = new FakeDriver([]);
+    $driver->resends = false;
+    $driver->reading = fn (): array => [$field(count($driver->texts) === 1 ? 'h' : implode('', array_slice($driver->texts, 1))), marker(0)];
+
+    (new Screen($driver, timeoutSeconds: 0.5))->type('Echo', 'hey');
+
+    expect($driver->texts)->toBe(['hey', 'h', 'e', 'y']);
+});
+
 it('types in one go for an app that shows no marker', function () {
     $driver = new FakeDriver([[['label' => 'Echo', 'role' => 'TextField', 'id' => null, 'center' => [200.0, 175.0], 'value' => 'hey']]]);
 

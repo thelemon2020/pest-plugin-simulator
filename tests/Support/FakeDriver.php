@@ -31,6 +31,9 @@ final class FakeDriver implements Driver
     /** What open() throws, if anything. */
     public ?SimulatorException $openError = null;
 
+    /** What resendsLateAnswers() says: iOS's answer by default. */
+    public bool $resends = true;
+
     /**
      * Builds each read instead of the trees given, for a screen that answers what the test
      * sends it.
@@ -200,6 +203,11 @@ final class FakeDriver implements Driver
     public function text(string $text): void
     {
         $this->texts[] = $text;
+    }
+
+    public function resendsLateAnswers(): bool
+    {
+        return $this->resends;
     }
 
     public function viewport(): array
