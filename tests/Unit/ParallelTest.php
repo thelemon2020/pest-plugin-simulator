@@ -91,6 +91,80 @@ it('boots an existing worker simulator instead of cloning another', function () 
     });
 });
 
+it('warms location up in the background once a worker simulator boots, before the build', function () {
+    withWorker(1, function (): void {
+        [$command, $driver] = iosWorker(simulatorJson([
+            ['name' => 'iPhone 17 pest-1', 'udid' => 'CLONE', 'state' => 'Shutdown', 'isAvailable' => true],
+        ]));
+        $command->outputs['--entitlements'] = '';
+
+        $driver->ensureReady();
+
+        $bootstatus = array_search(['xcrun', ['simctl', 'bootstatus', 'CLONE', '-b']], $command->calls, true);
+        $warmUp = array_search(locationWarmUp('CLONE'), $command->calls, true);
+        $build = array_search(['php', ['artisan', 'native:run', 'ios', 'CLONE', '--build=debug', '--no-tty']], $command->calls, true);
+
+        expect($warmUp)->toBeInt()
+            ->and($warmUp)->toBeGreaterThan($bootstatus)
+            ->and($warmUp)->toBeLessThan($build)
+            ->and($command->timeouts)->not->toHaveKey(implode(' ', ['xcrun', ...locationWarmUp('CLONE')[1]]));
+    });
+});
+
+it('waits for the location warm-up before the first location grant, and only that one', function () {
+    withWorker(1, function (): void {
+        Configuration::configure(['bundle_id' => 'com.example.app']);
+        [$command, $driver] = iosWorker(simulatorJson([
+            ['name' => 'iPhone 17 pest-1', 'udid' => 'CLONE', 'state' => 'Shutdown', 'isAvailable' => true],
+        ]));
+        $waitedBeforeGrant = null;
+        $command->responder = function (string $binary, array $arguments) use ($command, &$waitedBeforeGrant): ?string {
+            if (in_array('privacy', $arguments, true) && in_array('location', $arguments, true)) {
+                $waitedBeforeGrant ??= $command->waited;
+            }
+
+            return null;
+        };
+
+        $driver->ensureReady();
+        $driver->grant(['photos']);
+
+        expect($command->waited)->toBe([]);
+
+        $driver->grant(['location']);
+        $driver->revoke(['location']);
+
+        expect($waitedBeforeGrant)->toBe([[4242, (float) Command::DEVICE_TIMEOUT]])
+            ->and($command->waited)->toBe([[4242, (float) Command::DEVICE_TIMEOUT]]);
+    });
+});
+
+it('warms location up when it boots the shared simulator', function () {
+    withWorker(null, function (): void {
+        [$command, $driver] = iosWorker(simulatorJson(phone: 'Shutdown'));
+
+        $driver->ensureReady();
+
+        expect($command->calls)->toContain(['xcrun', ['simctl', 'boot', 'SOURCE']])
+            ->and($command->calls)->toContain(locationWarmUp('SOURCE'));
+    });
+});
+
+it('leaves location alone on a shared simulator that was already up', function () {
+    withWorker(null, function (): void {
+        Configuration::configure(['bundle_id' => 'com.example.app']);
+        [$command, $driver] = iosWorker(simulatorJson());
+        $command->outputs['ConnectHardwareKeyboard'] = "1\n";
+
+        $driver->ensureReady();
+        $driver->grant(['location']);
+
+        expect($command->calls)->not->toContain(['xcrun', ['simctl', 'boot', 'SOURCE']])
+            ->and($command->calls)->not->toContain(locationWarmUp('SOURCE'))
+            ->and($command->waited)->toBe([]);
+    });
+});
+
 it('leaves a booted worker simulator up when the hardware keyboard is already connected', function () {
     withWorker(1, function (): void {
         [$command, $driver] = iosWorker(simulatorJson([
@@ -901,6 +975,14 @@ function iosWorker(string $json): array
     ];
 
     return [$command, new IosDriver(new Device('ios', 'iPhone 17', true), Configuration::resolve(), $command, $socket)];
+}
+
+/**
+ * @return array{0: string, 1: list<string>}
+ */
+function locationWarmUp(string $udid): array
+{
+    return ['xcrun', ['simctl', 'privacy', $udid, 'reset', 'location', 'dev.nativephp.simulator.warmup']];
 }
 
 /**

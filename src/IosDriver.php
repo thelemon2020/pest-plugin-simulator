@@ -34,11 +34,16 @@ final class IosDriver implements Driver
 
     private const CALL_TIMEOUT_FLOOR_SECONDS = 10.0;
 
+    /** No app has this bundle id, so resetting its location changes nothing. */
+    private const LOCATION_WARM_UP_BUNDLE = 'dev.nativephp.simulator.warmup';
+
     private ?string $udid = null;
 
     private ?string $dataContainer = null;
 
     private ?int $recordingPid = null;
+
+    private ?int $locationWarmUpPid = null;
 
     private ?Client $client = null;
 
@@ -116,6 +121,7 @@ final class IosDriver implements Driver
 
                 $this->command->run('xcrun', ['simctl', 'boot', $this->udid]);
                 $this->command->run('xcrun', ['simctl', 'bootstatus', $this->udid, '-b']);
+                $this->warmUpLocation();
             }
         } else {
             $this->udid = SimulatorList::udidFor($json, $this->device->name);
@@ -141,6 +147,7 @@ final class IosDriver implements Driver
                     } catch (SimulatorException) {
                     }
                 });
+                $this->warmUpLocation();
             }
         }
     }
@@ -208,6 +215,7 @@ final class IosDriver implements Driver
         Shutdown::defer(function () use ($command, $simulator): void {
             self::shutdownSimulator($command, $simulator);
         });
+        $this->warmUpLocation();
     }
 
     private function releaseWorkerSimulator(): void
@@ -700,10 +708,44 @@ final class IosDriver implements Driver
         $bundle = $this->configuration->bundleId();
 
         foreach (Permissions::targets('ios', $services) as $service) {
+            if ($service === 'location') {
+                $this->awaitLocationWarmUp();
+            }
+
             Permissions::attempt(fn () => $this->command->run('xcrun', [
                 'simctl', 'privacy', $this->udid(), $action, $service, $bundle,
             ]));
         }
+    }
+
+    /**
+     * The first location call after a boot waits for the Simulator's location service:
+     * 57 to 168 seconds on an iPhone 17 Pro, and 79 on an idle machine. The calls after
+     * it take 0.2. This pays that wait in the background while the app builds, instead of
+     * in the first test's grant.
+     */
+    private function warmUpLocation(): void
+    {
+        try {
+            $this->locationWarmUpPid = $this->command->start('xcrun', [
+                'simctl', 'privacy', $this->udid(), 'reset', 'location', self::LOCATION_WARM_UP_BUNDLE,
+            ], '/dev/null');
+        } catch (SimulatorException) {
+            $this->locationWarmUpPid = null;
+        }
+    }
+
+    private function awaitLocationWarmUp(): void
+    {
+        if ($this->locationWarmUpPid === null) {
+            return;
+        }
+
+        $pid = $this->locationWarmUpPid;
+        $this->locationWarmUpPid = null;
+        $started = microtime(true);
+        $finished = $this->command->wait($pid, Command::DEVICE_TIMEOUT);
+        VerboseLog::write(microtime(true) - $started, $finished ? 'done' : 'running', 'location warm-up pid '.$pid);
     }
 
     public function captureLogs(string $directory): array
