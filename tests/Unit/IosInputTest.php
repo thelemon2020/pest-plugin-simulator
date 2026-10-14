@@ -42,6 +42,7 @@ it('waits for a tapped field to finish taking focus before the first key', funct
         'unary accessibility_info',
         'unary accessibility_info',
         'streamStrokes hid',
+        'unary accessibility_info',
     ]);
 });
 
@@ -54,6 +55,51 @@ it('types anyway when the tree cannot be read', function () {
     expect(array_map(fn (array $call): string => $call[0].' '.$call[1], $client->calls))->toBe([
         'unary accessibility_info',
         'streamStrokes hid',
+        'unary accessibility_info',
+    ]);
+});
+
+it('parks a software keyboard left on screen after typing', function () {
+    $client = new RecordingClient;
+    $client->trees = [keyboardTree(617), keyboardTree(617), keyboardTree(617), keyboardTree(925)];
+    $driver = iosInputDriver($client);
+
+    $driver->text('Ta');
+
+    expect(array_map(fn (array $call): string => $call[0].' '.$call[1], $client->calls))->toBe([
+        'unary accessibility_info',
+        'unary accessibility_info',
+        'streamStrokes hid',
+        'unary accessibility_info',
+        'unary setting',
+        'unary accessibility_info',
+    ])->and($client->calls[4][2])->toBe([Hid::hardwareKeyboard()]);
+});
+
+it('leaves a keyboard parked below the display alone', function () {
+    $client = new RecordingClient;
+    $client->trees = [keyboardTree(925)];
+    $driver = iosInputDriver($client);
+
+    $driver->text('Ta');
+
+    expect(array_column($client->calls, 1))->not->toContain('setting');
+});
+
+it('stops at one try when the companion cannot connect a hardware keyboard', function () {
+    $client = new RecordingClient;
+    $client->trees = [keyboardTree(617)];
+    $client->failing = ['setting'];
+    $driver = iosInputDriver($client);
+
+    $driver->text('Ta');
+
+    expect(array_map(fn (array $call): string => $call[0].' '.$call[1], $client->calls))->toBe([
+        'unary accessibility_info',
+        'unary accessibility_info',
+        'streamStrokes hid',
+        'unary accessibility_info',
+        'unary setting',
     ]);
 });
 
@@ -142,6 +188,20 @@ it('gives a companion call as long as a screen step, within bounds', function (f
     'no less than a slow read needs' => [2.0, 10.0],
     'no more than the client allows' => [45.0, 30.0],
 ]);
+
+/**
+ * An iPhone 17 Pro screen with a focused field and the software keyboard's top row at $keysY:
+ * 617 is on the glass, 925 is parked below the 874-point display.
+ */
+function keyboardTree(float $keysY): string
+{
+    return (string) json_encode(['elements' => [
+        ['type' => 'Application', 'label' => 'App', 'frame' => ['x' => 0, 'y' => 0, 'width' => 402, 'height' => 874]],
+        ['type' => 'TextField', 'label' => 'Name', 'frame' => ['x' => 20, 'y' => 160, 'width' => 360, 'height' => 30]],
+        ['type' => 'Key', 'label' => 'q', 'frame' => ['x' => 6, 'y' => $keysY - 21, 'width' => 36, 'height' => 42]],
+        ['type' => 'Key', 'label' => 'w', 'frame' => ['x' => 46, 'y' => $keysY - 21, 'width' => 36, 'height' => 42]],
+    ]]);
+}
 
 function iosInputDriver(RecordingClient $client): IosDriver
 {

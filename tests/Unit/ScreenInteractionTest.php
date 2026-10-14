@@ -819,6 +819,20 @@ it('scrolls a control out from under an iOS software keyboard before tapping it'
         ->and($driver->taps)->toBe([[46.0, 400.0]]);
 });
 
+it('taps a control above a software keyboard parked below the display', function () {
+    $driver = new FakeDriver([[
+        control('Save', ['center' => [46.0, 850.0]]),
+        control('q', ['role' => 'Key', 'center' => [22.0, 900.0]]),
+        control('w', ['role' => 'Key', 'center' => [62.0, 900.0]]),
+    ]]);
+    $driver->viewport = [402.0, 874.0];
+
+    (new Screen($driver, timeoutSeconds: 0))->tap('Save');
+
+    expect($driver->swipes)->toBe([])
+        ->and($driver->taps)->toBe([[46.0, 850.0]]);
+});
+
 it('taps a key on the iOS software keyboard where it is', function () {
     $driver = new FakeDriver([[
         control('Name', ['role' => 'TextField', 'center' => [200.0, 300.0]]),

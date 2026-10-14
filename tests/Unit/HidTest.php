@@ -12,6 +12,12 @@ it('asks accessibility_info for the COMPLETE format from the AXBRIDGE backend', 
     expect(Hid::accessibilityInfo())->toBe("\x18\x02\x40\x02");
 });
 
+it('asks the companion to connect a hardware keyboard', function () {
+    // SettingRequest.hardwareKeyboard (1) > HardwareKeyboard.enabled (1) = true — see idb's
+    // idb.proto. idb_companion 1.6.6 logs it as the HardwareKeyboard setting.
+    expect(Hid::hardwareKeyboard())->toBe("\x0a\x02\x08\x01");
+});
+
 it('presses and lets go of the home button', function () {
     // HIDEvent.press (1) > HIDPress.action (1) > HIDPressAction.button (2) >
     // HIDButton.button (1) = HOME (1). The release adds HIDPress.direction (2) = UP (1).
