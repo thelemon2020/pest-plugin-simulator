@@ -235,19 +235,29 @@ final class Screen
         foreach (mb_str_split($text) as $character) {
             $typed .= $character;
             $this->driver->text($character);
-            $this->answered(fn (array $elements): bool => $this->finder->holds($elements, $label, $field, $typed, $this->stepNth));
+
+            // A read trims what a field holds, so after a space at either end the field
+            // reads as it did before the key. Two reads in a row stand in for seeing it land:
+            // waiting to see "Ada " ran out all 10 seconds.
+            $shown = trim($typed);
+            $this->answered(
+                fn (array $elements): bool => $this->finder->holds($elements, $label, $field, $typed, $this->stepNth)
+                    || $this->finder->holds($elements, $label, $field, $shown, $this->stepNth),
+                $shown === $typed ? 1 : 2,
+            );
         }
     }
 
     /**
-     * Reads until PHP has taken every event the app sent it and the read shows what
-     * $shows looks for, for up to 10 seconds.
+     * Reads until PHP has taken every event the app sent it and $times reads in a row show
+     * what $shows looks for, for up to 10 seconds.
      *
      * @param  Closure(list<Element>): bool  $shows
      */
-    private function answered(Closure $shows): void
+    private function answered(Closure $shows, int $times = 1): void
     {
         $deadline = microtime(true) + min(10.0, $this->timeoutSeconds);
+        $shown = 0;
 
         do {
             try {
@@ -256,7 +266,9 @@ final class Screen
                 $elements = [];
             }
 
-            if (! $this->busy() && $elements !== [] && $shows($elements)) {
+            $shown = ! $this->busy() && $elements !== [] && $shows($elements) ? $shown + 1 : 0;
+
+            if ($shown >= $times) {
                 return;
             }
 

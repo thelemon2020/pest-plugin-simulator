@@ -114,6 +114,18 @@ it('types each key once PHP has taken every event before it, the erase included'
         ->and($typedAt)->toBe([['', 0], ['h', 0], ['he', 0]]);
 });
 
+it('does not wait out a space that a read trims off the field', function () {
+    $field = fn (string $value): array => ['label' => 'Name', 'role' => 'TextField', 'id' => null, 'center' => [200.0, 175.0], 'value' => $value];
+    $driver = new FakeDriver([]);
+    $driver->reading = fn (): array => [$field(trim(implode('', $driver->texts))), marker(0)];
+    $started = microtime(true);
+
+    (new Screen($driver, timeoutSeconds: 10))->type('Name', 'Ada L');
+
+    expect($driver->texts)->toBe(['A', 'd', 'a', ' ', 'L'])
+        ->and(microtime(true) - $started)->toBeLessThan(5.0);
+});
+
 it('types in one go for an app that shows no marker', function () {
     $driver = new FakeDriver([[['label' => 'Echo', 'role' => 'TextField', 'id' => null, 'center' => [200.0, 175.0], 'value' => 'hey']]]);
 
