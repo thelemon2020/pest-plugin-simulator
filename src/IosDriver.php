@@ -1054,6 +1054,14 @@ final class IosDriver implements Driver
         self::$built[$key] = true;
     }
 
+    /**
+     * Whether the app is installed as a Simulator build. That is what NativePHP's
+     * NativePHP-simulator scheme makes, and it always builds the Debug configuration:
+     * `--build=release` only reaches a real device. A Simulator build carries no
+     * get-task-allow to look for. Its code signature has no entitlements, and Xcode puts
+     * only an application-identifier in its __TEXT,__entitlements section, so a check for
+     * that key never passed, and every run compiled the app again.
+     */
     private function debugInstalled(string $bundle): bool
     {
         try {
@@ -1069,13 +1077,12 @@ final class IosDriver implements Driver
         }
 
         try {
-            $entitlements = $this->command->run('codesign', ['-d', '--entitlements', '-', $container]);
+            $platform = $this->command->run('plutil', ['-extract', 'DTPlatformName', 'raw', '-o', '-', $container.'/Info.plist']);
         } catch (SimulatorException) {
             return false;
         }
 
-        return preg_match('/get-task-allow<\/key>\s*<true\s*\/>/i', $entitlements) === 1
-            || preg_match('/\[Key\]\s*get-task-allow\s*\[Value\]\s*\[Bool\]\s*true/i', $entitlements) === 1;
+        return trim($platform) === 'iphonesimulator';
     }
 
     private function startCompanion(): void
