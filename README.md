@@ -557,7 +557,7 @@ An app can tell the plugin instead. When the screen has an element whose accessi
 
 - does not take a read as an answer while the count is above 0, and says so when a step times out that way;
 - waits for 0 before it taps;
-- types one character at a time, each once the field shows the one before and the count is 0. A `native:model` field typed in one burst loses keys when PHP answers late: an answer that arrives after the next keystroke writes the older value back.
+- types one character at a time, each once the field shows the one before and the count is 0. A `native:model` field typed in one burst loses keys when PHP answers late: an answer that arrives after the next keystroke writes the older value back. On iOS the field also sends that older value to PHP again, so the count never gets back to 0 and the field never settles.
 
 A screen without that element is waited for as before. NativePHP does not show it yet. [docs/nativephp-idle-signal.md](docs/nativephp-idle-signal.md) has the change that adds it, for iOS and Android, and how it was checked on both.
 

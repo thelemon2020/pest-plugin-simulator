@@ -185,9 +185,9 @@ final class Screen
                 // A password stays out of the trace, as it stays masked in tree.json.
                 $this->sent(['text', ($match['secure'] ?? false) === true ? str_repeat('•', mb_strlen($text)) : $text]);
 
-                // A burst first, as fields take it best. Only a retry, for an app that says how
-                // far behind PHP is, goes a key at a time: the burst lost keys to a late answer.
-                if ($attempt > 1 && $this->pending !== null) {
+                // An app that says how far behind PHP is gets a key at a time, each once PHP has
+                // answered the last: on iOS a burst that outruns PHP never settles (paced()).
+                if ($this->pending !== null) {
                     $this->note('paced', true);
                     $this->paced($label, $match, $text);
                 } else {
@@ -206,42 +206,62 @@ final class Screen
     }
 
     /**
-     * Types one character at a time, each once the field shows the one before and PHP has
-     * taken every event the app sent it, for an app that shows the IdleMarker. type() does
-     * this only after a burst lost keys: an ordinary field took about two seconds to show
-     * each key typed one at a time on iOS, where a burst settled at once.
+     * Types one character at a time, for an app that shows the IdleMarker: the first once
+     * PHP has taken every event the app sent it, the erase before it included, and each one
+     * after once the field shows the one before and PHP has taken that too.
      *
      * A `native:model` field sends PHP an event for each keystroke and writes back what PHP
      * answers. Typed in one burst, an answer that comes back after the next keystroke writes
-     * an older value over the field: the sample app's field, whose PHP takes 300ms an
-     * event, kept one letter of "hello there" in three tries. With nothing still on its way
-     * to PHP when a key goes in, there is no older answer to write back.
+     * an older value over the field. On iOS that is worse than a lost key: NativePHP's text
+     * field sends PHP the older value it was given as a new event, whose answer is older
+     * than the field again, so the events go round for good. On an iPhone 17 Pro Simulator,
+     * after a burst of "hello there" into the sample app's field whose PHP takes 300ms an
+     * event, the marker stayed at 11 for a minute while the field showed one prefix after
+     * another, and a retry had nothing to wait for. Android's field takes the older value
+     * without sending it, so a burst there only loses keys. With nothing still on its way to
+     * PHP when a key goes in, there is no older answer to write back.
+     *
+     * Nothing says how long a field's PHP takes before it is typed into, so every field of
+     * an app that shows the marker is typed this way. A key whose answer is back by the next
+     * read costs that one read.
      *
      * @param  Tappable  $field
      */
     private function paced(string $label, array $field, string $text): void
     {
+        $this->answered(fn (): bool => true);
         $typed = '';
 
         foreach (mb_str_split($text) as $character) {
             $typed .= $character;
             $this->driver->text($character);
-            $deadline = microtime(true) + min(10.0, $this->timeoutSeconds);
-
-            do {
-                try {
-                    $elements = $this->read();
-                } catch (SimulatorException) {
-                    $elements = [];
-                }
-
-                if (! $this->busy() && $elements !== [] && $this->finder->holds($elements, $label, $field, $typed)) {
-                    break;
-                }
-
-                usleep(50_000);
-            } while (microtime(true) < $deadline);
+            $this->answered(fn (array $elements): bool => $this->finder->holds($elements, $label, $field, $typed, $this->stepNth));
         }
+    }
+
+    /**
+     * Reads until PHP has taken every event the app sent it and the read shows what
+     * $shows looks for, for up to 10 seconds.
+     *
+     * @param  Closure(list<Element>): bool  $shows
+     */
+    private function answered(Closure $shows): void
+    {
+        $deadline = microtime(true) + min(10.0, $this->timeoutSeconds);
+
+        do {
+            try {
+                $elements = $this->read();
+            } catch (SimulatorException) {
+                $elements = [];
+            }
+
+            if (! $this->busy() && $elements !== [] && $shows($elements)) {
+                return;
+            }
+
+            usleep(50_000);
+        } while (microtime(true) < $deadline);
     }
 
     /**

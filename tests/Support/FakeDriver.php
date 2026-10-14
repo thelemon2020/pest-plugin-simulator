@@ -9,6 +9,7 @@ use NativePhp\Simulator\Driver;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 
 /**
+ * @phpstan-import-type Element from Driver
  * @phpstan-import-type OpenPrompt from Driver
  */
 final class FakeDriver implements Driver
@@ -29,6 +30,14 @@ final class FakeDriver implements Driver
 
     /** What open() throws, if anything. */
     public ?SimulatorException $openError = null;
+
+    /**
+     * Builds each read instead of the trees given, for a screen that answers what the test
+     * sends it.
+     *
+     * @var (Closure(): list<Element>)|null
+     */
+    public ?Closure $reading = null;
 
     /** @var list<array{0: float, 1: float}> */
     public array $taps = [];
@@ -146,7 +155,7 @@ final class FakeDriver implements Driver
                 : new SimulatorException('window-server frontmost returned no application object');
         }
 
-        $tree = $this->trees[min($this->reads, count($this->trees) - 1)];
+        $tree = $this->reading !== null ? ($this->reading)() : $this->trees[min($this->reads, count($this->trees) - 1)];
         $this->reads++;
         $this->descriptions++;
 
