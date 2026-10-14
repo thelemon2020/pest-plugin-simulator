@@ -12,6 +12,7 @@ use NativePhp\Simulator\Recording;
 use NativePhp\Simulator\Run;
 use NativePhp\Simulator\Screen;
 use NativePhp\Simulator\Sessions;
+use NativePhp\Simulator\SystemUi;
 use NativePhp\Simulator\TestDatabase;
 use NativePhp\Simulator\Trace;
 
@@ -130,6 +131,7 @@ function screen(string $path): Screen
     $driver = Sessions::get($device);
     DeviceState::arrive($device);
     $driver->ensureReady();
+    SystemUi::close($driver);
     Recording::begin($driver, $device);
     TestDatabase::publish($driver);
     Permissions::apply($driver, $device->key());

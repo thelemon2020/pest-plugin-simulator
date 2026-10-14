@@ -256,6 +256,30 @@ final class IosDriver implements Driver
         $this->recovering(fn () => $this->command->run('xcrun', ['simctl', 'openurl', $this->udid(), $url]));
     }
 
+    /**
+     * Stopping the app takes down what it presented: an alert, a share sheet, the photo
+     * picker. So when the database copy is about to stop it, there is nothing to do. When
+     * the test keeps the app running, one of those left in front is closed the same way,
+     * and the link that opens the screen starts the app again.
+     */
+    public function closeSystemUi(bool $stopping): void
+    {
+        if ($stopping) {
+            return;
+        }
+
+        try {
+            $presented = AccessibilityTree::systemUi($this->describe());
+        } catch (SimulatorException) {
+            return;
+        }
+
+        if ($presented !== null) {
+            VerboseLog::note("{$presented} was left over the app; stopping the app");
+            $this->terminate();
+        }
+    }
+
     public function installDatabase(string $sqlitePath): void
     {
         $this->recovering(fn () => $this->copyDatabase($sqlitePath));
@@ -263,22 +287,7 @@ final class IosDriver implements Driver
 
     private function copyDatabase(string $sqlitePath): void
     {
-        $bundle = $this->configuration->bundleId();
-
-        try {
-            $this->command->run('xcrun', ['simctl', 'terminate', $this->udid(), $bundle]);
-        } catch (SimulatorException $exception) {
-            // The app was never running, which is the ordinary case on a first install — not
-            // a failure to install over it. simctl's wording for that isn't stable across
-            // versions: older Xcodes say "No such process", newer ones say "found nothing to
-            // terminate". Without both, a run on whichever version says the one this wasn't
-            // written for throws on every single test.
-            $message = strtolower($exception->getMessage());
-
-            if (! str_contains($message, 'no such process') && ! str_contains($message, 'nothing to terminate')) {
-                throw $exception;
-            }
-        }
+        $this->terminate();
 
         $destination = $this->dataContainer().'/Library/Application Support/database/database.sqlite';
         $directory = dirname($destination);
@@ -294,6 +303,24 @@ final class IosDriver implements Driver
         foreach ([$destination.'-wal', $destination.'-shm'] as $sidecar) {
             if (is_file($sidecar) && ! unlink($sidecar)) {
                 throw new SimulatorException("Could not remove [{$sidecar}].");
+            }
+        }
+    }
+
+    private function terminate(): void
+    {
+        try {
+            $this->command->run('xcrun', ['simctl', 'terminate', $this->udid(), $this->configuration->bundleId()]);
+        } catch (SimulatorException $exception) {
+            // The app was never running, which is the ordinary case on a first install — not
+            // a failure to install over it. simctl's wording for that isn't stable across
+            // versions: older Xcodes say "No such process", newer ones say "found nothing to
+            // terminate". Without both, a run on whichever version says the one this wasn't
+            // written for throws on every single test.
+            $message = strtolower($exception->getMessage());
+
+            if (! str_contains($message, 'no such process') && ! str_contains($message, 'nothing to terminate')) {
+                throw $exception;
             }
         }
     }

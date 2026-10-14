@@ -57,6 +57,7 @@ final class MobileTestFilter implements TestCaseMethodFilter
             TestDatabase::begin();
             Permissions::beginTest();
             DeviceState::beginTest();
+            SystemUi::beginTest();
 
             if (Configuration::resolve()->recordFailures()) {
                 Recording::everyTest();

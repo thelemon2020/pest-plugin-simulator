@@ -24,6 +24,25 @@ final class AndroidDriver implements Driver
 
     private const DEMO = 'am broadcast -a com.android.systemui.demo -e command';
 
+    /**
+     * The photo picker, the documents UI, the permission dialog, and the share sheet. Each
+     * opens in the app's own task and outlives the app. When a test leaves one open,
+     * stopping the app for the next test leaves it on top of that task, and the next
+     * test's link brings it to the front instead of the app.
+     */
+    private const SYSTEM_UI = [
+        'com.google.android.photopicker',
+        'com.android.photopicker',
+        'com.google.android.documentsui',
+        'com.android.documentsui',
+        'com.google.android.permissioncontroller',
+        'com.android.permissioncontroller',
+        'com.android.intentresolver',
+    ];
+
+    /** How many things in front of the app closeSystemUi() closes before it gives up. */
+    private const LEFTOVERS = 5;
+
     /** How long System UI is given to rebuild the status bar (see enterDemoMode()). */
     private static float $redrawSeconds = 2.0;
 
@@ -194,6 +213,104 @@ final class AndroidDriver implements Driver
 
             $this->launchApp();
         }
+    }
+
+    /**
+     * What is in front when it is not the app: system UI is stopped, and anything else in
+     * the app's task gets Back. The home screen and other apps' own tasks are left alone,
+     * because the link that opens the app brings its task in front of them. Stopping the
+     * app for the database copy closes none of this, so it runs either way.
+     *
+     * The app's own alert is a window of the app, which the database copy does close. When
+     * the test keeps the app running, an alert, a share sheet, or a photo picker on the
+     * app's screen stops the app, and the link that opens the screen starts it again.
+     */
+    public function closeSystemUi(bool $stopping): void
+    {
+        $bundle = $this->configuration->bundleId();
+        $front = $this->front();
+
+        for ($closed = 0; $closed < self::LEFTOVERS && $front !== null && $front['package'] !== $bundle; $closed++) {
+            if (in_array($front['package'], self::SYSTEM_UI, true)) {
+                VerboseLog::note("{$front['package']} was left over the app; stopping it");
+                $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'am', 'force-stop', $front['package']]);
+                $front = $this->front();
+
+                continue;
+            }
+
+            if ($front['task'] !== $bundle) {
+                return;
+            }
+
+            VerboseLog::note("{$front['package']} was left over the app; pressing Back");
+            $this->back();
+            $front = $this->frontAfter($front['record']);
+        }
+
+        if ($stopping || $front === null || $front['package'] !== $bundle) {
+            return;
+        }
+
+        try {
+            $presented = AccessibilityTree::systemUi($this->describe());
+        } catch (SimulatorException) {
+            return;
+        }
+
+        if ($presented !== null) {
+            VerboseLog::note("{$presented} was left over the app; stopping the app");
+            $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'am', 'force-stop', $bundle]);
+        }
+    }
+
+    /**
+     * The resumed activity, from `dumpsys activity activities`: its record, its package, and
+     * the affinity of the task it is in (null for a task without one, like the home screen).
+     * Null when nothing is resumed or the dump cannot be read.
+     *
+     * @return array{record: string, package: string, task: ?string}|null
+     */
+    private function front(): ?array
+    {
+        try {
+            $dump = $this->command->run($this->adb(), [
+                '-s', $this->serial(), 'shell',
+                "dumpsys activity activities | grep -E 'ResumedActivity|\\* Task' || true",
+            ]);
+        } catch (SimulatorException) {
+            return null;
+        }
+
+        // topResumedActivity= since Android 12, mResumedActivity: before it.
+        if (preg_match('/ResumedActivity(?:=|: ?)ActivityRecord\{(\S+) u\d+ ([^\s\/}]+)\/\S+ t(\d+)/', $dump, $resumed) !== 1) {
+            return null;
+        }
+
+        // Task{… #8 type=standard A=10213:com.example.app …}; TaskRecord{… #8 A=com.example.app …} before Android 11.
+        $task = preg_match('/\* Task(?:Record)?\{\S+ #'.$resumed[3].'\s[^}]*?\bA=(?:\d+:)?([^\s}]+)/', $dump, $affinity) === 1
+            ? $affinity[1]
+            : null;
+
+        return ['record' => $resumed[1], 'package' => $resumed[2], 'task' => $task];
+    }
+
+    /**
+     * The resumed activity once it is no longer $record, or after 2 seconds. Back takes a
+     * moment to finish an activity, and a read before then would press it again, on
+     * whatever is under it.
+     *
+     * @return array{record: string, package: string, task: ?string}|null
+     */
+    private function frontAfter(string $record): ?array
+    {
+        $deadline = microtime(true) + 2.0;
+
+        while (($front = $this->front()) !== null && $front['record'] === $record && microtime(true) < $deadline) {
+            usleep(200_000);
+        }
+
+        return $front;
     }
 
     public function describe(?string $treePath = null): array

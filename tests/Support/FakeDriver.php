@@ -131,6 +131,11 @@ final class FakeDriver implements Driver
         $this->events[] = ['open', $url];
     }
 
+    public function closeSystemUi(bool $stopping): void
+    {
+        $this->events[] = ['close-system-ui', $stopping ? 'stopping' : 'running'];
+    }
+
     public function describe(?string $treePath = null): array
     {
         if ($this->describeFailures > 0) {

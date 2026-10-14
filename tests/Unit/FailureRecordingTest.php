@@ -183,6 +183,7 @@ mobile(function () {
         expect($this->driver->recording)->toStartWith($this->directory.'/simulator-recordings/')
             ->and($this->driver->events)->toBe([
                 ['ready'],
+                ['close-system-ui', 'stopping'],
                 ['record', $this->driver->recording],
                 ['install', $this->database],
                 ['open', 'myapp://lights'],
