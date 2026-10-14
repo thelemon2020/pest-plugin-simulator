@@ -37,10 +37,6 @@ jobs:
     if: github.event_name == 'pull_request' || github.event_name == 'schedule' || inputs.platform != 'ios'
     runs-on: ubuntu-latest
     timeout-minutes: 75
-    # avdmanager and the emulator agree on where AVDs live only when told. On the runner,
-    # avdmanager writes somewhere other than ~/.android/avd by default.
-    env:
-      ANDROID_AVD_HOME: ${{ github.workspace }}/.avd
     defaults:
       run:
         working-directory: sample-app
@@ -76,8 +72,15 @@ jobs:
 
       # A pixel_7 image asks for a 12 GB userdata partition. The emulator will not go
       # below 7.2 GiB, and exits when the runner has less free.
+      #
+      # avdmanager and the emulator agree on where AVDs live only when told: on the runner,
+      # avdmanager writes somewhere other than ~/.android/avd. It goes outside the checkout,
+      # because the sample app installs the plugin from the checkout, and native:run copies
+      # that into the app, a running emulator's files and all.
       - name: Create the emulator
         run: |
+          export ANDROID_AVD_HOME="$RUNNER_TEMP/avd"
+          echo "ANDROID_AVD_HOME=$ANDROID_AVD_HOME" >> "$GITHUB_ENV"
           mkdir -p "$ANDROID_AVD_HOME"
           echo no | avdmanager create avd --force --name Pixel --package 'system-images;android-36;google_apis;x86_64' --device pixel_7
           config="${ANDROID_AVD_HOME}/Pixel.avd/config.ini"
