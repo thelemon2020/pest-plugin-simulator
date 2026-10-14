@@ -168,7 +168,7 @@ The first test runs on iPhone and Android. The second test runs only while the c
 
 ## Before the screen opens
 
-The first `screen()` on a device looks for a debug build. If that build is already installed, it does not compile again, and it does not start the app to check. If no debug build is installed, it runs `php artisan native:run` with `--build=debug`, then force-stops the app. Pass `--rebuild` to compile again anyway.
+The first `screen()` on a device looks for a debug build. If that build is already installed, it does not compile again, and it does not start the app to check. On Android that is an app marked debuggable. On iOS it is a Simulator build of the app, which NativePHP always builds in its Debug configuration. If no debug build is installed, it runs `php artisan native:run` with `--build=debug`, then force-stops the app. Pass `--rebuild` to compile again anyway.
 
 Each test copies the SQLite database into the app before its first `screen()` opens the route. The app is stopped for that copy. NativePHP runs migrations on launch, so opening the screen migrates the copy. A database bundled into the install does not replace it.
 

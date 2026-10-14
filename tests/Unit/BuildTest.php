@@ -23,11 +23,11 @@ afterEach(function () {
     resetBuilds();
 });
 
-it('keeps an installed ios debug app without building or launching', function () {
+it('keeps an installed ios simulator build without building or launching', function () {
     $command = new RecordingCommand;
     $command->outputs = [
         'get_app_container' => "/tmp/NativePHP-simulator.app\n",
-        '--entitlements' => '<key>get-task-allow</key><true/>',
+        'DTPlatformName' => "iphonesimulator\n",
     ];
     $driver = iosBuildDriver($command);
 
@@ -35,7 +35,7 @@ it('keeps an installed ios debug app without building or launching', function ()
 
     expect($command->calls)->toBe([
         ['xcrun', ['simctl', 'get_app_container', 'UDID', 'com.example.app', 'app']],
-        ['codesign', ['-d', '--entitlements', '-', '/tmp/NativePHP-simulator.app']],
+        ['plutil', ['-extract', 'DTPlatformName', 'raw', '-o', '-', '/tmp/NativePHP-simulator.app/Info.plist']],
     ]);
 
     buildOnce($driver);
@@ -43,11 +43,11 @@ it('keeps an installed ios debug app without building or launching', function ()
     expect($command->calls)->toHaveCount(2);
 });
 
-it('checks the ios debug app again in a new process without launching it', function () {
+it('checks the ios simulator build again in a new process without launching it', function () {
     $command = new RecordingCommand;
     $command->outputs = [
         'get_app_container' => "/tmp/NativePHP-simulator.app\n",
-        '--entitlements' => '<key>get-task-allow</key><true/>',
+        'DTPlatformName' => "iphonesimulator\n",
     ];
     $driver = iosBuildDriver($command);
 
@@ -55,14 +55,14 @@ it('checks the ios debug app again in a new process without launching it', funct
     resetBuilds();
     buildOnce($driver);
 
-    expect(array_column($command->calls, 0))->toBe(['xcrun', 'codesign', 'xcrun', 'codesign']);
+    expect(array_column($command->calls, 0))->toBe(['xcrun', 'plutil', 'xcrun', 'plutil']);
 });
 
-it('builds ios when the installed app is not a debug binary', function () {
+it('builds ios when the installed app was built for a device', function () {
     $command = new RecordingCommand;
     $command->outputs = [
         'get_app_container' => "/tmp/NativePHP.app\n",
-        '--entitlements' => '<key>get-task-allow</key><false/>',
+        'DTPlatformName' => "iphoneos\n",
     ];
     $driver = iosBuildDriver($command);
 
@@ -72,6 +72,17 @@ it('builds ios when the installed app is not a debug binary', function () {
         'php',
         ['artisan', 'native:run', 'ios', 'UDID', '--build=debug', '--no-tty'],
     ]);
+});
+
+it('builds ios when the installed app has no Info.plist to read', function () {
+    $command = new RecordingCommand;
+    $command->outputs = ['get_app_container' => "/tmp/NativePHP-simulator.app\n"];
+    $command->failures = ['DTPlatformName' => 'Info.plist: The file couldn’t be opened because there is no such file.'];
+    $driver = iosBuildDriver($command);
+
+    buildOnce($driver);
+
+    expect($command->calls[2][0])->toBe('php');
 });
 
 it('builds ios when the debug app is not installed', function () {

@@ -53,7 +53,7 @@ it('boots a private simulator and companion for a parallel worker', function () 
             '-j' => simulatorJson(),
             'clone' => "CLONE\n",
             'get_app_container' => "/tmp/NativePHP.app\n",
-            '--entitlements' => '<key>get-task-allow</key><true/>',
+            'DTPlatformName' => "iphonesimulator\n",
         ];
         $driver = new IosDriver(new Device('ios', 'iPhone 17', true), Configuration::resolve(), $command, $socket);
 
@@ -269,7 +269,7 @@ it('erases a booted simulator when asked to wipe', function () {
         $command->outputs = [
             '-j' => simulatorJson(),
             'get_app_container' => "/tmp/NativePHP.app\n",
-            '--entitlements' => '<key>get-task-allow</key><true/>',
+            'DTPlatformName' => "iphonesimulator\n",
         ];
         $driver = new IosDriver(new Device('ios', 'iPhone 17', true), Configuration::resolve(), $command, $socket);
 
@@ -306,7 +306,7 @@ it('deletes a worker simulator when asked to wipe', function () {
             ]),
             'clone' => "FRESH\n",
             'get_app_container' => "/tmp/NativePHP.app\n",
-            '--entitlements' => '<key>get-task-allow</key><true/>',
+            'DTPlatformName' => "iphonesimulator\n",
         ];
         $driver = new IosDriver(new Device('ios', 'iPhone 17', true), Configuration::resolve(), $command, $socket);
 
@@ -455,8 +455,8 @@ it('starts its own companion when the listener belongs to another simulator', fu
                 return "/tmp/NativePHP.app\n";
             }
 
-            if (in_array('--entitlements', $arguments, true)) {
-                return '<key>get-task-allow</key><true/>';
+            if (in_array('DTPlatformName', $arguments, true)) {
+                return "iphonesimulator\n";
             }
 
             return null;
@@ -947,7 +947,7 @@ function iosWorker(string $json): array
     $command->outputs = [
         '-j' => $json,
         'get_app_container' => "/tmp/NativePHP.app\n",
-        '--entitlements' => '<key>get-task-allow</key><true/>',
+        'DTPlatformName' => "iphonesimulator\n",
     ];
 
     return [$command, new IosDriver(new Device('ios', 'iPhone 17', true), Configuration::resolve(), $command, $socket)];
@@ -1011,8 +1011,8 @@ function recordingClones(ScriptedSocket $socket, string $json): RecordingCommand
             return "/tmp/NativePHP.app\n";
         }
 
-        if (in_array('--entitlements', $arguments, true)) {
-            return '<key>get-task-allow</key><true/>';
+        if (in_array('DTPlatformName', $arguments, true)) {
+            return "iphonesimulator\n";
         }
 
         return null;
