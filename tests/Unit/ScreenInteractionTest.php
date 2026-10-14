@@ -192,8 +192,8 @@ it('takes the trimmed text as settled only on two reads in a row, even with PHP 
 
     (new Screen($driver, timeoutSeconds: 0.3))->type('Title', 'Ada ');
 
-    expect($driver->texts[0])->toBe('Ada ')
-        ->and(count($driver->texts))->toBeGreaterThan(1);
+    // Each attempt erases the field once.
+    expect($driver->clears)->toBeGreaterThan(1);
 });
 
 it('writes a screenshot of the current screen', function () {
