@@ -309,6 +309,8 @@ The patch was applied to the sample app in this repo (`sample-app/`): to its `ve
 | iOS | one letter kept after three tries | the whole string, typed one key at a time once PHP caught up |
 | Android | not run without it | passes, in a full run of the suite (17 passed, 2 skipped for other reasons) |
 
+Typing in one burst first, and a key at a time only on a retry, never settled on iOS: the burst starts the loop described first under "Also worth raising", and every retry waited for a count that stayed above 0. So on iOS the plugin types a key at a time from the start, which the sample app's form fields took in about 1.5 to 2 seconds more each than a burst. Android keeps the burst first. With that, SlowTest and the sample app's FormTest passed on both an iPhone 17 Pro Simulator (three runs) and an android-36 emulator.
+
 Two things on Android were not about the signal itself:
 
 - Compose reports a node a few pixels square as not visible to the user, and the plugin's screen reader skipped such nodes, so it now keeps the marker whatever its visibility. A marker NativePHP ships could be larger, or the plugin can keep reading it this way.
