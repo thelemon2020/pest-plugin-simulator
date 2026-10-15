@@ -59,6 +59,27 @@ it('types anyway when the tree cannot be read', function () {
     ]);
 });
 
+it('waits for focus and the keyboard only for the first text after a touch', function () {
+    $client = new RecordingClient;
+    $driver = iosInputDriver($client);
+
+    $driver->text('T');
+    $driver->text('a');
+    $driver->tap(100, 200);
+    $driver->text('b');
+
+    expect(array_map(fn (array $call): string => $call[0].' '.$call[1], $client->calls))->toBe([
+        'unary accessibility_info',
+        'streamStrokes hid',
+        'unary accessibility_info',
+        'streamStrokes hid',
+        'streamPaced hid',
+        'unary accessibility_info',
+        'streamStrokes hid',
+        'unary accessibility_info',
+    ]);
+});
+
 it('parks a software keyboard left on screen after typing', function () {
     $client = new RecordingClient;
     $client->trees = [keyboardTree(617), keyboardTree(617), keyboardTree(617), keyboardTree(925)];

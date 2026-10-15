@@ -54,6 +54,14 @@ interface Driver
     public function text(string $text): void;
 
     /**
+     * Whether NativePHP's text field on this platform sends PHP an answer that came back
+     * late as a new event. iOS's does, so a key typed before PHP answered the one before
+     * can keep PHP busy for good (see Screen::paced()). Android's takes the answer without
+     * sending it, which only loses keys.
+     */
+    public function resendsLateAnswers(): bool;
+
+    /**
      * @return array{0: float, 1: float}
      */
     public function viewport(): array;

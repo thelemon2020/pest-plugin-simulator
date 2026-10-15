@@ -54,6 +54,14 @@ final class IosDriver implements Driver
     /** @var array<string, int> keyed by Simulator */
     private array $promptLookupFailures = [];
 
+    /**
+     * Whether text() has typed since the last touch, swipe, Back, return key, or URL. Then
+     * the field still has its focus and no keyboard covers it, and text() skips both waits:
+     * for Screen::paced(), which types a key at a time, they cost every key after the first
+     * three more reads.
+     */
+    private bool $typing = false;
+
     public function __construct(
         private readonly Device $device,
         private readonly Configuration $configuration,
@@ -253,6 +261,7 @@ final class IosDriver implements Driver
 
     public function open(string $url): void
     {
+        $this->typing = false;
         $this->recovering(fn () => $this->command->run('xcrun', ['simctl', 'openurl', $this->udid(), $url]));
     }
 
@@ -419,6 +428,7 @@ final class IosDriver implements Driver
      */
     private function touch(array $touch, int $holdMicroseconds): void
     {
+        $this->typing = false;
         $this->releasing([$touch], fn () => $this->client()->streamPaced('hid', $touch, $holdMicroseconds));
     }
 
@@ -451,11 +461,13 @@ final class IosDriver implements Driver
 
     public function swipe(float $x1, float $y1, float $x2, float $y2, float $seconds = 0.3): void
     {
+        $this->typing = false;
         $this->client()->stream('hid', Hid::swipe($x1, $y1, $x2, $y2, $seconds), $seconds);
     }
 
     public function back(): void
     {
+        $this->typing = false;
         [$width, $height] = $this->viewport();
         [$x1, $y1, $x2, $y2] = Gesture::back($width, $height);
         // A flick from the bezel is read as a scroll. Back needs a slow drag.
@@ -470,6 +482,7 @@ final class IosDriver implements Driver
 
     public function enter(): void
     {
+        $this->typing = false;
         $this->client()->stream('hid', Hid::enter());
     }
 
@@ -535,7 +548,11 @@ final class IosDriver implements Driver
             return;
         }
 
-        $this->awaitFocus();
+        $typing = $this->typing;
+
+        if (! $typing) {
+            $this->awaitFocus();
+        }
 
         foreach (IosText::pieces($text) as $piece) {
             if (IosText::paste($piece)) {
@@ -548,7 +565,16 @@ final class IosDriver implements Driver
             $this->releasing($keys, fn () => $this->client()->streamStrokes('hid', $keys, self::TEXT_KEY_GAP_MICROSECONDS));
         }
 
-        $this->closeKeyboard();
+        if (! $typing) {
+            $this->closeKeyboard();
+        }
+
+        $this->typing = true;
+    }
+
+    public function resendsLateAnswers(): bool
+    {
+        return true;
     }
 
     /**
@@ -954,6 +980,7 @@ final class IosDriver implements Driver
 
     public function relaunch(): void
     {
+        $this->typing = false;
         $this->command->run('xcrun', [
             'simctl', 'launch', '--terminate-running-process', $this->udid(), $this->configuration->bundleId(),
         ]);

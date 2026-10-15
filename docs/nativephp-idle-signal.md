@@ -309,6 +309,8 @@ The patch was applied to the sample app in this repo (`sample-app/`): to its `ve
 | iOS | one letter kept after three tries | the whole string, typed one key at a time once PHP caught up |
 | Android | not run without it | passes, in a full run of the suite (17 passed, 2 skipped for other reasons) |
 
+Typing in one burst first, and a key at a time only on a retry, never settled on iOS: the burst starts the loop described first under "Also worth raising", and every retry waited for a count that stayed above 0. So on iOS the plugin types a key at a time from the start, which the sample app's form fields took in about 1.5 to 2 seconds more each than a burst. Android keeps the burst first. With that, SlowTest and the sample app's FormTest passed on both an iPhone 17 Pro Simulator (three runs) and an android-36 emulator.
+
 Two things on Android were not about the signal itself:
 
 - Compose reports a node a few pixels square as not visible to the user, and the plugin's screen reader skipped such nodes, so it now keeps the marker whatever its visibility. A marker NativePHP ships could be larger, or the plugin can keep reading it this way.
@@ -318,6 +320,7 @@ Two things on Android were not about the signal itself:
 
 These came up while building the plugin's sample app, and each limits what a test on a device can do:
 
+- **A `native:model` field on iOS can send PHP the same events forever.** When a value PHP answers differs from the last one the field sent, `NativeUITextInputCore.swift` writes it into `text`, and `.onChange(of: text)` then commits it as a new event. So once PHP answers late, each answer is older than what the field last sent, goes back to PHP, and comes back older again: the events go round and never drain. On an iPhone 17 Pro Simulator, after "hello there" went into the sample app's slow field in one burst, the marker read 11 for a whole minute while the field showed "h", "her", "he", "hell", "hello", "hello th" and so on in turn. A person typing faster than PHP answers starts the same loop. Android's renderers set a pushed value without calling `onValueChange`, so there a late answer only loses keys. Not committing a value that came from PHP would stop it.
 - **A `ref` is not an accessibility id on the device.** `Native::test()` targets elements by `ref`, but nothing in the Swift or Kotlin renderers sets `accessibilityIdentifier` or a `testTag` from it, so a test on a device can only find a control by its label. Setting both from `ref` (debug builds at least) would let the same `tap('save-button')` work in-process and on a device.
 - **A labelled container is not one element.** `<native:column a11y-label="Order 1">` does not become an accessibility container: its children are read on their own and the label goes nowhere. A container with an `a11y-label` exposed as one element that contains its children (`.accessibilityElement(children: .contain)`, Compose `semantics { }` without `mergeDescendants`) would let a test look inside one card.
 - **A `<native:pressable>` drawn over content hides it from accessibility on Android.** On CollectShine's Wrapped story, two pressable tap zones in a `<native:stack>` cover the slides, and the slides' text never reaches the tree.

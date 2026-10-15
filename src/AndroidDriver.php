@@ -530,6 +530,11 @@ final class AndroidDriver implements Driver
         $this->hideKeyboard();
     }
 
+    public function resendsLateAnswers(): bool
+    {
+        return false;
+    }
+
     private function typeWithAdb(string $text): void
     {
         $lines = explode("\n", $text);
