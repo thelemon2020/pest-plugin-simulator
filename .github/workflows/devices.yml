@@ -141,7 +141,7 @@ jobs:
           coverage: none
 
       - name: Install idb_companion
-        run: brew install idb-companion
+        run: brew install facebook/fb/idb-companion
 
       - name: Install the sample app
         run: |

@@ -49,7 +49,7 @@ This only runs on a Mac.
    read, with nothing to show for it); `brew upgrade idb-companion` if you already have it:
 
 ```bash
-brew install idb-companion
+brew install facebook/fb/idb-companion
 ```
 
 With no `->ios([...])` list, tests use the newest iPhone that Xcode has installed. Download another simulator runtime from Xcode's Settings, under Platforms, when you need a different iPhone.
