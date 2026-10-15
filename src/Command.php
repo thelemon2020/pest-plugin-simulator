@@ -14,7 +14,9 @@ class Command
 
     /**
      * simctl's device lifecycle. A cold boot on CI takes minutes, and the
-     * first simctl call of a run also starts CoreSimulatorService.
+     * first simctl call of a run also starts CoreSimulatorService. The first
+     * `simctl privacy` grant after a boot waits on the device's own services
+     * coming up: 79 seconds for location under heavy load, then 0.2 for the next.
      */
     public const int DEVICE_TIMEOUT = 600;
 
@@ -25,7 +27,7 @@ class Command
     protected const float GRACE = 2.0;
 
     /** @var list<string> */
-    private const array DEVICE_COMMANDS = ['list', 'boot', 'bootstatus', 'shutdown', 'erase', 'clone', 'delete'];
+    private const array DEVICE_COMMANDS = ['list', 'boot', 'bootstatus', 'shutdown', 'erase', 'clone', 'delete', 'privacy'];
 
     /** The longest wait between two looks at a command's pipes. */
     private const float POLL = 0.02;

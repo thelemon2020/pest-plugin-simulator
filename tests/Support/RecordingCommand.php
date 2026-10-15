@@ -36,6 +36,9 @@ final class RecordingCommand extends Command
 
     public bool $exited = true;
 
+    /** @var list<array{0: int, 1: float}> pid and seconds, one per wait() */
+    public array $waited = [];
+
     public function __construct(private readonly string $container = '') {}
 
     public function run(string $binary, array $arguments, ?string $cwd = null, ?float $timeout = null): string
@@ -91,7 +94,9 @@ final class RecordingCommand extends Command
     {
         $this->calls[] = [$binary, $arguments];
 
-        if ($this->afterStart !== null) {
+        // afterStart stands for the companion coming up. What starts through xcrun, a
+        // recording or the location warm-up, is not it.
+        if ($this->afterStart !== null && $binary !== 'xcrun') {
             ($this->afterStart)();
         }
 
@@ -119,6 +124,8 @@ final class RecordingCommand extends Command
 
     public function wait(int $pid, float $seconds = 10): bool
     {
+        $this->waited[] = [$pid, $seconds];
+
         return $this->exited;
     }
 }

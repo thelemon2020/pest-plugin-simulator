@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use NativePhp\Simulator\AndroidDriver;
 use NativePhp\Simulator\AndroidSdk;
+use NativePhp\Simulator\Command;
 use NativePhp\Simulator\Configuration;
 use NativePhp\Simulator\Device;
 use NativePhp\Simulator\Exceptions\SimulatorException;
@@ -33,6 +34,19 @@ it('grants the ios services simctl knows', function () {
         ['xcrun', ['simctl', 'privacy', 'UDID', 'grant', 'media-library', 'com.example.app']],
         ['xcrun', ['simctl', 'privacy', 'UDID', 'grant', 'location', 'com.example.app']],
         ['xcrun', ['simctl', 'privacy', 'UDID', 'grant', 'contacts', 'com.example.app']],
+    ]);
+});
+
+it('waits as long for an ios grant as for a boot, since the first after one can take over a minute', function () {
+    $command = new RecordingCommand;
+    $driver = iosPermissionsDriver($command);
+
+    $driver->grant(['location']);
+    $driver->revoke(['location']);
+
+    expect($command->timeouts)->toBe([
+        'xcrun simctl privacy UDID grant location com.example.app' => (float) Command::DEVICE_TIMEOUT,
+        'xcrun simctl privacy UDID revoke location com.example.app' => (float) Command::DEVICE_TIMEOUT,
     ]);
 });
 
