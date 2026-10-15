@@ -163,7 +163,9 @@ jobs:
           fi
 
       - name: Run the device tests
-        run: stdbuf -oL -eL php vendor/bin/pest tests/Simulator --android --simulator-verbose
+        # --rebuild: a new emulator has nothing installed, so the app is built anyway, and
+        # saying so lets the plugin build it while the emulator boots.
+        run: stdbuf -oL -eL php vendor/bin/pest tests/Simulator --android --rebuild --simulator-verbose
 
       # Only a report: a missing log or a pipe closed early must not fail the job.
       - name: Summarise the timings

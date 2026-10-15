@@ -39,4 +39,23 @@ final class AvdList
 
         return $serials;
     }
+
+    /**
+     * Every emulator adb lists, in any state. One that has only just started is listed as
+     * offline, well before it boots.
+     *
+     * @return list<string>
+     */
+    public static function attached(string $adbDevices): array
+    {
+        $serials = [];
+
+        foreach (preg_split('/\R/', $adbDevices) ?: [] as $line) {
+            if (preg_match('/^(emulator-\d+)\s+\S+$/', trim($line), $matches) === 1) {
+                $serials[] = $matches[1];
+            }
+        }
+
+        return $serials;
+    }
 }
