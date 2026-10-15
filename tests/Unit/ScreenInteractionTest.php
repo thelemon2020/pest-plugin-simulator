@@ -5,6 +5,7 @@ declare(strict_types=1);
 use NativePhp\Simulator\AccessibilityTree;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 use NativePhp\Simulator\Gesture;
+use NativePhp\Simulator\IdleMarker;
 use NativePhp\Simulator\Screen;
 use PHPUnit\Framework\AssertionFailedError;
 use Tests\Support\FakeDriver;
@@ -162,6 +163,37 @@ it('clears a long field before replacing it', function () {
     (new Screen($driver, timeoutSeconds: 0))->type('Title', 'short');
 
     expect($driver->cleared)->toBe(80);
+});
+
+it('settles on text with a space at either end, which a read trims off', function (string $text, string $read) {
+    $driver = new FakeDriver([[
+        control('Title', ['role' => 'TextField', 'value' => $read, 'center' => [20.0, 30.0]]),
+    ]]);
+
+    (new Screen($driver, timeoutSeconds: 0.5))->type('Title', $text);
+
+    expect($driver->texts)->toBe([$text]);
+})->with([
+    'a space at the end' => ['Ada ', 'Ada'],
+    'spaces at both ends' => [' Ada  ', 'Ada'],
+]);
+
+it('takes the trimmed text as settled only on two reads in a row, even with PHP caught up', function () {
+    // The trimmed text is also what the field showed before the space went in, so one read
+    // of it, even with the app's marker at 0, does not say the space landed.
+    $marker = ['label' => '0', 'role' => 'Other', 'id' => IdleMarker::ID, 'center' => [0.5, 0.5]];
+    $flickering = [];
+
+    for ($read = 0; $read < 200; $read++) {
+        $flickering[] = [control('Title', ['role' => 'TextField', 'value' => $read % 2 === 0 ? 'Ada' : 'Ad', 'center' => [20.0, 30.0]]), $marker];
+    }
+
+    $driver = new FakeDriver($flickering);
+
+    (new Screen($driver, timeoutSeconds: 0.3))->type('Title', 'Ada ');
+
+    // Each attempt erases the field once.
+    expect($driver->clears)->toBeGreaterThan(1);
 });
 
 it('writes a screenshot of the current screen', function () {
