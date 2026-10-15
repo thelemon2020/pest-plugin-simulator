@@ -170,6 +170,8 @@ The first test runs on iPhone and Android. The second test runs only while the c
 
 The first `screen()` on a device looks for a debug build. If that build is already installed, it does not compile again, and it does not start the app to check. On Android that is an app marked debuggable. On iOS it is a Simulator build of the app, which NativePHP always builds in its Debug configuration. If no debug build is installed, it runs `php artisan native:run` with `--build=debug`, then force-stops the app. Pass `--rebuild` to compile again anyway.
 
+On Android, when the emulator has to boot and the app will be built whatever it holds, with `--rebuild` or after `--wipe`, the build starts as soon as the emulator does. Gradle runs while the emulator boots, and the build no longer waits for it. `native:run` needs the device only to install the app at the end. When Gradle finishes first, that install fails, and the plugin installs the APK it built once the emulator is up. On CI, where every emulator is new and has nothing installed, pass `--rebuild` to get this. Without either flag, only the booted emulator can say whether the app is installed already, so the build waits for the boot.
+
 Each test copies the SQLite database into the app before its first `screen()` opens the route. The app is stopped for that copy. NativePHP runs migrations on launch, so opening the screen migrates the copy. A database bundled into the install does not replace it.
 
 On iOS the file is `Library/Application Support/database/database.sqlite`. On Android it is `app_storage/persisted_data/database/database.sqlite`.

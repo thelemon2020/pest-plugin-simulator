@@ -55,6 +55,15 @@ final class AndroidDriver implements Driver
      */
     private bool $freshlyInstalled = false;
 
+    /**
+     * A build started while the emulator booted: the serial it was for, and whether
+     * native:run installed the app too. Its install comes last, and fails when the
+     * emulator is not up yet, which leaves the APK it built to install after the boot.
+     *
+     * @var array{serial: string, installed: bool}|null
+     */
+    private ?array $bootBuild = null;
+
     private static ?string $privateSerial = null;
 
     private static ?string $privateDevice = null;
@@ -1132,6 +1141,21 @@ final class AndroidDriver implements Driver
     private function launch(string $log, array $arguments, ?string $serial): void
     {
         $started = microtime(true);
+        $build = $this->buildsAnyway();
+
+        // The build needs the emulator's serial before it boots. A worker's emulator has a
+        // port of its own already; the shared one is given the first port free.
+        if ($build && $serial === null) {
+            $port = $this->freePort();
+
+            if ($port === null) {
+                $build = false;
+            } else {
+                $serial = 'emulator-'.$port;
+                $arguments = [...$arguments, '-port', (string) $port];
+            }
+        }
+
         $pid = $this->command->start($this->emulator(), $arguments, $log);
         $this->emulatorPid = $pid;
         $command = $this->command;
@@ -1139,6 +1163,10 @@ final class AndroidDriver implements Driver
             $this->quitEmulator($command, $pid);
         });
         fwrite(STDERR, "Waiting for the Android Emulator [{$this->device->name}] to boot.\n");
+
+        if ($build) {
+            $this->buildWhileBooting($serial);
+        }
 
         // The emulator runs in the background and the wait is many short adb calls, so the
         // verbose log gets the boot as one line of its own.
@@ -1151,6 +1179,116 @@ final class AndroidDriver implements Driver
         }
 
         VerboseLog::write(microtime(true) - $started, 'booted', "boot Android Emulator [{$this->device->name}]");
+        $this->finishBootBuild();
+    }
+
+    /**
+     * Whether the app is built after this boot whatever the emulator holds: asked for with
+     * --rebuild, or after a wipe, which leaves nothing installed. Then the build need not
+     * wait for the boot. Otherwise only the booted emulator can say whether the app is
+     * installed already.
+     */
+    private function buildsAnyway(): bool
+    {
+        return ! isset(self::$built[$this->device->key()])
+            && $this->configuration->appId() !== null
+            && (Arguments::wantsRebuild() || $this->shouldWipe());
+    }
+
+    /**
+     * The first even console port, from the emulator's own 5554, that no emulator adb lists
+     * holds. Offline ones count: one just shut down can still be listed, and the one
+     * starting now would otherwise take its port and serial. Null when adb cannot list
+     * them, and the build waits for the boot as before.
+     */
+    private function freePort(): ?int
+    {
+        try {
+            $attached = AvdList::attached($this->command->run($this->adb(), ['devices']));
+        } catch (SimulatorException) {
+            return null;
+        }
+
+        for ($port = 5554; $port <= 5682; $port += 2) {
+            if (! in_array('emulator-'.$port, $attached, true)) {
+                return $port;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Builds the app while the emulator boots. native:run only needs the device for its
+     * last steps, installing the APK and launching it, so Gradle runs alongside the boot.
+     * When Gradle finishes first, that install fails; the APK it built is installed once
+     * the emulator is up. A build that failed before that throws.
+     */
+    private function buildWhileBooting(string $serial): void
+    {
+        $started = time();
+
+        try {
+            $this->nativeRun($serial);
+            $this->bootBuild = ['serial' => $serial, 'installed' => true];
+        } catch (SimulatorException $exception) {
+            if (! $this->builtSince($started)) {
+                throw $exception;
+            }
+
+            $this->bootBuild = ['serial' => $serial, 'installed' => false];
+        }
+    }
+
+    /**
+     * Whether Gradle finished the APK in a native:run that began at $started. native:run
+     * starts its build log afresh and logs a finished Gradle build in it. A log or an APK
+     * older than $started is from an earlier build, and does not count.
+     */
+    private function builtSince(int $started): bool
+    {
+        $apk = $this->apk();
+        $log = $this->configuration->appDirectory().'/nativephp/android-build.log';
+        clearstatcache();
+
+        if (! is_file($apk)) {
+            return false;
+        }
+
+        $logged = is_file($log)
+            && (int) filemtime($log) >= $started
+            && str_contains((string) file_get_contents($log), 'Gradle build completed successfully');
+
+        return $logged || (int) filemtime($apk) >= $started;
+    }
+
+    private function apk(): string
+    {
+        return $this->configuration->appDirectory().'/nativephp/android/app/build/outputs/apk/debug/app-debug.apk';
+    }
+
+    /**
+     * After the boot: installs the APK a build during the boot left, unless native:run put
+     * it on this emulator itself, then treats the app as built, as buildOnce() would.
+     */
+    private function finishBootBuild(): void
+    {
+        $build = $this->bootBuild;
+
+        if ($build === null) {
+            return;
+        }
+
+        $this->bootBuild = null;
+
+        if (! $build['installed'] || $build['serial'] !== $this->serial) {
+            // A debug APK is large, and a just-booted emulator is slow to take it.
+            $this->command->run($this->adb(), ['-s', $this->serial(), 'install', '-r', '-d', $this->apk()], null, 300.0);
+        }
+
+        $this->forgetUnpackedApp($this->configuration->appId());
+        self::$built[$this->device->key()] = true;
+        $this->freshlyInstalled = true;
     }
 
     private function waitUntilBooted(string $log, ?string $serial, int $timeoutSeconds = EmulatorBoot::TIMEOUT_SECONDS): void
@@ -1265,10 +1403,18 @@ final class AndroidDriver implements Driver
             return;
         }
 
+        $this->nativeRun($this->serial);
+        $this->forgetUnpackedApp($bundle);
+        self::$built[$key] = true;
+        $this->freshlyInstalled = true;
+    }
+
+    private function nativeRun(?string $serial): void
+    {
         $arguments = ['artisan', 'native:run', 'android'];
 
-        if ($this->serial !== null) {
-            $arguments[] = $this->serial;
+        if ($serial !== null) {
+            $arguments[] = $serial;
         }
 
         array_push($arguments, '--build=debug', '--no-tty');
@@ -1285,10 +1431,6 @@ final class AndroidDriver implements Driver
 
             $this->command->run('php', $arguments, $this->configuration->appDirectory());
         }
-
-        $this->forgetUnpackedApp($bundle);
-        self::$built[$key] = true;
-        $this->freshlyInstalled = true;
     }
 
     public function freshlyInstalled(): bool
