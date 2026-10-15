@@ -1131,6 +1131,7 @@ final class AndroidDriver implements Driver
      */
     private function launch(string $log, array $arguments, ?string $serial): void
     {
+        $started = microtime(true);
         $pid = $this->command->start($this->emulator(), $arguments, $log);
         $this->emulatorPid = $pid;
         $command = $this->command;
@@ -1138,7 +1139,18 @@ final class AndroidDriver implements Driver
             $this->quitEmulator($command, $pid);
         });
         fwrite(STDERR, "Waiting for the Android Emulator [{$this->device->name}] to boot.\n");
-        $this->waitUntilBooted($log, $serial);
+
+        // The emulator runs in the background and the wait is many short adb calls, so the
+        // verbose log gets the boot as one line of its own.
+        try {
+            $this->waitUntilBooted($log, $serial);
+        } catch (SimulatorException $exception) {
+            VerboseLog::write(microtime(true) - $started, 'failed', "boot Android Emulator [{$this->device->name}]");
+
+            throw $exception;
+        }
+
+        VerboseLog::write(microtime(true) - $started, 'booted', "boot Android Emulator [{$this->device->name}]");
     }
 
     private function waitUntilBooted(string $log, ?string $serial, int $timeoutSeconds = EmulatorBoot::TIMEOUT_SECONDS): void
