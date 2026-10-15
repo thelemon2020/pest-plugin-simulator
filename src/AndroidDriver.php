@@ -49,6 +49,12 @@ final class AndroidDriver implements Driver
     /** @var array<string, true> */
     private static array $built = [];
 
+    /**
+     * Whether this driver built and installed the app since freshlyInstalled() was last
+     * asked.
+     */
+    private bool $freshlyInstalled = false;
+
     private static ?string $privateSerial = null;
 
     private static ?string $privateDevice = null;
@@ -1270,6 +1276,15 @@ final class AndroidDriver implements Driver
 
         $this->forgetUnpackedApp($bundle);
         self::$built[$key] = true;
+        $this->freshlyInstalled = true;
+    }
+
+    public function freshlyInstalled(): bool
+    {
+        $fresh = $this->freshlyInstalled;
+        $this->freshlyInstalled = false;
+
+        return $fresh;
     }
 
     /**

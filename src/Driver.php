@@ -151,4 +151,11 @@ interface Driver
      * @return list<OpenPrompt>
      */
     public function openPrompts(): array;
+
+    /**
+     * Whether the app was built and installed since the last time this was asked. Its next
+     * launch is its first, and a NativePHP app unpacks its Laravel code and runs its
+     * artisan commands then, before it draws anything.
+     */
+    public function freshlyInstalled(): bool;
 }

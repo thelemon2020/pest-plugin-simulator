@@ -18,12 +18,32 @@ use Throwable;
  */
 final class Screen
 {
+    /**
+     * How long the app's first launch after an install has to show its first screen. A
+     * NativePHP app unpacks its Laravel code and runs its artisan commands before it draws
+     * anything: on CI's x86_64 Android emulator the sample app's first screen came 15.5
+     * seconds after its launch, and a tap with the 15 second timeout gave up first.
+     */
+    public const FIRST_LAUNCH_SECONDS = 60.0;
+
+    /**
+     * Until when a step may wait past its timeout, for the app's first launch after an
+     * install: 0 when this screen did not launch a freshly installed app.
+     */
+    private readonly float $launching;
+
+    /**
+     * @param  float  $firstLaunchSeconds  how long the app has to show its first screen, when this screen launched it for the first time since it was installed
+     */
     public function __construct(
         private readonly Driver $driver,
         private readonly ElementFinder $finder = new ElementFinder,
         private readonly float $timeoutSeconds = 15.0,
         private readonly string $failureDirectory = '',
-    ) {}
+        float $firstLaunchSeconds = 0.0,
+    ) {
+        $this->launching = $firstLaunchSeconds > 0 ? microtime(true) + $firstLaunchSeconds : 0.0;
+    }
 
     /**
      * How many scrolls locate() tries before it says a control stayed off screen. Each one
@@ -1594,7 +1614,7 @@ final class Screen
      */
     private function readRetrying(): array
     {
-        $deadline = microtime(true) + $this->timeoutSeconds;
+        $deadline = $this->deadline();
 
         while (true) {
             try {
@@ -1620,7 +1640,8 @@ final class Screen
      */
     private function until(callable $predicate, string|Closure $failure, ?float $deadline = null): array
     {
-        $deadline ??= microtime(true) + $this->timeoutSeconds;
+        $deadline ??= $this->deadline();
+        $launching = $this->launching > microtime(true);
         $last = [];
         $unread = null;
 
@@ -1674,6 +1695,10 @@ final class Screen
 
         if ($this->busy()) {
             $message .= "\n\nThe app was still busy: PHP had not taken {$this->pending} ".($this->pending === 1 ? 'event' : 'events').' it was sent.';
+        }
+
+        if ($launching) {
+            $message .= "\n\nThis was the app's first launch since it was installed, when it unpacks its Laravel code, so the step waited up to ".self::FIRST_LAUNCH_SECONDS.' seconds from the launch.';
         }
 
         if ($unread !== null) {
@@ -1836,6 +1861,15 @@ final class Screen
     }
 
     /**
+     * When a step that starts now stops waiting: after the timeout, or at the end of the
+     * app's first launch after an install, whichever is later.
+     */
+    private function deadline(): float
+    {
+        return max(microtime(true) + $this->timeoutSeconds, $this->launching);
+    }
+
+    /**
      * Whether the last read's marker said PHP still had events to take.
      */
     private function busy(): bool
@@ -1936,7 +1970,7 @@ final class Screen
      */
     private function locate(string $label, string $action, ?string $search = null, ?array $row = null): array
     {
-        $deadline = microtime(true) + $this->timeoutSeconds;
+        $deadline = $this->deadline();
         $scrolls = 0;
         $nth = $this->index();
 
