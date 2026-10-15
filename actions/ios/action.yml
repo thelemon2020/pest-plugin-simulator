@@ -32,8 +32,8 @@ inputs:
     default: ''
   php-extensions:
     description: >-
-      More PHP extensions to set up, in setup-php's format. The ones the build needs are
-      always set up.
+      More PHP extensions to set up, in setup-php's format, beside the ones the build
+      needs.
     default: ''
   artifact-prefix:
     description: >-

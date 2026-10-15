@@ -683,7 +683,7 @@ jobs:
           tests: tests/Simulator
 ```
 
-The action needs a Linux runner: the emulator boots in time only with KVM, which GitHub's Linux runners have. It turns KVM on, sets up Java 17 and Gradle's caches, and installs the Android SDK and the NDK the app builds with. Then it makes a new emulator. A new emulator has nothing installed, so the action passes `--rebuild`, and the plugin builds the app while the emulator boots. Gradle's caches are saved from the default branch only, and a pull request can only read those, so run the job on pushes to main too. On this repository's sample app, the whole job takes about 7 minutes.
+The action needs a Linux runner: the emulator boots in time only with KVM, which GitHub's Linux runners have. It turns KVM on, sets up Java 17 and Gradle's caches, and installs the Android SDK and the NDK the app builds with. Then it makes a new emulator. A new emulator has nothing installed, so the action passes `--rebuild`, and the plugin builds the app while the emulator boots. Gradle's caches are saved from the default branch only, and a pull request can only read those, so run the job on pushes to main too. On this repository's sample app, the whole job takes 7 to 9 minutes.
 
 | Input | Default | |
 |---|---|---|
