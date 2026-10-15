@@ -1,0 +1,158 @@
+name: Pest Simulator on the iOS Simulator
+description: >-
+  Runs a NativePHP app's Pest device tests on an iOS Simulator, on a macOS runner. Not
+  verified in CI yet: this repository's iOS device job does not pass on GitHub's runner.
+  Check out the app, install its Composer dependencies, and make its .env first. This
+  does the rest: PHP, idb_companion, native:install, the tests, a timing summary, and
+  the logs as artifacts.
+author: thelemon2020
+
+inputs:
+  app-directory:
+    description: The NativePHP app's directory, relative to the workspace.
+    default: .
+  tests:
+    description: >-
+      The test files or directories to run. Empty runs the suites phpunit.xml lists.
+    default: ''
+  pest-arguments:
+    description: >-
+      More arguments for Pest, such as --device="iPhone 16". --ios and
+      --simulator-verbose are always passed.
+    default: ''
+  setup-php:
+    description: >-
+      Whether to set up PHP. With false, the PHP the job has is kept, and only checked
+      against nativephp.lock.
+    default: 'true'
+  php-version:
+    description: >-
+      The PHP to set up. Empty takes the version nativephp.lock names. With no
+      nativephp.lock and no version, PHP is left as it is.
+    default: ''
+  php-extensions:
+    description: >-
+      More PHP extensions to set up, in setup-php's format. The ones the build needs are
+      always set up.
+    default: ''
+  artifact-prefix:
+    description: >-
+      The start of the artifacts' names: <prefix>-timings and <prefix>-failures. Give
+      each job its own when one workflow runs several.
+    default: ios
+
+runs:
+  using: composite
+  steps:
+    # The iOS Simulator needs Xcode, which only GitHub's macOS runners have.
+    - name: Check the runner
+      if: runner.os != 'macOS'
+      shell: bash
+      run: |
+        echo "::error::This action runs on a macOS runner, such as macos-latest. The iOS Simulator needs Xcode."
+        exit 1
+
+    # The PHP that nativephp.lock bundles into the app. With any other, native:run stops
+    # to ask whether to bundle that one instead, and nothing answers it.
+    - name: Find the PHP the app bundles
+      id: php
+      shell: bash
+      working-directory: ${{ inputs.app-directory }}
+      env:
+        PHP_VERSION: ${{ inputs.php-version }}
+        SETUP_PHP: ${{ inputs.setup-php }}
+      run: |
+        locked=''
+        if [ -f nativephp.lock ]; then
+          locked=$(jq -r '.php.version // empty' nativephp.lock | cut -d. -f1,2)
+        fi
+        version="${PHP_VERSION:-$locked}"
+        echo "locked=$locked" >> "$GITHUB_OUTPUT"
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+        echo "nativephp.lock: ${locked:-none}"
+        if [ "$SETUP_PHP" = 'true' ] && [ -z "$version" ]; then
+          echo "::notice::No nativephp.lock and no php-version, so PHP is left as it is. native:install bundles that PHP."
+        fi
+
+    - name: Set up PHP
+      if: inputs.setup-php == 'true' && steps.php.outputs.version != ''
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: ${{ steps.php.outputs.version }}
+        extensions: exif, gd, sodium, sqlite3, pdo_sqlite, zip${{ inputs.php-extensions && format(', {0}', inputs.php-extensions) || '' }}
+        ini-values: memory_limit=2G
+        coverage: none
+
+    # Fails here, in seconds, instead of when native:run stops to ask.
+    - name: Check the PHP
+      shell: bash
+      env:
+        LOCKED: ${{ steps.php.outputs.locked }}
+      run: |
+        host=$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')
+        echo "PHP $host"
+        if [ -n "$LOCKED" ] && [ "$host" != "$LOCKED" ]; then
+          echo "::error::PHP is $host, and nativephp.lock bundles $LOCKED. native:run would stop to ask which to bundle. Set up PHP $LOCKED: leave setup-php on and php-version empty."
+          exit 1
+        fi
+
+    # idb_companion is how the plugin taps and types. It is only in Facebook's tap.
+    - name: Install idb_companion
+      shell: bash
+      run: brew install facebook/fb/idb-companion
+
+    # nativephp/ is not usually committed. The first screen() runs native:run, which
+    # needs it.
+    - name: Install the iOS project
+      shell: bash
+      working-directory: ${{ inputs.app-directory }}
+      run: php artisan native:install ios --no-interaction
+
+    # No --device: the plugin takes the newest iPhone the runner's Xcode has.
+    - name: Run the device tests
+      shell: bash
+      working-directory: ${{ inputs.app-directory }}
+      env:
+        TEST_PATHS: ${{ inputs.tests }}
+        PEST_ARGUMENTS: ${{ inputs.pest-arguments }}
+      run: |
+        # Quotes in the inputs work as they would on a command line.
+        paths=()
+        arguments=()
+        eval "paths=($TEST_PATHS)"
+        eval "arguments=($PEST_ARGUMENTS)"
+        php vendor/bin/pest "${paths[@]}" --ios --simulator-verbose "${arguments[@]}"
+
+    # Only a report: a missing log or a pipe closed early must not fail the job.
+    - name: Summarise the timings
+      if: always()
+      shell: bash
+      working-directory: ${{ inputs.app-directory }}
+      run: |
+        set +e +o pipefail
+        log=simulator-logs/verbose.log
+        [ -f "$log" ] || exit 0
+        {
+          echo '### iOS: slowest commands and steps'
+          echo '```'
+          awk '$3 ~ /^[0-9.]+s$/ { t = $3; sub(/s$/, "", t); $1 = $2 = $3 = ""; printf "%8.1fs %s\n", t, substr($0, 4) }' "$log" | sort -rn | head -25 | cut -c1-180
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Upload the timings
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact-prefix }}-timings
+        if-no-files-found: ignore
+        path: ${{ inputs.app-directory }}/simulator-logs/
+
+    - name: Upload what failed
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact-prefix }}-failures
+        if-no-files-found: ignore
+        path: |
+          ${{ inputs.app-directory }}/simulator-failures/
+          ${{ inputs.app-directory }}/companion*.log
