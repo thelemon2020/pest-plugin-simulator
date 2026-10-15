@@ -125,13 +125,42 @@ jobs:
       - name: Install the Android project
         run: php artisan native:install android --no-interaction
 
-      - name: Free disk space for the emulator
+      # NativePHP's Android project compiles its PHP wrapper with the NDK that
+      # app/build.gradle.kts names: 27.0.12077973 in NativePHP 4.6. The runner image has
+      # other NDKs (27.3, 29, 30) but not that one, so Gradle installed it inside every
+      # build. It is cached here under its version, and installed in a step of its own when
+      # the cache misses, where the run's step timings show what it costs.
+      - name: Find the NDK the app builds with
+        id: ndk
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/share/powershell /usr/local/share/chromium \
-            /usr/local/share/boost /usr/local/share/vcpkg /opt/ghc /opt/hostedtoolcache/CodeQL \
-            /usr/share/swift /usr/local/.ghcup /usr/local/lib/android/sdk/ndk /usr/local/lib/android/sdk/ndk-bundle
-          docker image prune --all --force >/dev/null 2>&1 || true
+          version=$(sed -nE 's/^[[:space:]]*ndkVersion = "([^"]+)".*/\1/p' nativephp/android/app/build.gradle.kts | head -1)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "NDK: ${version:-none named}"
+
+      - name: Restore the NDK
+        id: ndk-cache
+        if: steps.ndk.outputs.version != ''
+        uses: actions/cache@v4
+        with:
+          path: /usr/local/lib/android/sdk/ndk/${{ steps.ndk.outputs.version }}
+          key: android-ndk-${{ steps.ndk.outputs.version }}
+
+      - name: Install the NDK
+        if: steps.ndk.outputs.version != '' && steps.ndk-cache.outputs.cache-hit != 'true'
+        run: sdkmanager --install "ndk;${{ steps.ndk.outputs.version }}"
+
+      # The emulator will not start with less than 7.2 GiB free, and the build and the
+      # app's files need room beside it. ubuntu-24.04 has far more than that, so nothing
+      # is deleted: deleting the runner's toolchains took one to two minutes a run. This
+      # fails early, with the numbers, if an image ever has less.
+      - name: Check free disk space
+        run: |
           df -h /
+          free=$(df --output=avail -k / | tail -1)
+          if [ "$free" -lt $((15 * 1024 * 1024)) ]; then
+            echo "::error::Only $((free / 1024 / 1024)) GB is free. The emulator needs 7.2 GiB, and the build needs room beside it."
+            exit 1
+          fi
 
       - name: Run the device tests
         run: stdbuf -oL -eL php vendor/bin/pest tests/Simulator --android --simulator-verbose
