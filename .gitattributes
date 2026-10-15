@@ -1,1 +1,3 @@
 /sample-app export-ignore
+# actions/ is not export-ignored. GitHub downloads an action as this same archive, so
+# export-ignore would hide actions/android and actions/ios from the workflows using them.
