@@ -6,8 +6,22 @@ name: devices
 # Android runs on every pull request that touches the plugin or the sample app: a Linux
 # runner with KVM boots the emulator, and its minutes are cheap. iOS needs a macOS runner,
 # whose minutes cost ten times as much, so it runs when started by hand and once a week.
+#
+# Android also runs on main after a merge. A pull request can only read caches that main
+# saved, so that is what fills the Gradle cache for the next pull request.
+#
+# Both jobs run the tests with --simulator-verbose. The slowest commands and steps go on
+# the run's summary page, and the whole log is uploaded as the job's timings artifact.
 on:
   pull_request:
+    paths:
+      - 'src/**'
+      - 'android/**'
+      - 'sample-app/**'
+      - 'composer.json'
+      - '.github/workflows/devices.yml'
+  push:
+    branches: [main]
     paths:
       - 'src/**'
       - 'android/**'
@@ -34,7 +48,7 @@ concurrency:
 jobs:
   android:
     name: Android Emulator
-    if: github.event_name == 'pull_request' || github.event_name == 'schedule' || inputs.platform != 'ios'
+    if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'schedule' || inputs.platform != 'ios'
     runs-on: ubuntu-latest
     timeout-minutes: 75
     defaults:
@@ -56,6 +70,18 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+
+      # native:run builds the app with Gradle. Uncached, every run downloads each Android
+      # dependency and compiles NativePHP's native code again, though neither changes
+      # between our pull requests. setup-gradle saves Gradle's caches from main and
+      # restores them everywhere. The build cache lets compiled task outputs be reused too,
+      # although native:install writes the Android project afresh each run.
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Turn on Gradle's build cache
+        run: |
+          mkdir -p ~/.gradle
+          echo 'org.gradle.caching=true' >> ~/.gradle/gradle.properties
 
       # The runner user cannot open /dev/kvm until this udev rule runs. KVM is what lets
       # the emulator boot inside the plugin's 300 second limit.
@@ -108,7 +134,32 @@ jobs:
           df -h /
 
       - name: Run the device tests
-        run: stdbuf -oL -eL php vendor/bin/pest tests/Simulator --android
+        run: stdbuf -oL -eL php vendor/bin/pest tests/Simulator --android --simulator-verbose
+
+      # Only a report: a missing log or a pipe closed early must not fail the job.
+      - name: Summarise the timings
+        if: always()
+        run: |
+          set +e +o pipefail
+          log=simulator-logs/verbose.log
+          [ -f "$log" ] || exit 0
+          {
+            echo '### Android: slowest commands and steps'
+            grep -h 'BUILD SUCCESSFUL in\|BUILD FAILED in' nativephp/android-build.log 2>/dev/null | sed 's/^/Gradle: /' | tail -1
+            echo '```'
+            awk '$3 ~ /^[0-9.]+s$/ { t = $3; sub(/s$/, "", t); $1 = $2 = $3 = ""; printf "%8.1fs %s\n", t, substr($0, 4) }' "$log" | sort -rn | head -25 | cut -c1-180
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-timings
+          if-no-files-found: ignore
+          path: |
+            sample-app/simulator-logs/
+            sample-app/nativephp/android-build.log
 
       - name: Upload what failed
         if: failure()
@@ -156,7 +207,29 @@ jobs:
 
       # No --device: the plugin takes the newest iPhone the runner's Xcode has.
       - name: Run the device tests
-        run: php vendor/bin/pest tests/Simulator --ios
+        run: php vendor/bin/pest tests/Simulator --ios --simulator-verbose
+
+      # Only a report: a missing log or a pipe closed early must not fail the job.
+      - name: Summarise the timings
+        if: always()
+        run: |
+          set +e +o pipefail
+          log=simulator-logs/verbose.log
+          [ -f "$log" ] || exit 0
+          {
+            echo '### iOS: slowest commands and steps'
+            echo '```'
+            awk '$3 ~ /^[0-9.]+s$/ { t = $3; sub(/s$/, "", t); $1 = $2 = $3 = ""; printf "%8.1fs %s\n", t, substr($0, 4) }' "$log" | sort -rn | head -25 | cut -c1-180
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-timings
+          if-no-files-found: ignore
+          path: sample-app/simulator-logs/
 
       - name: Upload what failed
         if: failure()

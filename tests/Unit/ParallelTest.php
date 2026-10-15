@@ -14,6 +14,7 @@ use NativePhp\Simulator\Exceptions\SimulatorException;
 use NativePhp\Simulator\IosDriver;
 use NativePhp\Simulator\Shutdown;
 use NativePhp\Simulator\SnapshotWriter;
+use NativePhp\Simulator\VerboseLog;
 use NativePhp\Simulator\Worker;
 use Tests\Support\RecordingCommand;
 use Tests\Support\ScriptedSocket;
@@ -572,6 +573,47 @@ it('finishes waiting for an emulator that never started its boot animation', fun
     (new ReflectionMethod(AndroidDriver::class, 'waitUntilBooted'))->invoke($driver, '/tmp/app/emulator.log', null, 5);
 
     expect((new ReflectionProperty(AndroidDriver::class, 'serial'))->getValue($driver))->toBe('emulator-5554');
+});
+
+it('logs the emulator boot as one line with how long it took', function () {
+    $log = tempnam(sys_get_temp_dir(), 'verbose');
+    $command = new RecordingCommand;
+    $command->responder = function (string $binary, array $arguments): ?string {
+        if (in_array('devices', $arguments, true)) {
+            return "List of devices attached\nemulator-5554\tdevice\n";
+        }
+
+        if (in_array('name', $arguments, true)) {
+            return "Pixel 8\nOK\n";
+        }
+
+        if (in_array('getprop', $arguments, true)) {
+            $property = $arguments[array_search('getprop', $arguments, true) + 1] ?? '';
+
+            return $property === 'init.svc.bootanim' ? "\n" : "1\n";
+        }
+
+        return null;
+    };
+    $driver = new AndroidDriver(new Device('android', 'Pixel 8', true), Configuration::resolve(), $command);
+    $launch = new ReflectionMethod(AndroidDriver::class, 'launch');
+    VerboseLog::to($log);
+
+    try {
+        $launch->invoke($driver, '/tmp/app/emulator.log', ['-avd', 'Pixel_8'], null);
+
+        $command->alive = false;
+        $failed = new AndroidDriver(new Device('android', 'Pixel 8', true), Configuration::resolve(), $command);
+        expect(fn () => $launch->invoke($failed, '/tmp/app/emulator.log', ['-avd', 'Pixel_8'], null))
+            ->toThrow(SimulatorException::class, 'did not boot');
+
+        expect((string) file_get_contents($log))
+            ->toMatch('/\d+\.\d{3}s  booted\s+boot Android Emulator \[Pixel 8\]/')
+            ->toMatch('/\d+\.\d{3}s  failed\s+boot Android Emulator \[Pixel 8\]/');
+    } finally {
+        VerboseLog::to(null);
+        unlink($log);
+    }
 });
 
 it('keeps waiting while the boot animation still runs', function () {
