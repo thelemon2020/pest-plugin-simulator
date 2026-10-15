@@ -21,6 +21,12 @@ final class IosDriver implements Driver
     /** @var array<string, true> */
     private static array $built = [];
 
+    /**
+     * Whether this driver built and installed the app since freshlyInstalled() was last
+     * asked.
+     */
+    private bool $freshlyInstalled = false;
+
     private static ?int $companionPid = null;
 
     private static ?string $companionSimulator = null;
@@ -1148,6 +1154,15 @@ final class IosDriver implements Driver
         ], $this->configuration->appDirectory());
 
         self::$built[$key] = true;
+        $this->freshlyInstalled = true;
+    }
+
+    public function freshlyInstalled(): bool
+    {
+        $fresh = $this->freshlyInstalled;
+        $this->freshlyInstalled = false;
+
+        return $fresh;
     }
 
     /**

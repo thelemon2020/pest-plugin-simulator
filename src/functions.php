@@ -149,5 +149,9 @@ function screen(string $path): Screen
 
     Trace::add($step + ['seconds' => microtime(true) - $started, 'result' => 'ok']);
 
-    return new Screen($driver, timeoutSeconds: $configuration->timeout());
+    return new Screen(
+        $driver,
+        timeoutSeconds: $configuration->timeout(),
+        firstLaunchSeconds: $driver->freshlyInstalled() ? Screen::FIRST_LAUNCH_SECONDS : 0.0,
+    );
 }

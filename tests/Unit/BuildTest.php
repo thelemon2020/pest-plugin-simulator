@@ -185,6 +185,44 @@ it('rebuilds android when asked', function () {
     ]);
 });
 
+it('says once that it installed the app, after a build and not after keeping one', function () {
+    $built = new RecordingCommand;
+    $built->failures = ['get_app_container' => 'No such file or directory'];
+    $ios = iosBuildDriver($built);
+
+    buildOnce($ios);
+
+    expect($ios->freshlyInstalled())->toBeTrue()
+        ->and($ios->freshlyInstalled())->toBeFalse();
+
+    resetBuilds();
+    $built = new RecordingCommand;
+    $built->failures = ['path' => 'Unknown package'];
+    $android = androidBuildDriver($built);
+
+    buildOnce($android);
+
+    expect($android->freshlyInstalled())->toBeTrue()
+        ->and($android->freshlyInstalled())->toBeFalse();
+
+    resetBuilds();
+    $kept = new RecordingCommand;
+    $kept->outputs = [
+        'get_app_container' => "/tmp/NativePHP-simulator.app\n",
+        'DTPlatformName' => "iphonesimulator\n",
+        'path' => "package:/data/app/com.example.app/base.apk\n",
+        'dumpsys' => 'flags=[ DEBUGGABLE HAS_CODE ]',
+    ];
+    $ios = iosBuildDriver($kept);
+    $android = androidBuildDriver($kept);
+
+    buildOnce($ios);
+    buildOnce($android);
+
+    expect($ios->freshlyInstalled())->toBeFalse()
+        ->and($android->freshlyInstalled())->toBeFalse();
+});
+
 function iosBuildDriver(RecordingCommand $command): IosDriver
 {
     $driver = new IosDriver(new Device('ios', 'iPhone 17', true), Configuration::resolve(), $command);

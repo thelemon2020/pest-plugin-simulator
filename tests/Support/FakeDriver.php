@@ -106,6 +106,11 @@ final class FakeDriver implements Driver
      */
     public array $openPrompts = [];
 
+    /**
+     * What the next freshlyInstalled() answers, as if the app had just been built.
+     */
+    public bool $fresh = false;
+
     public int $promptReads = 0;
 
     /** @var array{0: float, 1: float} */
@@ -326,6 +331,14 @@ final class FakeDriver implements Driver
         $this->promptReads++;
 
         return $this->openPrompts;
+    }
+
+    public function freshlyInstalled(): bool
+    {
+        $fresh = $this->fresh;
+        $this->fresh = false;
+
+        return $fresh;
     }
 
     private function setting(string $name, mixed $value): void
