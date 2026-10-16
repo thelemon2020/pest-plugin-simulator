@@ -39,6 +39,9 @@ final class IosDriver implements Driver
     private static array $correctionsOff = [];
 
     /** @var array<string, true> */
+    private static array $accessibilityOn = [];
+
+    /** @var array<string, true> */
     private static array $wiped = [];
 
     private const CALL_TIMEOUT_FLOOR_SECONDS = 10.0;
@@ -94,6 +97,7 @@ final class IosDriver implements Driver
         }
 
         $this->turnOffTextCorrections();
+        $this->turnOnAccessibility();
         $client = $this->client;
         $this->startCompanion();
 
@@ -572,6 +576,11 @@ final class IosDriver implements Driver
             if (IosText::paste($piece)) {
                 $this->insertSymbol($piece);
 
+                // The key after a symbol gets the same gap as the keys inside a piece. Sent
+                // 4ms after Shift-2, the "e" of "ada@example.com" was lost on CI's runner, in
+                // each of three tries.
+                usleep(self::TEXT_KEY_GAP_MICROSECONDS);
+
                 continue;
             }
 
@@ -730,24 +739,63 @@ final class IosDriver implements Driver
             return;
         }
 
+        $this->switchSettings($simulator, self::KEYBOARD_PREFERENCES, self::TEXT_CORRECTIONS, false);
+        self::$correctionsOff[$simulator] = true;
+    }
+
+    private const ACCESSIBILITY_PREFERENCES = 'com.apple.Accessibility';
+
+    /**
+     * What the plugin reads the app through. An app starts its accessibility server only if
+     * ApplicationAccessibilityEnabled is on when it launches, and idb's guide asks for
+     * AutomationEnabled too. On GitHub's macos-26-arm64 image 20261013.0424.1 all three were
+     * on by the end of a run without this. On 20260907.0351.1 they ended off: the app drew
+     * each screen, and for 15 seconds after every launch each read timed out with "did not
+     * respond to an accessibility request".
+     */
+    private const ACCESSIBILITY_SWITCHES = [
+        'AccessibilityEnabled',
+        'ApplicationAccessibilityEnabled',
+        'AutomationEnabled',
+    ];
+
+    /**
+     * Turns accessibility on, once per Simulator per run, before the app launches. Only the
+     * switches not already on are written.
+     */
+    private function turnOnAccessibility(): void
+    {
+        $simulator = $this->udid();
+
+        if (isset(self::$accessibilityOn[$simulator])) {
+            return;
+        }
+
+        $this->switchSettings($simulator, self::ACCESSIBILITY_PREFERENCES, self::ACCESSIBILITY_SWITCHES, true);
+        self::$accessibilityOn[$simulator] = true;
+    }
+
+    /**
+     * @param  list<string>  $keys
+     */
+    private function switchSettings(string $simulator, string $domain, array $keys, bool $on): void
+    {
         try {
-            $current = $this->command->run('xcrun', ['simctl', 'spawn', $simulator, 'defaults', 'export', self::KEYBOARD_PREFERENCES, '-']);
+            $current = $this->command->run('xcrun', ['simctl', 'spawn', $simulator, 'defaults', 'export', $domain, '-']);
         } catch (SimulatorException) {
             $current = '';
         }
 
-        foreach (self::TEXT_CORRECTIONS as $key) {
-            if (preg_match('/<key>'.preg_quote($key, '/').'<\/key>\s*<false\/>/', $current) === 1) {
+        foreach ($keys as $key) {
+            if (preg_match('/<key>'.preg_quote($key, '/').'<\/key>\s*<'.($on ? 'true' : 'false').'\/>/', $current) === 1) {
                 continue;
             }
 
             try {
-                $this->command->run('xcrun', ['simctl', 'spawn', $simulator, 'defaults', 'write', self::KEYBOARD_PREFERENCES, $key, '-bool', 'NO']);
+                $this->command->run('xcrun', ['simctl', 'spawn', $simulator, 'defaults', 'write', $domain, $key, '-bool', $on ? 'YES' : 'NO']);
             } catch (SimulatorException) {
             }
         }
-
-        self::$correctionsOff[$simulator] = true;
     }
 
     /**
@@ -1153,6 +1201,7 @@ final class IosDriver implements Driver
             'artisan', 'native:run', 'ios', $this->udid(), '--build=debug', '--no-tty',
         ], $this->configuration->appDirectory());
 
+        $this->forgetUnpackedApp();
         self::$built[$key] = true;
         $this->freshlyInstalled = true;
     }
@@ -1163,6 +1212,28 @@ final class IosDriver implements Driver
         $this->freshlyInstalled = false;
 
         return $fresh;
+    }
+
+    /**
+     * NativePHP's iOS app unpacks its Laravel bundle on launch only when the bundle's version
+     * and build number differ from the ones it unpacked last, or the version is DEBUG. It
+     * notes what it unpacked in Documents/app/installed.version. So a rebuild at the same
+     * version installs new PHP that the app never unpacks, as on Android. Removing that note
+     * after a build makes the next launch unpack the new bundle. The database and storage
+     * are in Application Support, and stay.
+     */
+    private function forgetUnpackedApp(): void
+    {
+        try {
+            $this->terminate();
+            $installed = $this->dataContainer().'/Documents/app/installed.version';
+        } catch (SimulatorException) {
+            return;
+        }
+
+        if (is_file($installed)) {
+            @unlink($installed);
+        }
     }
 
     /**

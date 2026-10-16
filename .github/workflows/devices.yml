@@ -103,8 +103,20 @@ jobs:
           ini-values: memory_limit=2G
           coverage: none
 
+      # idb_companion at a fixed version: 1.6.6, the one the iOS tests pass with on a Mac.
+      # Facebook's tap only has the newest, which went from 1.7.2 to 1.7.5 in two days.
+      # Under 1.7.5 every read in a run failed with "could not resolve the frontmost
+      # application", so the "Open in" prompt was never answered and no test reached the
+      # app. This is the archive the tap's 1.6.6 formula installed, checked against the
+      # checksum in that formula. The plugin runs the idb_companion IDB_COMPANION names.
       - name: Install idb_companion
-        run: brew install facebook/fb/idb-companion
+        working-directory: ${{ runner.temp }}
+        run: |
+          curl -fsSL -o idb-companion.tar.gz https://github.com/facebook/idb/releases/download/v1.6.6/idb-companion.macos-arm64.tar.gz
+          echo 'ff580d1a533a0e2cdc3fdad4a98820b7e64a0f6ff84ae0e66d7758c7b82e1d54  idb-companion.tar.gz' | shasum -a 256 -c
+          mkdir idb-companion
+          tar -xzf idb-companion.tar.gz -C idb-companion
+          echo "IDB_COMPANION=$RUNNER_TEMP/idb-companion/idb_companion" >> "$GITHUB_ENV"
 
       - name: Install the sample app
         run: |

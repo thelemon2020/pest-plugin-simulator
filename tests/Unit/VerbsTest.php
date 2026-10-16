@@ -216,6 +216,22 @@ it('aims the next drag from where the last one let go', function () {
         ->and($driver->swipes[1][2])->toEqualWithDelta(317.0, 0.001);
 });
 
+it('starts the next drag where the thumb is after a drag that moved nothing', function () {
+    $slider = fn (string $value): array => [
+        verb('Volume', 'Slider', 200.0, 120.0, ['value' => $value, 'frame' => [0.0, 100.0, 400.0, 40.0], 'range' => [0.0, 100.0]]),
+    ];
+    // The tap does nothing. The first drag falls short at 67, so the thumb is at
+    // 20 + 67 * 3.6 = 261.2, not where the finger let go. The drag from there moves nothing.
+    $driver = new FakeDriver([$slider('20'), $slider('20'), $slider('67'), $slider('67'), $slider('75')]);
+
+    (new Screen($driver, timeoutSeconds: 0))->slide('Volume', 75);
+
+    expect($driver->swipes)->toHaveCount(3)
+        ->and($driver->swipes[1][0])->toBe(290.0)
+        ->and($driver->swipes[2][0])->toEqualWithDelta(261.2, 0.001)
+        ->and($driver->swipes[2][2])->toEqualWithDelta(290.0, 0.001);
+});
+
 it('backs away before a correction too short to count as a drag', function () {
     $slider = fn (string $value): array => [
         verb('Volume', 'Slider', 200.0, 120.0, ['value' => $value, 'frame' => [0.0, 100.0, 400.0, 40.0], 'range' => [0.0, 100.0]]),
