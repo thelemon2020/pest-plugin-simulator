@@ -201,7 +201,7 @@ it('turns off what changes typed text once per simulator, leaving what is alread
         $driver->ensureReady();
         $driver->ensureReady();
 
-        $spawned = array_values(array_filter($command->calls, fn (array $call): bool => in_array('spawn', $call[1], true)));
+        $spawned = array_values(array_filter($command->calls, fn (array $call): bool => in_array('com.apple.keyboard.preferences', $call[1], true)));
         $written = array_map(fn (array $call): string => $call[1][6], array_slice($spawned, 1));
 
         expect($spawned[0])->toBe(['xcrun', ['simctl', 'spawn', 'CLONE', 'defaults', 'export', 'com.apple.keyboard.preferences', '-']])
@@ -220,7 +220,49 @@ it('turns off what changes typed text once per simulator, leaving what is alread
     });
 });
 
-it('boots on when the keyboard settings cannot be read or written', function () {
+it('turns accessibility on once per simulator, leaving what is already on', function () {
+    withWorker(1, function (): void {
+        [$command, $driver] = iosWorker(simulatorJson([
+            ['name' => 'iPhone 17 pest-1', 'udid' => 'CLONE', 'state' => 'Booted', 'isAvailable' => true],
+        ]));
+        $command->outputs['ConnectHardwareKeyboard'] = "1\n";
+        $command->responder = fn (string $binary, array $arguments): ?string => in_array('com.apple.Accessibility', $arguments, true) && in_array('export', $arguments, true)
+            ? '<plist version="1.0"><dict><key>AccessibilityEnabled</key><false/><key>AutomationEnabled</key><true/></dict></plist>'
+            : null;
+
+        $driver->ensureReady();
+        $driver->ensureReady();
+
+        $spawned = array_values(array_filter($command->calls, fn (array $call): bool => in_array('com.apple.Accessibility', $call[1], true)));
+
+        expect($spawned)->toBe([
+            ['xcrun', ['simctl', 'spawn', 'CLONE', 'defaults', 'export', 'com.apple.Accessibility', '-']],
+            ['xcrun', ['simctl', 'spawn', 'CLONE', 'defaults', 'write', 'com.apple.Accessibility', 'AccessibilityEnabled', '-bool', 'YES']],
+            ['xcrun', ['simctl', 'spawn', 'CLONE', 'defaults', 'write', 'com.apple.Accessibility', 'ApplicationAccessibilityEnabled', '-bool', 'YES']],
+        ]);
+    });
+});
+
+it('turns accessibility on before the app is built and launched', function () {
+    withWorker(1, function (): void {
+        [$command, $driver] = iosWorker(simulatorJson([
+            ['name' => 'iPhone 17 pest-1', 'udid' => 'CLONE', 'state' => 'Booted', 'isAvailable' => true],
+        ]));
+        $command->outputs['ConnectHardwareKeyboard'] = "1\n";
+
+        $driver->ensureReady();
+
+        $lines = array_map(fn (array $call): string => implode(' ', [$call[0], ...$call[1]]), $command->calls);
+        $accessibility = array_key_first(array_filter($lines, fn (string $line): bool => str_contains($line, 'com.apple.Accessibility ApplicationAccessibilityEnabled')));
+        $build = array_key_first(array_filter($lines, fn (string $line): bool => str_contains($line, 'native:run')));
+
+        expect($accessibility)->not->toBeNull()
+            ->and($build)->not->toBeNull()
+            ->and($accessibility)->toBeLessThan($build);
+    });
+});
+
+it('boots on when the keyboard and accessibility settings cannot be read or written', function () {
     withWorker(1, function (): void {
         [$command, $driver] = iosWorker(simulatorJson([
             ['name' => 'iPhone 17 pest-1', 'udid' => 'CLONE', 'state' => 'Booted', 'isAvailable' => true],
@@ -230,7 +272,7 @@ it('boots on when the keyboard settings cannot be read or written', function () 
 
         $driver->ensureReady();
 
-        expect(array_filter($command->calls, fn (array $call): bool => in_array('spawn', $call[1], true)))->toHaveCount(12)
+        expect(array_filter($command->calls, fn (array $call): bool => in_array('spawn', $call[1], true)))->toHaveCount(16)
             ->and($command->calls)->toContain(['/bin/echo', ['--udid', 'CLONE', '--grpc-port', '10884', '--log-level', 'info']]);
     });
 });
@@ -1026,6 +1068,7 @@ function resetDriverState(): void
     (new ReflectionProperty(AndroidDriver::class, 'privateDevice'))->setValue(null, null);
     (new ReflectionProperty(IosDriver::class, 'hardwareKeyboard'))->setValue(null, false);
     (new ReflectionProperty(IosDriver::class, 'correctionsOff'))->setValue(null, []);
+    (new ReflectionProperty(IosDriver::class, 'accessibilityOn'))->setValue(null, []);
     (new ReflectionProperty(IosDriver::class, 'wiped'))->setValue(null, []);
     (new ReflectionProperty(AndroidDriver::class, 'wiped'))->setValue(null, []);
     (new ReflectionProperty(IosDriver::class, 'ready'))->setValue(null, null);
