@@ -1,9 +1,10 @@
 name: segfault-hunt
 
-# Temporary, on the debug/php83-segfault branch only: the PHP 8.3 / Pest 4 unit run crashed
-# with a segfault after its last test, before Pest's summary, in four push runs on Oct 15,
-# then never again. This runs that suite many times with core dumps on, to catch it and
-# print where it crashed.
+# Temporary, on the debug/php83-segfault branch only. The PHP 8.3 / Pest 4 unit run
+# segfaults after its last test, in the Zend allocator under preg_match: heap corruption
+# from something earlier. Round 1 ran the whole suite 5 times in 20 jobs, and 13 crashed.
+# This round runs each test file on its own, four times, to find the file that corrupts
+# the heap. A job fails only on a segfault, and prints the backtrace.
 on:
   push:
     branches: [debug/php83-segfault]
@@ -12,13 +13,23 @@ permissions:
   contents: read
 
 jobs:
+  files:
+    runs-on: ubuntu-latest
+    outputs:
+      files: ${{ steps.list.outputs.files }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: list
+        run: echo "files=$(ls tests/Unit/*.php | jq -R . | jq -sc .)" >> "$GITHUB_OUTPUT"
+
   hunt:
-    name: PHP 8.3 / Pest 4, shard ${{ matrix.shard }}
+    name: ${{ matrix.file }}
+    needs: files
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+        file: ${{ fromJSON(needs.files.outputs.files) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -33,26 +44,24 @@ jobs:
 
       - name: Get ready to catch a crash
         run: |
-          php -v
-          php -m | tr '\n' ' '; echo
           sudo apt-get install -y gdb > /dev/null 2>&1
           sudo sysctl -w kernel.core_pattern=/tmp/core.%e.%p
 
-      - name: Run the suite five times
+      - name: Run the file four times
         run: |
           set +e +o pipefail
           ulimit -c unlimited
-          for i in 1 2 3 4 5; do
-            vendor/bin/pest > /tmp/pest-$i.log 2>&1
+          for i in 1 2 3 4; do
+            vendor/bin/pest "${{ matrix.file }}" > /tmp/pest-$i.log 2>&1
             rc=$?
             echo "run $i: exit $rc"
-            if [ "$rc" -ne 0 ]; then
-              tail -20 /tmp/pest-$i.log
+            if [ "$rc" -eq 139 ]; then
+              tail -8 /tmp/pest-$i.log
               core=$(ls -t /tmp/core.* 2>/dev/null | head -1)
-              if [ -n "$core" ]; then
-                echo "core: $core"
-                gdb -batch -ex 'bt 60' "$(command -v php)" "$core" 2>&1 | tail -80
-              fi
+              [ -n "$core" ] && gdb -batch -ex 'bt 30' "$(command -v php)" "$core" 2>&1 | grep -E '^#' | head -30
               exit 1
+            fi
+            if [ "$rc" -ne 0 ]; then
+              tail -8 /tmp/pest-$i.log
             fi
           done
