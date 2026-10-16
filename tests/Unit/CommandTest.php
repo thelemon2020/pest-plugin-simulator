@@ -112,6 +112,7 @@ it('gives the simulator lifecycle and native:run longer than everything else', f
         ->and(Command::limit(['simctl', 'list', 'devices', 'available', '-j']))->toBe(Command::DEVICE_TIMEOUT)
         ->and(Command::limit(['simctl', 'shutdown', 'UDID']))->toBe(Command::DEVICE_TIMEOUT)
         ->and(Command::limit(['simctl', 'privacy', 'UDID', 'grant', 'location', 'com.example.app']))->toBe(Command::DEVICE_TIMEOUT)
+        ->and(Command::limit(['simctl', 'addmedia', 'UDID', '/path/to/photo.jpg']))->toBe(Command::DEVICE_TIMEOUT)
         ->and(Command::limit(['artisan', 'native:run', 'ios', 'UDID', '--build=debug', '--no-tty']))->toBe(Command::BUILD_TIMEOUT)
         ->and(Command::limit(['simctl', 'openurl', 'UDID', 'app://']))->toBe(Command::TIMEOUT)
         ->and(Command::limit(['-s', 'emulator-5554', 'shell', 'input', 'tap', '1', '2']))->toBe(Command::TIMEOUT);
