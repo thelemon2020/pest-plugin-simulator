@@ -9,8 +9,9 @@ name: segfault-hunt
 #   files stopped the crash (0 of 40).
 # - Round 4, 30 runs each: control 14 crashes, piped output 13, Zend allocator off 15,
 #   GC off 0. The crash needs the cycle collector.
-# This round logs every destructor that could run inside a collection, with whether the
-# collector was running, to find the one that runs in the middle of preg_match_all.
+# - Round 5: no logged destructor ran inside a collection when it crashed.
+# This round checks the fix, tests/Pest.php turning the collector off on 8.3: the same
+# 30 runs as round 4's control, which crashed 14 times.
 on:
   push:
     branches: [debug/php83-segfault]
@@ -38,26 +39,12 @@ jobs:
       - name: Install dependencies
         run: composer update --no-interaction --prefer-dist --no-progress --with="pestphp/pest:^4.0" --with="phpunit/phpunit:^12.0" --with-all-dependencies
 
-      - name: Log each destructor that could run inside a collection
-        run: |
-          files=$(grep -rl 'function __destruct' src vendor/pestphp vendor/symfony/process vendor/nunomaduro vendor/phpunit 2>/dev/null)
-          echo "$files"
-          for f in $files; do
-            perl -0pi -e 's/(function __destruct\(\)\s*(?::\s*void\s*)?\{)/$1 \\file_put_contents("\/tmp\/destructs.log", static::class." gc=".(int) \\gc_status()["running"]."\\n", FILE_APPEND);/g' "$f"
-          done
-          grep -h -A1 'function __destruct' $files | head -40
-
       - name: Run the suite three times
         run: |
           set +e +o pipefail
           for i in 1 2 3; do
-            rm -f /tmp/destructs.log
             php vendor/bin/pest > /tmp/pest.log 2>&1
             rc=$?
             echo "run $i: exit $rc"
-            echo "destructors run during a collection:"
-            grep 'gc=1' /tmp/destructs.log | sort | uniq -c
-            echo "last five destructors:"
-            tail -5 /tmp/destructs.log
             [ "$rc" -ne 0 ] && [ "$rc" -ne 139 ] && tail -5 /tmp/pest.log
           done
