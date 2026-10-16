@@ -631,38 +631,116 @@ The doctor checks `simctl`, `idb_companion`, the Android SDK, `adb`, `emulator`,
 
 [`.github/workflows/mobile.yml`](.github/workflows/mobile.yml) runs this package's own tests on PHP 8.3 with Pest 4, and on PHP 8.4 with Pest 5. Those tests fake the machine. They do not boot a Simulator or an Emulator.
 
-In a project, install that platform's tools and run the two platforms as separate jobs. A Mac can run the Android Emulator too.
+For your app's device tests on GitHub Actions, this repository has an action for each platform. Run each platform as its own job.
+
+- `thelemon2020/pest-plugin-simulator/actions/android` boots an Android Emulator on a Linux runner. [`.github/workflows/devices.yml`](.github/workflows/devices.yml) runs the sample app's tests with it.
+- `thelemon2020/pest-plugin-simulator/actions/ios` boots an iOS Simulator on a macOS runner. It is not verified in CI yet: this repository's own iOS job does not pass on GitHub's runner.
+
+No release has the actions yet, so the examples use `@main`. Once a release has them, pin its tag instead, so a change on main can't change your CI.
+
+### What your job does, and what the action does
+
+Your job checks out the app, sets up a PHP for Composer, installs the Composer dependencies, and writes the `.env` the tests boot with. Each app does these its own way: private packages and their tokens, where `.env` comes from, and whether the tests copy a migrated SQLite database into the app. The `.env` needs an app key and the values under [Configure](#configure).
+
+Then the action does the rest:
+
+- It sets up the PHP that `nativephp.lock` names, with the extensions and memory the build needs. With any other PHP, `native:run` stops to ask which one to bundle, and nothing in CI answers. Pass `setup-php: false` to keep your own. The action still checks that it matches.
+- It runs `native:install` for its platform, because `nativephp/` is not usually committed.
+- It runs the tests with `--simulator-verbose`. The slowest commands and steps go on the run's summary page, and the logs are uploaded as the `<prefix>-timings` artifact. When the job fails, [what each failure wrote](#when-an-assertion-fails) and the device logs are uploaded as `<prefix>-failures`.
+
+### Android
+
+```yaml
+name: devices
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: sqlite3, pdo_sqlite
+
+      - name: Install the app
+        run: |
+          composer install --no-interaction --prefer-dist --no-progress
+          cp .env.example .env
+          php artisan key:generate
+          touch database/database.sqlite
+          php artisan migrate --force
+
+      - uses: thelemon2020/pest-plugin-simulator/actions/android@main
+        with:
+          tests: tests/Simulator
+```
+
+The action needs a Linux runner: the emulator boots in time only with KVM, which GitHub's Linux runners have. It turns KVM on, sets up Java 17 and Gradle's caches, and installs the Android SDK and the NDK the app builds with. Then it makes a new emulator. A new emulator has nothing installed, so the action passes `--rebuild`, and the plugin builds the app while the emulator boots. Gradle's caches are saved from the default branch only, and a pull request can only read those, so run the job on pushes to main too. On this repository's sample app, the whole job takes 7 to 9 minutes.
+
+| Input | Default | |
+|---|---|---|
+| `app-directory` | `.` | The app's directory. |
+| `tests` | | The test files or directories to run. Empty runs the suites `phpunit.xml` lists. |
+| `pest-arguments` | | More arguments for Pest, such as `--filter=checkout`. `--android`, `--rebuild`, and `--simulator-verbose` are always passed. |
+| `api-level` | `36` | The emulator's Android API level. A NativePHP 4.6 app needs 33 or newer. |
+| `system-image` | `google_apis` | The emulator's system image, as in `system-images;android-36;google_apis;x86_64`. |
+| `device-profile` | `pixel_7` | The device the emulator copies, from `avdmanager list device`. |
+| `avd-name` | `Pixel` | The emulator's AVD name. A suite with an `->android([...])` list needs it to be one of those. |
+| `setup-php` | `true` | Whether to set up PHP. |
+| `php-version` | from `nativephp.lock` | The PHP to set up. With no `nativephp.lock` and no version, PHP is left as it is. |
+| `php-extensions` | | More PHP extensions to set up, in setup-php's format. |
+| `artifact-prefix` | `android` | The start of the artifacts' names. Give each job its own when one workflow runs several. |
+
+The Android Emulator starts with no window and draws in software. If a boot does not finish, the error names the emulator log, and the action uploads that log with what failed.
+
+### iOS
+
+This action is not verified in CI yet. This repository's own iOS job does not pass on GitHub's runner.
+
+```yaml
+jobs:
+  ios:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: sqlite3, pdo_sqlite
+
+      - name: Install the app
+        run: |
+          composer install --no-interaction --prefer-dist --no-progress
+          cp .env.example .env
+          php artisan key:generate
+          touch database/database.sqlite
+          php artisan migrate --force
+
+      - uses: thelemon2020/pest-plugin-simulator/actions/ios@main
+        with:
+          tests: tests/Simulator
+```
+
+The action installs `idb-companion` from Facebook's tap. It runs the tests on the newest iPhone the runner's Xcode has. Pass `--device` in `pest-arguments` for another. Its inputs are the Android action's, without the emulator ones: `app-directory`, `tests`, `pest-arguments`, `setup-php`, `php-version`, `php-extensions`, and `artifact-prefix`, which is `ios` by default. A macOS runner's minutes cost ten times a Linux runner's, so this repository runs its iOS job by hand and once a week.
+
+### Parallel runs
 
 ```bash
 vendor/bin/pest --ios --parallel
 vendor/bin/pest --android --parallel
 ```
 
-Each test is one row per device. ParaTest hands a worker a whole file. A parallel run that lists more than one device starts one lane per device, and every worker in that lane stays on it. The first lane also runs the rest of the suite. Each worker gets its own `idb_companion` port and its own booted device. An iOS worker reuses the Simulator it cloned last time (`iPhone 17 pest-1`) instead of copying a new one.
-
-```yaml
-jobs:
-  ios:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run iOS tests
-        run: vendor/bin/pest --ios --parallel
-
-  android:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/cache@v4
-        with:
-          path: ~/.android/avd
-          key: android-avd-${{ runner.os }}-${{ github.sha }}
-          restore-keys: android-avd-${{ runner.os }}-
-      - name: Run Android tests
-        run: vendor/bin/pest --android --parallel
-```
-
-The Android Emulator starts with no window and draws in software. When the AVD has a Quick Boot snapshot, the emulator loads it, so a debug build installed last time is still there and `native:run` does not compile again. The first boot is still a cold boot. That boot is saved when the emulator exits, and shutdown waits for the save to finish. One parallel worker boots writable so it can save the snapshot. The others load it read-only, each on its own emulator port. The android job caches `~/.android/avd` so that snapshot is still there on the next run. The key includes the commit, so this run saves the snapshot it just wrote. The next run restores the newest saved snapshot. Leave `--wipe` off this job. `--wipe` drops the snapshot for one run. If a boot does not finish, the error names the emulator log.
+Each test is one row per device. ParaTest hands a worker a whole file. A parallel run that lists more than one device starts one lane per device, and every worker in that lane stays on it. The first lane also runs the rest of the suite. Each worker gets its own `idb_companion` port and its own booted device. An iOS worker reuses the Simulator it cloned last time (`iPhone 17 pest-1`) instead of copying a new one. In an action, pass `--parallel` in `pest-arguments`. This repository's device jobs run without it.
 
 A test limited to a platform the suite does not run is skipped. A machine without Xcode and `idb_companion`, or without the Android SDK, skips the tests that needed that platform.
 

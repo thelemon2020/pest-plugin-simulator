@@ -19,6 +19,7 @@ on:
       - 'android/**'
       - 'sample-app/**'
       - 'composer.json'
+      - 'actions/**'
       - '.github/workflows/devices.yml'
   push:
     branches: [main]
@@ -27,6 +28,7 @@ on:
       - 'android/**'
       - 'sample-app/**'
       - 'composer.json'
+      - 'actions/**'
       - '.github/workflows/devices.yml'
   workflow_dispatch:
     inputs:
@@ -57,61 +59,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The PHP that sample-app/nativephp.lock bundles into the app. With any other, the
-      # build stops to ask whether to bundle that one instead, and nothing answers it.
+      # The sample app's own setup, as a user's job does it before the action. Composer
+      # needs PHP 8.4 or newer for this app. The action then sets up the PHP that
+      # sample-app/nativephp.lock names, 8.5 too, and checks it.
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.5'
-          extensions: exif, gd, sodium, sqlite3, pdo_sqlite, zip
-          ini-values: memory_limit=2G
+          extensions: sqlite3, pdo_sqlite
           coverage: none
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      # native:run builds the app with Gradle. Uncached, every run downloads each Android
-      # dependency and compiles NativePHP's native code again, though neither changes
-      # between our pull requests. setup-gradle saves Gradle's caches from main and
-      # restores them everywhere. The build cache lets compiled task outputs be reused too,
-      # although native:install writes the Android project afresh each run.
-      - uses: gradle/actions/setup-gradle@v4
-
-      - name: Turn on Gradle's build cache
-        run: |
-          mkdir -p ~/.gradle
-          echo 'org.gradle.caching=true' >> ~/.gradle/gradle.properties
-
-      # The runner user cannot open /dev/kvm until this udev rule runs. KVM is what lets
-      # the emulator boot inside the plugin's 300 second limit.
-      - name: Enable KVM
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-
-      - name: Install the Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: 'platform-tools emulator platforms;android-36 build-tools;36.0.0 system-images;android-36;google_apis;x86_64'
-
-      # A pixel_7 image asks for a 12 GB userdata partition. The emulator will not go
-      # below 7.2 GiB, and exits when the runner has less free.
-      #
-      # avdmanager and the emulator agree on where AVDs live only when told: on the runner,
-      # avdmanager writes somewhere other than ~/.android/avd. It goes outside the checkout,
-      # because the sample app installs the plugin from the checkout, and native:run copies
-      # that into the app, a running emulator's files and all.
-      - name: Create the emulator
-        run: |
-          export ANDROID_AVD_HOME="$RUNNER_TEMP/avd"
-          echo "ANDROID_AVD_HOME=$ANDROID_AVD_HOME" >> "$GITHUB_ENV"
-          mkdir -p "$ANDROID_AVD_HOME"
-          echo no | avdmanager create avd --force --name Pixel --package 'system-images;android-36;google_apis;x86_64' --device pixel_7
-          config="${ANDROID_AVD_HOME}/Pixel.avd/config.ini"
-          sed -i '/^disk.dataPartition.size=/d' "$config"
-          echo 'disk.dataPartition.size=2048M' >> "$config"
 
       - name: Install the sample app
         run: |
@@ -121,86 +76,12 @@ jobs:
           touch database/database.sqlite
           php artisan migrate --force
 
-      # nativephp/ is not committed. The first screen() runs native:run, which needs it.
-      - name: Install the Android project
-        run: php artisan native:install android --no-interaction
-
-      # NativePHP's Android project compiles its PHP wrapper with the NDK that
-      # app/build.gradle.kts names: 27.0.12077973 in NativePHP 4.6. The runner image has
-      # other NDKs (27.3, 29, 30) but not that one, so Gradle installed it inside every
-      # build. It is cached here under its version, and installed in a step of its own when
-      # the cache misses, where the run's step timings show what it costs.
-      - name: Find the NDK the app builds with
-        id: ndk
-        run: |
-          version=$(sed -nE 's/^[[:space:]]*ndkVersion = "([^"]+)".*/\1/p' nativephp/android/app/build.gradle.kts | head -1)
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "NDK: ${version:-none named}"
-
-      - name: Restore the NDK
-        id: ndk-cache
-        if: steps.ndk.outputs.version != ''
-        uses: actions/cache@v4
+      # Everything else is actions/android, the action this repository gives users, so
+      # this job tests it.
+      - uses: ./actions/android
         with:
-          path: /usr/local/lib/android/sdk/ndk/${{ steps.ndk.outputs.version }}
-          key: android-ndk-${{ steps.ndk.outputs.version }}
-
-      - name: Install the NDK
-        if: steps.ndk.outputs.version != '' && steps.ndk-cache.outputs.cache-hit != 'true'
-        run: sdkmanager --install "ndk;${{ steps.ndk.outputs.version }}"
-
-      # The emulator will not start with less than 7.2 GiB free, and the build and the
-      # app's files need room beside it. ubuntu-24.04 has far more than that, so nothing
-      # is deleted: deleting the runner's toolchains took one to two minutes a run. This
-      # fails early, with the numbers, if an image ever has less.
-      - name: Check free disk space
-        run: |
-          df -h /
-          free=$(df --output=avail -k / | tail -1)
-          if [ "$free" -lt $((15 * 1024 * 1024)) ]; then
-            echo "::error::Only $((free / 1024 / 1024)) GB is free. The emulator needs 7.2 GiB, and the build needs room beside it."
-            exit 1
-          fi
-
-      - name: Run the device tests
-        # --rebuild: a new emulator has nothing installed, so the app is built anyway, and
-        # saying so lets the plugin build it while the emulator boots.
-        run: stdbuf -oL -eL php vendor/bin/pest tests/Simulator --android --rebuild --simulator-verbose
-
-      # Only a report: a missing log or a pipe closed early must not fail the job.
-      - name: Summarise the timings
-        if: always()
-        run: |
-          set +e +o pipefail
-          log=simulator-logs/verbose.log
-          [ -f "$log" ] || exit 0
-          {
-            echo '### Android: slowest commands and steps'
-            grep -h 'BUILD SUCCESSFUL in\|BUILD FAILED in' nativephp/android-build.log 2>/dev/null | sed 's/^/Gradle: /' | tail -1
-            echo '```'
-            awk '$3 ~ /^[0-9.]+s$/ { t = $3; sub(/s$/, "", t); $1 = $2 = $3 = ""; printf "%8.1fs %s\n", t, substr($0, 4) }' "$log" | sort -rn | head -25 | cut -c1-180
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload the timings
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: android-timings
-          if-no-files-found: ignore
-          path: |
-            sample-app/simulator-logs/
-            sample-app/nativephp/android-build.log
-
-      - name: Upload what failed
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: android-failures
-          if-no-files-found: ignore
-          path: |
-            sample-app/simulator-failures/
-            sample-app/emulator*.log
+          app-directory: sample-app
+          tests: tests/Simulator
 
   ios:
     name: iOS Simulator
