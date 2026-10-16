@@ -576,6 +576,11 @@ final class IosDriver implements Driver
             if (IosText::paste($piece)) {
                 $this->insertSymbol($piece);
 
+                // The key after a symbol gets the same gap as the keys inside a piece. Sent
+                // 4ms after Shift-2, the "e" of "ada@example.com" was lost on CI's runner, in
+                // each of three tries.
+                usleep(self::TEXT_KEY_GAP_MICROSECONDS);
+
                 continue;
             }
 

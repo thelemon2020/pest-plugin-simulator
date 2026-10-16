@@ -7,6 +7,7 @@ use NativePhp\Simulator\Device;
 use NativePhp\Simulator\Exceptions\CompanionUnresponsive;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 use NativePhp\Simulator\Grpc\Client;
+use NativePhp\Simulator\Grpc\Protobuf;
 use NativePhp\Simulator\Hid;
 use NativePhp\Simulator\IosDriver;
 use Tests\Support\RecordingClient;
@@ -170,6 +171,18 @@ it('types each key as a stroke of its own', function () {
     expect($sends)->toBe([['streamStrokes', 'hid', Hid::keystrokes('aB'), 20_000]]);
 });
 
+it('waits the gap between keys after a symbol before the next key', function () {
+    $client = timedClient();
+    $driver = iosInputDriver($client);
+
+    $driver->text('a@e');
+
+    expect(array_column($client->sends, 0))->toBe(['streamStrokes', 'stream', 'streamStrokes'])
+        ->and($client->sends[1][1])->toBe(Hid::text('@'))
+        ->and($client->sends[2][1])->toBe(Hid::keystrokes('e'))
+        ->and(($client->sends[2][2] - $client->sends[1][2]) / 1e6)->toBeGreaterThanOrEqual(20.0);
+});
+
 it('allows a back gesture its own duration on top of the call timeout', function () {
     $client = new RecordingClient;
     $driver = iosInputDriver($client);
@@ -224,12 +237,49 @@ function keyboardTree(float $keysY): string
     ]]);
 }
 
-function iosInputDriver(RecordingClient $client): IosDriver
+function iosInputDriver(Client $client): IosDriver
 {
     $driver = new IosDriver(new Device('ios', 'iPhone', true), Configuration::resolve());
     (new ReflectionProperty(IosDriver::class, 'client'))->setValue($driver, $client);
 
     return $driver;
+}
+
+/**
+ * A client that reads a screen with no keyboard on it, and keeps each key it is sent with
+ * when it was sent, in nanoseconds.
+ */
+function timedClient(): Client
+{
+    return new class extends Client
+    {
+        /** @var list<array{0: string, 1: list<string>|list<list<string>>, 2: int}> */
+        public array $sends = [];
+
+        public function __construct()
+        {
+            parent::__construct('http://127.0.0.1:0');
+        }
+
+        public function unary(string $method, string $message): string
+        {
+            return $method === 'accessibility_info' ? Protobuf::messageField(1, (string) json_encode(['elements' => []])) : '';
+        }
+
+        public function stream(string $method, array $messages, float $durationSeconds = 0.0): string
+        {
+            $this->sends[] = ['stream', $messages, hrtime(true)];
+
+            return '';
+        }
+
+        public function streamStrokes(string $method, array $strokes, int $gapMicroseconds): string
+        {
+            $this->sends[] = ['streamStrokes', $strokes, hrtime(true)];
+
+            return '';
+        }
+    };
 }
 
 /**
