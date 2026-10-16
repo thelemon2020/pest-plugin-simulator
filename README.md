@@ -104,6 +104,18 @@ If the same value is set in more than one place, the plugin uses `Configuration:
 
 `timeout`, `permissions`, and `record_failures` are not `.env` variables. Set a timeout with `Configuration::configure(['timeout' => 15])`. The timeout is how long each step waits, 15 seconds by default. The first screen after the plugin builds and installs the app gets up to 60 seconds from the launch instead, because a NativePHP app unpacks its Laravel code and runs its artisan commands on its first launch before it draws anything. On CI's Android emulator that took 15.5 seconds. Set permissions with `permissions()` inside a test, or with `Configuration::configure(['permissions' => ['location']])` for every test. `record_failures` is under [Debug a flaky test](#debug-a-flaky-test).
 
+A test that copies the database stops the app, so its first screen launches the app again. NativePHP 4.6's iOS app unpacks its Laravel code on every launch, not only the first, unless the build number reads the same on both sides of its check. Set it in `.env`, and read it as a number in `config/nativephp.php`:
+
+```dotenv
+NATIVEPHP_APP_VERSION_CODE=1
+```
+
+```php
+'version_code' => (int) env('NATIVEPHP_APP_VERSION_CODE', 1),
+```
+
+Without both, each test's first step waits for the unpack: 4 seconds a launch on an M1 Pro, and 10 to 20 on a GitHub macOS runner. With both, a rebuild at the same version would keep the old code, so after it builds the app the plugin removes the app's note of what it unpacked. The next launch unpacks the new code, and the launches after it do not.
+
 `php artisan native:run` runs in the directory the tests run from, and the `idb_companion` and emulator logs are written there. Set another directory with `Configuration::configure(['app_directory' => '/path/to/app'])`.
 
 ## Write a test

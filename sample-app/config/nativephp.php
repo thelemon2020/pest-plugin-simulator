@@ -26,7 +26,7 @@ return [
     |
     */
 
-    'version_code' => env('NATIVEPHP_APP_VERSION_CODE', 1),
+    'version_code' => (int) env('NATIVEPHP_APP_VERSION_CODE', 1),
 
     /*
     |--------------------------------------------------------------------------

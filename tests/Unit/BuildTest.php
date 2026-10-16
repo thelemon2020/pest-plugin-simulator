@@ -95,6 +95,8 @@ it('builds ios when the debug app is not installed', function () {
     expect($command->calls)->toBe([
         ['xcrun', ['simctl', 'get_app_container', 'UDID', 'com.example.app', 'app']],
         ['php', ['artisan', 'native:run', 'ios', 'UDID', '--build=debug', '--no-tty']],
+        ['xcrun', ['simctl', 'terminate', 'UDID', 'com.example.app']],
+        ['xcrun', ['simctl', 'get_app_container', 'UDID', 'com.example.app', 'data']],
     ])->and($command->timeouts['php artisan native:run ios UDID --build=debug --no-tty'])->toBe((float) Command::BUILD_TIMEOUT);
 });
 
@@ -108,7 +110,29 @@ it('rebuilds ios when asked', function () {
 
     expect($command->calls)->toBe([
         ['php', ['artisan', 'native:run', 'ios', 'UDID', '--build=debug', '--no-tty']],
+        ['xcrun', ['simctl', 'terminate', 'UDID', 'com.example.app']],
+        ['xcrun', ['simctl', 'get_app_container', 'UDID', 'com.example.app', 'data']],
     ]);
+});
+
+it('makes a rebuilt ios app unpack its Laravel code on its next launch', function () {
+    Arguments::intercept(['--rebuild']);
+    $container = sys_get_temp_dir().'/simulator-data-'.bin2hex(random_bytes(4));
+    mkdir($container.'/Documents/app', 0777, true);
+    file_put_contents($container.'/Documents/app/installed.version', '1.0.0b1');
+    file_put_contents($container.'/Documents/app/artisan', '');
+    $driver = iosBuildDriver(new RecordingCommand($container));
+
+    try {
+        buildOnce($driver);
+
+        // The app unpacks its bundle again only when the bundle's version differs from the
+        // one in this note, and a rebuild keeps the version.
+        expect(is_file($container.'/Documents/app/installed.version'))->toBeFalse()
+            ->and(is_file($container.'/Documents/app/artisan'))->toBeTrue();
+    } finally {
+        exec('rm -rf '.escapeshellarg($container));
+    }
 });
 
 it('keeps an installed android debug app without building or launching', function () {

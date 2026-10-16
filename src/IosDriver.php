@@ -1196,6 +1196,7 @@ final class IosDriver implements Driver
             'artisan', 'native:run', 'ios', $this->udid(), '--build=debug', '--no-tty',
         ], $this->configuration->appDirectory());
 
+        $this->forgetUnpackedApp();
         self::$built[$key] = true;
         $this->freshlyInstalled = true;
     }
@@ -1206,6 +1207,28 @@ final class IosDriver implements Driver
         $this->freshlyInstalled = false;
 
         return $fresh;
+    }
+
+    /**
+     * NativePHP's iOS app unpacks its Laravel bundle on launch only when the bundle's version
+     * and build number differ from the ones it unpacked last, or the version is DEBUG. It
+     * notes what it unpacked in Documents/app/installed.version. So a rebuild at the same
+     * version installs new PHP that the app never unpacks, as on Android. Removing that note
+     * after a build makes the next launch unpack the new bundle. The database and storage
+     * are in Application Support, and stay.
+     */
+    private function forgetUnpackedApp(): void
+    {
+        try {
+            $this->terminate();
+            $installed = $this->dataContainer().'/Documents/app/installed.version';
+        } catch (SimulatorException) {
+            return;
+        }
+
+        if (is_file($installed)) {
+            @unlink($installed);
+        }
     }
 
     /**
