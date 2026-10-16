@@ -1,14 +1,16 @@
 name: segfault-hunt
 
 # Temporary, on the debug/php83-segfault branch only. The PHP 8.3 / Pest 4 unit run
-# segfaults after its last test, in the Zend allocator under preg_match (Termwind or
-# Symfony Console printing the summary).
+# segfaults after its last test, in the allocator under preg_match (Termwind or Symfony
+# Console printing the summary).
 # - Round 1: the whole suite 5 times in 20 jobs; 13 crashed.
 # - Round 2: each test file alone, 4 times; none crashed.
-# - Round 3: valgrind on the system allocator found no bad read, write or free. The suite
-#   without any one group of six files never crashed (40 runs).
-# This round runs the whole suite three times in ten jobs under each setting, to see
-# which ones the crash needs.
+# - Round 3: valgrind found no bad read, write or free. Leaving out any group of six
+#   files stopped the crash (0 of 40).
+# - Round 4, 30 runs each: control 14 crashes, piped output 13, Zend allocator off 15,
+#   GC off 0. The crash needs the cycle collector.
+# This round logs every destructor that could run inside a collection, with whether the
+# collector was running, to find the one that runs in the middle of preg_match_all.
 on:
   push:
     branches: [debug/php83-segfault]
@@ -18,12 +20,11 @@ permissions:
 
 jobs:
   hunt:
-    name: ${{ matrix.setting }} ${{ matrix.shard }}
+    name: shard ${{ matrix.shard }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        setting: [control, gc-off, zend-alloc-off, piped]
         shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     steps:
       - uses: actions/checkout@v4
@@ -37,19 +38,26 @@ jobs:
       - name: Install dependencies
         run: composer update --no-interaction --prefer-dist --no-progress --with="pestphp/pest:^4.0" --with="phpunit/phpunit:^12.0" --with-all-dependencies
 
+      - name: Log each destructor that could run inside a collection
+        run: |
+          files=$(grep -rl 'function __destruct' src vendor/pestphp vendor/symfony/process vendor/nunomaduro vendor/phpunit 2>/dev/null)
+          echo "$files"
+          for f in $files; do
+            perl -0pi -e 's/(function __destruct\(\)\s*(?::\s*void\s*)?\{)/$1 \\file_put_contents("\/tmp\/destructs.log", static::class." gc=".(int) \\gc_status()["running"]."\\n", FILE_APPEND);/g' "$f"
+          done
+          grep -h -A1 'function __destruct' $files | head -40
+
       - name: Run the suite three times
         run: |
           set +e +o pipefail
-          crashes=0
           for i in 1 2 3; do
-            case "${{ matrix.setting }}" in
-              control) php vendor/bin/pest > /tmp/pest.log 2>&1; rc=$? ;;
-              gc-off) php -d zend.enable_gc=0 vendor/bin/pest > /tmp/pest.log 2>&1; rc=$? ;;
-              zend-alloc-off) USE_ZEND_ALLOC=0 php vendor/bin/pest > /tmp/pest.log 2>&1; rc=$? ;;
-              piped) php vendor/bin/pest 2>&1 | cat > /tmp/pest.log; rc=${PIPESTATUS[0]} ;;
-            esac
+            rm -f /tmp/destructs.log
+            php vendor/bin/pest > /tmp/pest.log 2>&1
+            rc=$?
             echo "run $i: exit $rc"
-            [ "$rc" -eq 139 ] && crashes=$(( crashes + 1 ))
+            echo "destructors run during a collection:"
+            grep 'gc=1' /tmp/destructs.log | sort | uniq -c
+            echo "last five destructors:"
+            tail -5 /tmp/destructs.log
             [ "$rc" -ne 0 ] && [ "$rc" -ne 139 ] && tail -5 /tmp/pest.log
           done
-          echo "crashes: $crashes of 3"
