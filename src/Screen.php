@@ -847,7 +847,8 @@ final class Screen
             // Compose's jumps to where the finger first touches. Each drag adds a point, and
             // the line through the last two aims the next. Until there are two, the line is
             // the track's own: inset by half the thumb at each end.
-            $line = new SliderLine($left + $inset, $low, ($width - 2 * $inset) / ($high - $low));
+            $track = new SliderLine($left + $inset, $low, ($width - 2 * $inset) / ($high - $low));
+            $line = $track;
             $x = $along($line->at($current));
             $seeks = null;
 
@@ -884,10 +885,23 @@ final class Screen
                     $target = $along($line->at($value));
                 }
 
+                $before = $current;
                 $this->drag([$x, $y, $target, $y], 0.5);
                 $this->note('drags', $drag);
-                $x = $target;
                 $current = $this->sliderValue($label, $nth) ?? $current;
+
+                // A drag that moved nothing did not start on the thumb. On iOS a drag that fell
+                // short leaves the thumb short of where the finger let go: on CI's macOS runner
+                // a drag to 75 left 67, and each drag after it started past the thumb and moved
+                // nothing. So the next one starts where the thumb is drawn.
+                if ($current === $before) {
+                    $x = $along($track->at($current));
+                    $line = $track->through($x, $current);
+
+                    continue;
+                }
+
+                $x = $target;
                 $line = $line->through($x, $current);
             }
 
