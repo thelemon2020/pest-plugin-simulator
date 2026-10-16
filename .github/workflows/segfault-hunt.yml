@@ -1,10 +1,12 @@
 name: segfault-hunt
 
 # Temporary, on the debug/php83-segfault branch only. The PHP 8.3 / Pest 4 unit run
-# segfaults after its last test, in the Zend allocator under preg_match: heap corruption
-# from something earlier. Round 1 ran the whole suite 5 times in 20 jobs, and 13 crashed.
-# This round runs each test file on its own, four times, to find the file that corrupts
-# the heap. A job fails only on a segfault, and prints the backtrace.
+# segfaults after its last test, in the Zend allocator under preg_match (Termwind or
+# Symfony Console printing the summary): heap corruption from something earlier.
+# - Round 1: the whole suite 5 times in 20 jobs; 13 crashed.
+# - Round 2: each test file alone, 4 times; none crashed.
+# This round runs the suite under valgrind, which reports a bad write where it happens,
+# and the suite without one group of files at a time.
 on:
   push:
     branches: [debug/php83-segfault]
@@ -13,23 +15,9 @@ permissions:
   contents: read
 
 jobs:
-  files:
+  valgrind:
     runs-on: ubuntu-latest
-    outputs:
-      files: ${{ steps.list.outputs.files }}
-    steps:
-      - uses: actions/checkout@v4
-      - id: list
-        run: echo "files=$(ls tests/Unit/*.php | jq -R . | jq -sc .)" >> "$GITHUB_OUTPUT"
-
-  hunt:
-    name: ${{ matrix.file }}
-    needs: files
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        file: ${{ fromJSON(needs.files.outputs.files) }}
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
 
@@ -42,26 +30,65 @@ jobs:
       - name: Install dependencies
         run: composer update --no-interaction --prefer-dist --no-progress --with="pestphp/pest:^4.0" --with="phpunit/phpunit:^12.0" --with-all-dependencies
 
-      - name: Get ready to catch a crash
-        run: |
-          sudo apt-get install -y gdb > /dev/null 2>&1
-          sudo sysctl -w kernel.core_pattern=/tmp/core.%e.%p
+      - name: Install valgrind
+        run: sudo apt-get install -y valgrind > /dev/null 2>&1 && valgrind --version
 
-      - name: Run the file four times
+      # The system allocator, so valgrind sees each block. PCRE's JIT off, as it confuses
+      # valgrind. Tests may fail from the slowdown; what counts is valgrind's report.
+      - name: Run the suite under valgrind
         run: |
           set +e +o pipefail
-          ulimit -c unlimited
-          for i in 1 2 3 4; do
-            vendor/bin/pest "${{ matrix.file }}" > /tmp/pest-$i.log 2>&1
+          USE_ZEND_ALLOC=0 ZEND_DONT_UNLOAD_MODULES=1 valgrind --error-limit=no --num-callers=40 \
+            --log-file=/tmp/valgrind.log php -d pcre.jit=0 vendor/bin/pest > /tmp/pest.log 2>&1
+          echo "pest exit: $?"
+          tail -5 /tmp/pest.log
+          echo "invalid reads/writes: $(grep -cE 'Invalid (read|write)' /tmp/valgrind.log)"
+          grep -E 'ERROR SUMMARY' /tmp/valgrind.log
+          awk '/Invalid (read|write)/{n++} n>=1 && n<=4' /tmp/valgrind.log | head -250
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: valgrind
+          path: |
+            /tmp/valgrind.log
+            /tmp/pest.log
+
+  without:
+    name: Suite without group ${{ matrix.group }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+          tools: composer
+
+      - name: Install dependencies
+        run: composer update --no-interaction --prefer-dist --no-progress --with="pestphp/pest:^4.0" --with="phpunit/phpunit:^12.0" --with-all-dependencies
+
+      - name: Run the suite without this group five times
+        run: |
+          set +e +o pipefail
+          files=(tests/Unit/*.php)
+          start=$(( ${{ matrix.group }} * 6 ))
+          echo "left out: ${files[@]:$start:6}"
+          keep=()
+          for i in "${!files[@]}"; do
+            if [ "$i" -lt "$start" ] || [ "$i" -ge $(( start + 6 )) ]; then keep+=("${files[$i]}"); fi
+          done
+          crashes=0
+          for i in 1 2 3 4 5; do
+            vendor/bin/pest "${keep[@]}" > /tmp/pest-$i.log 2>&1
             rc=$?
             echo "run $i: exit $rc"
-            if [ "$rc" -eq 139 ]; then
-              tail -8 /tmp/pest-$i.log
-              core=$(ls -t /tmp/core.* 2>/dev/null | head -1)
-              [ -n "$core" ] && gdb -batch -ex 'bt 30' "$(command -v php)" "$core" 2>&1 | grep -E '^#' | head -30
-              exit 1
-            fi
-            if [ "$rc" -ne 0 ]; then
-              tail -8 /tmp/pest-$i.log
-            fi
+            [ "$rc" -eq 139 ] && crashes=$(( crashes + 1 ))
+            [ "$rc" -ne 0 ] && [ "$rc" -ne 139 ] && tail -5 /tmp/pest-$i.log
           done
+          echo "crashes: $crashes of 5"
