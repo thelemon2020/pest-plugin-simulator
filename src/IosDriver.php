@@ -138,6 +138,9 @@ final class IosDriver implements Driver
                     return;
                 }
             }
+
+            // A reader that is still starting can fail at once, so the next read waits a little.
+            usleep(250_000);
         } while (microtime(true) < $deadline);
     }
 
