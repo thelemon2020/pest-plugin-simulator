@@ -1187,11 +1187,11 @@ final class IosDriver implements Driver
             return;
         }
 
+        $this->forgetUnpackedApp();
         $this->command->run('php', [
             'artisan', 'native:run', 'ios', $this->udid(), '--build=debug', '--no-tty',
         ], $this->configuration->appDirectory());
 
-        $this->forgetUnpackedApp();
         self::$built[$key] = true;
         $this->freshlyInstalled = true;
     }
@@ -1209,19 +1209,24 @@ final class IosDriver implements Driver
      * and build number differ from the ones it unpacked last, or the version is DEBUG. It
      * notes what it unpacked in Documents/app/installed.version. So a rebuild at the same
      * version installs new PHP that the app never unpacks, as on Android. Removing that note
-     * after a build makes the next launch unpack the new bundle. The database and storage
-     * are in Application Support, and stay.
+     * before a build makes the launch native:run ends with unpack the new bundle. After the
+     * build would be too late on CI's macOS runner: a first unpack there took over a minute,
+     * and the first test's launch would make it again. The database and storage are in
+     * Application Support, and stay. A new install has no data container, and nothing to do.
      */
     private function forgetUnpackedApp(): void
     {
         try {
-            $this->terminate();
-            $installed = $this->dataContainer().'/Documents/app/installed.version';
+            $container = rtrim(trim($this->command->run('xcrun', [
+                'simctl', 'get_app_container', $this->udid(), $this->configuration->bundleId(), 'data',
+            ])), '/');
         } catch (SimulatorException) {
             return;
         }
 
-        if (is_file($installed)) {
+        $installed = $container.'/Documents/app/installed.version';
+
+        if ($container !== '' && is_file($installed)) {
             @unlink($installed);
         }
     }
