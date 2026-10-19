@@ -306,10 +306,25 @@ final class IosDriver implements Driver
         }
     }
 
+    /**
+     * simctl openurl waits for the app to take the link, and gives up with ETIMEDOUT
+     * (NSPOSIXErrorDomain code 60) when its launch is slow. On CI's macOS runner that
+     * happened in three of nine runs, while the app went on launching. The steps after it
+     * wait for the screen, and say what they saw if it never came.
+     */
     public function open(string $url): void
     {
         $this->typing = false;
-        $this->recovering(fn () => $this->command->run('xcrun', ['simctl', 'openurl', $this->udid(), $url]));
+
+        try {
+            $this->recovering(fn () => $this->command->run('xcrun', ['simctl', 'openurl', $this->udid(), $url]));
+        } catch (SimulatorException $exception) {
+            if (! str_contains($exception->getMessage(), 'NSPOSIXErrorDomain, code=60')) {
+                throw $exception;
+            }
+
+            VerboseLog::note("openurl timed out while the app launched; the steps wait for {$url}");
+        }
     }
 
     /**

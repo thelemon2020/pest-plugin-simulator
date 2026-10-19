@@ -114,7 +114,7 @@ NATIVEPHP_APP_VERSION_CODE=1
 'version_code' => (int) env('NATIVEPHP_APP_VERSION_CODE', 1),
 ```
 
-Without both, each test's first step waits for the unpack: 4 seconds a launch on an M1 Pro, and 10 to 20 on a GitHub macOS runner. With both, a rebuild at the same version would keep the old code, so after it builds the app the plugin removes the app's note of what it unpacked. The next launch unpacks the new code, and the launches after it do not.
+Without both, each test's first step waits for the unpack: 4 seconds a launch on an M1 Pro, and 10 to 20 on a GitHub macOS runner. With both, a rebuild at the same version would keep the old code, so before it builds the app the plugin removes the app's note of what it unpacked. The launch that ends the build unpacks the new code, and the launches after it do not.
 
 `php artisan native:run` runs in the directory the tests run from, and the `idb_companion` and emulator logs are written there. Set another directory with `Configuration::configure(['app_directory' => '/path/to/app'])`.
 
@@ -743,7 +743,7 @@ jobs:
           tests: tests/Simulator
 ```
 
-The action installs `idb-companion` from Facebook's tap. It runs the tests on the newest iPhone the runner's Xcode has. Pass `--device` in `pest-arguments` for another. Its inputs are the Android action's, without the emulator ones: `app-directory`, `tests`, `pest-arguments`, `setup-php`, `php-version`, `php-extensions`, and `artifact-prefix`, which is `ios` by default. A macOS runner's minutes cost ten times a Linux runner's, so this repository runs its iOS job by hand and once a week.
+The action installs `idb_companion` 1.6.6, the version this repository's iOS job runs, from Facebook's release archive, checked against its checksum. Facebook's tap only offers the newest. It runs the tests on the newest iPhone the runner's Xcode has. Pass `--device` in `pest-arguments` for another. Its inputs are the Android action's, without the emulator ones: `app-directory`, `tests`, `pest-arguments`, `setup-php`, `php-version`, `php-extensions`, and `artifact-prefix`, which is `ios` by default. A macOS runner's minutes cost ten times a Linux runner's, so this repository runs its iOS job by hand and once a week.
 
 ### Parallel runs
 
@@ -762,4 +762,4 @@ When Pest finishes, it puts back the appearance, text size, location, and status
 
 A run stopped with Ctrl+C or `SIGTERM`, or one that dies of a fatal error, shuts them down too. Catching the signal needs PHP's `pcntl` extension.
 
-A `simctl`, `adb`, or other tool call that does not finish in 60 seconds is stopped, and the test fails naming that command. Listing, booting, erasing, and shutting down Simulators get 10 minutes. `native:run` gets 30.
+A `simctl`, `adb`, or other tool call that does not finish in 60 seconds is stopped, and the test fails naming that command. Listing, booting, erasing, and shutting down Simulators, granting permissions, and adding a photo get 10 minutes. `native:run` gets 30.

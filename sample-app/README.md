@@ -27,7 +27,7 @@ Three tests skip themselves on purpose:
 - The screenshot test in `TabsTest` skips on CI. A baseline belongs to the machine that saved it.
 - The slider test in `ControlsTest` skips on CI's iOS Simulator. A drag there moved the slider by 50 to 85 percent of its length, a different share each time, so `slide()` could not land on one value.
 
-On CI each step waits up to 30 seconds instead of 15 (`tests/Pest.php`). GitHub's macOS runner is several times slower than a Mac.
+On CI each step waits up to 60 seconds instead of 15 (`tests/Pest.php`). GitHub's macOS runner is several times slower than a Mac, and stalled for half a minute at times.
 
 `.env.example` sets `NATIVEPHP_APP_VERSION_CODE=1`, and `config/nativephp.php` reads it with `(int)`. NativePHP 4.6's iOS app compares the build number in its bundle with the one in the `.env` it unpacked. Without both, they never match, so the app unpacks its Laravel code and runs its migrations on every launch. Every test launches the app after copying the database, and on CI's macOS runner that took 10 to 20 seconds of each test's first 15-second step.
 

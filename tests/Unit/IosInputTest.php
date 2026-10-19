@@ -11,6 +11,7 @@ use NativePhp\Simulator\Grpc\Protobuf;
 use NativePhp\Simulator\Hid;
 use NativePhp\Simulator\IosDriver;
 use Tests\Support\RecordingClient;
+use Tests\Support\RecordingCommand;
 
 afterEach(function () {
     Configuration::reset();
@@ -206,6 +207,26 @@ it('reads until the reader in the simulator has started, before the app is built
         null,
     ], 1],
 ]);
+
+it('leaves an app that is slow to take a link to the steps after it', function () {
+    $command = new RecordingCommand;
+    $command->failures = ['openurl' => "An error was encountered processing the command (domain=NSPOSIXErrorDomain, code=60):\nSimulator device failed to open simulatorsample://controls.\nOperation timed out"];
+    $driver = new IosDriver(new Device('ios', 'iPhone', true), Configuration::resolve(), $command);
+    (new ReflectionProperty(IosDriver::class, 'udid'))->setValue($driver, 'UDID');
+
+    $driver->open('simulatorsample://controls');
+
+    expect($command->calls)->toBe([['xcrun', ['simctl', 'openurl', 'UDID', 'simulatorsample://controls']]]);
+});
+
+it('still fails a link the app cannot take', function () {
+    $command = new RecordingCommand;
+    $command->failures = ['openurl' => "An error was encountered processing the command (domain=NSOSStatusErrorDomain, code=-10814):\nSimulator device failed to open simulatorsample://controls."];
+    $driver = new IosDriver(new Device('ios', 'iPhone', true), Configuration::resolve(), $command);
+    (new ReflectionProperty(IosDriver::class, 'udid'))->setValue($driver, 'UDID');
+
+    expect(fn () => $driver->open('simulatorsample://controls'))->toThrow(SimulatorException::class, 'code=-10814');
+});
 
 it('allows a back gesture its own duration on top of the call timeout', function () {
     $client = new RecordingClient;
