@@ -99,6 +99,7 @@ final class IosDriver implements Driver
 
         if ($this->client !== $client) {
             $this->connectKeyboard();
+            $this->warmUpReader();
         }
 
         $this->buildOnce();
@@ -106,6 +107,38 @@ final class IosDriver implements Driver
         if (! $parallel) {
             self::$ready = $this;
         }
+    }
+
+    /**
+     * How long a new companion's first read may take to start idb's reader in the Simulator.
+     */
+    private const READER_WARM_UP_SECONDS = 90.0;
+
+    /**
+     * The first read a new companion makes starts idb's reader inside the Simulator. On CI's
+     * macOS runner, right after the build, that took 45 seconds of the first test's 60: two
+     * reads ran out of time and one could not reach the reader, while the "Open in" prompt
+     * waited to be answered. Reading here, before the app is built, pays for it while no step
+     * is waiting. It reads again only while the reader is still starting: a read that ran out
+     * of time, or could not reach the reader. Any other answer, even an error, means it is up.
+     */
+    private function warmUpReader(): void
+    {
+        $deadline = microtime(true) + self::READER_WARM_UP_SECONDS;
+
+        do {
+            try {
+                $this->accessibilityJson();
+
+                return;
+            } catch (SimulatorException $exception) {
+                $message = $exception->getMessage();
+
+                if (! str_contains($message, 'did not answer in time') && ! str_contains($message, 'guest reader failed')) {
+                    return;
+                }
+            }
+        } while (microtime(true) < $deadline);
     }
 
     /**

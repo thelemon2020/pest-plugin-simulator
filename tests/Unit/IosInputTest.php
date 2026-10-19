@@ -183,6 +183,30 @@ it('waits the gap between keys after a symbol before the next key', function () 
         ->and(($client->sends[2][2] - $client->sends[1][2]) / 1e6)->toBeGreaterThanOrEqual(20.0);
 });
 
+it('reads until the reader in the simulator has started, before the app is built', function (array $answers, int $reads) {
+    $client = scriptedReads($answers);
+    $driver = iosInputDriver($client);
+
+    (new ReflectionMethod(IosDriver::class, 'warmUpReader'))->invoke($driver);
+
+    expect($client->reads)->toBe($reads);
+})->with([
+    'an answer at once' => [[null], 1],
+    'two reads out of time, then an answer' => [[
+        new CompanionUnresponsive('Companion [accessibility_info] did not answer in time: Operation timed out after 15002 milliseconds with 0 bytes received'),
+        new SimulatorException('Companion [accessibility_info] failed: The axbridge guest reader failed: timed out connecting to the serve socket'),
+        null,
+    ], 3],
+    'an error from a reader that is up' => [[
+        new SimulatorException('Companion [accessibility_info] failed: axbridge could not resolve the frontmost application'),
+        null,
+    ], 1],
+    'no companion to reach' => [[
+        new CompanionUnresponsive('Companion [accessibility_info] is not reachable at http://127.0.0.1:10882: Failed to connect'),
+        null,
+    ], 1],
+]);
+
 it('allows a back gesture its own duration on top of the call timeout', function () {
     $client = new RecordingClient;
     $driver = iosInputDriver($client);
@@ -278,6 +302,40 @@ function timedClient(): Client
             $this->sends[] = ['streamStrokes', $strokes, hrtime(true)];
 
             return '';
+        }
+    };
+}
+
+/**
+ * A client whose reads fail or answer in turn: an exception fails that read, and null
+ * answers it with an empty screen. The last one repeats.
+ *
+ * @param  list<SimulatorException|null>  $answers
+ */
+function scriptedReads(array $answers): Client
+{
+    return new class($answers) extends Client
+    {
+        public int $reads = 0;
+
+        /**
+         * @param  list<SimulatorException|null>  $answers
+         */
+        public function __construct(private readonly array $answers)
+        {
+            parent::__construct('http://127.0.0.1:0');
+        }
+
+        public function unary(string $method, string $message): string
+        {
+            $answer = $this->answers[min($this->reads, count($this->answers) - 1)];
+            $this->reads++;
+
+            if ($answer !== null) {
+                throw $answer;
+            }
+
+            return Protobuf::messageField(1, (string) json_encode(['elements' => []]));
         }
     };
 }
