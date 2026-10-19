@@ -1,7 +1,6 @@
 name: Pest Simulator on the iOS Simulator
 description: >-
-  Runs a NativePHP app's Pest device tests on an iOS Simulator, on a macOS runner. Not
-  verified in CI yet: this repository's iOS device job does not pass on GitHub's runner.
+  Runs a NativePHP app's Pest device tests on an iOS Simulator, on a macOS runner.
   Check out the app, install its Composer dependencies, and make its .env first. This
   does the rest: PHP, idb_companion, native:install, the tests, a timing summary, and
   the logs as artifacts.

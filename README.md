@@ -646,7 +646,7 @@ The doctor checks `simctl`, `idb_companion`, the Android SDK, `adb`, `emulator`,
 For your app's device tests on GitHub Actions, this repository has an action for each platform. Run each platform as its own job.
 
 - `thelemon2020/pest-plugin-simulator/actions/android` boots an Android Emulator on a Linux runner. [`.github/workflows/devices.yml`](.github/workflows/devices.yml) runs the sample app's tests with it.
-- `thelemon2020/pest-plugin-simulator/actions/ios` boots an iOS Simulator on a macOS runner. It is not verified in CI yet: this repository's own iOS job does not pass on GitHub's runner.
+- `thelemon2020/pest-plugin-simulator/actions/ios` boots an iOS Simulator on a macOS runner. [`.github/workflows/devices.yml`](.github/workflows/devices.yml) runs the sample app's tests with it.
 
 No release has the actions yet, so the examples use `@main`. Once a release has them, pin its tag instead, so a change on main can't change your CI.
 
@@ -715,7 +715,7 @@ The Android Emulator starts with no window and draws in software. If a boot does
 
 ### iOS
 
-This action is not verified in CI yet. This repository's own iOS job does not pass on GitHub's runner.
+This repository's iOS job runs the sample app's tests with this action. GitHub's macOS runner is several times slower than a Mac, so the sample app gives each step 60 seconds on CI.
 
 ```yaml
 jobs:
