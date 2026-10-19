@@ -68,7 +68,7 @@ it('builds ios when the installed app was built for a device', function () {
 
     buildOnce($driver);
 
-    expect($command->calls[2])->toBe([
+    expect($command->calls[3])->toBe([
         'php',
         ['artisan', 'native:run', 'ios', 'UDID', '--build=debug', '--no-tty'],
     ]);
@@ -82,7 +82,7 @@ it('builds ios when the installed app has no Info.plist to read', function () {
 
     buildOnce($driver);
 
-    expect($command->calls[2][0])->toBe('php');
+    expect($command->calls[3][0])->toBe('php');
 });
 
 it('builds ios when the debug app is not installed', function () {
@@ -94,6 +94,7 @@ it('builds ios when the debug app is not installed', function () {
 
     expect($command->calls)->toBe([
         ['xcrun', ['simctl', 'get_app_container', 'UDID', 'com.example.app', 'app']],
+        ['xcrun', ['simctl', 'get_app_container', 'UDID', 'com.example.app', 'data']],
         ['php', ['artisan', 'native:run', 'ios', 'UDID', '--build=debug', '--no-tty']],
     ])->and($command->timeouts['php artisan native:run ios UDID --build=debug --no-tty'])->toBe((float) Command::BUILD_TIMEOUT);
 });
@@ -107,8 +108,39 @@ it('rebuilds ios when asked', function () {
     buildOnce($driver);
 
     expect($command->calls)->toBe([
+        ['xcrun', ['simctl', 'get_app_container', 'UDID', 'com.example.app', 'data']],
         ['php', ['artisan', 'native:run', 'ios', 'UDID', '--build=debug', '--no-tty']],
     ]);
+});
+
+it('makes a rebuilt ios app unpack its Laravel code when native:run launches it', function () {
+    Arguments::intercept(['--rebuild']);
+    $container = sys_get_temp_dir().'/simulator-data-'.bin2hex(random_bytes(4));
+    mkdir($container.'/Documents/app', 0777, true);
+    file_put_contents($container.'/Documents/app/installed.version', '1.0.0b1');
+    file_put_contents($container.'/Documents/app/artisan', '');
+    $command = new RecordingCommand($container);
+    $noted = null;
+    $command->responder = function (string $binary, array $arguments) use ($container, &$noted): ?string {
+        if (in_array('native:run', $arguments, true)) {
+            $noted = is_file($container.'/Documents/app/installed.version');
+        }
+
+        return null;
+    };
+    $driver = iosBuildDriver($command);
+
+    try {
+        buildOnce($driver);
+
+        // The app unpacks its bundle again only when the bundle's version differs from the
+        // one in this note, and a rebuild keeps the version. The note is gone before the
+        // build launches the app.
+        expect($noted)->toBeFalse()
+            ->and(is_file($container.'/Documents/app/artisan'))->toBeTrue();
+    } finally {
+        exec('rm -rf '.escapeshellarg($container));
+    }
 });
 
 it('keeps an installed android debug app without building or launching', function () {

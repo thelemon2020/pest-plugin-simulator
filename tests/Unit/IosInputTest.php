@@ -7,9 +7,11 @@ use NativePhp\Simulator\Device;
 use NativePhp\Simulator\Exceptions\CompanionUnresponsive;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 use NativePhp\Simulator\Grpc\Client;
+use NativePhp\Simulator\Grpc\Protobuf;
 use NativePhp\Simulator\Hid;
 use NativePhp\Simulator\IosDriver;
 use Tests\Support\RecordingClient;
+use Tests\Support\RecordingCommand;
 
 afterEach(function () {
     Configuration::reset();
@@ -170,6 +172,62 @@ it('types each key as a stroke of its own', function () {
     expect($sends)->toBe([['streamStrokes', 'hid', Hid::keystrokes('aB'), 20_000]]);
 });
 
+it('waits the gap between keys after a symbol before the next key', function () {
+    $client = timedClient();
+    $driver = iosInputDriver($client);
+
+    $driver->text('a@e');
+
+    expect(array_column($client->sends, 0))->toBe(['streamStrokes', 'stream', 'streamStrokes'])
+        ->and($client->sends[1][1])->toBe(Hid::text('@'))
+        ->and($client->sends[2][1])->toBe(Hid::keystrokes('e'))
+        ->and(($client->sends[2][2] - $client->sends[1][2]) / 1e6)->toBeGreaterThanOrEqual(20.0);
+});
+
+it('reads until the reader in the simulator has started, before the app is built', function (array $answers, int $reads) {
+    $client = scriptedReads($answers);
+    $driver = iosInputDriver($client);
+
+    (new ReflectionMethod(IosDriver::class, 'warmUpReader'))->invoke($driver);
+
+    expect($client->reads)->toBe($reads);
+})->with([
+    'an answer at once' => [[null], 1],
+    'two reads out of time, then an answer' => [[
+        new CompanionUnresponsive('Companion [accessibility_info] did not answer in time: Operation timed out after 15002 milliseconds with 0 bytes received'),
+        new SimulatorException('Companion [accessibility_info] failed: The axbridge guest reader failed: timed out connecting to the serve socket'),
+        null,
+    ], 3],
+    'an error from a reader that is up' => [[
+        new SimulatorException('Companion [accessibility_info] failed: axbridge could not resolve the frontmost application'),
+        null,
+    ], 1],
+    'no companion to reach' => [[
+        new CompanionUnresponsive('Companion [accessibility_info] is not reachable at http://127.0.0.1:10882: Failed to connect'),
+        null,
+    ], 1],
+]);
+
+it('leaves an app that is slow to take a link to the steps after it', function () {
+    $command = new RecordingCommand;
+    $command->failures = ['openurl' => "An error was encountered processing the command (domain=NSPOSIXErrorDomain, code=60):\nSimulator device failed to open simulatorsample://controls.\nOperation timed out"];
+    $driver = new IosDriver(new Device('ios', 'iPhone', true), Configuration::resolve(), $command);
+    (new ReflectionProperty(IosDriver::class, 'udid'))->setValue($driver, 'UDID');
+
+    $driver->open('simulatorsample://controls');
+
+    expect($command->calls)->toBe([['xcrun', ['simctl', 'openurl', 'UDID', 'simulatorsample://controls']]]);
+});
+
+it('still fails a link the app cannot take', function () {
+    $command = new RecordingCommand;
+    $command->failures = ['openurl' => "An error was encountered processing the command (domain=NSOSStatusErrorDomain, code=-10814):\nSimulator device failed to open simulatorsample://controls."];
+    $driver = new IosDriver(new Device('ios', 'iPhone', true), Configuration::resolve(), $command);
+    (new ReflectionProperty(IosDriver::class, 'udid'))->setValue($driver, 'UDID');
+
+    expect(fn () => $driver->open('simulatorsample://controls'))->toThrow(SimulatorException::class, 'code=-10814');
+});
+
 it('allows a back gesture its own duration on top of the call timeout', function () {
     $client = new RecordingClient;
     $driver = iosInputDriver($client);
@@ -224,12 +282,83 @@ function keyboardTree(float $keysY): string
     ]]);
 }
 
-function iosInputDriver(RecordingClient $client): IosDriver
+function iosInputDriver(Client $client): IosDriver
 {
     $driver = new IosDriver(new Device('ios', 'iPhone', true), Configuration::resolve());
     (new ReflectionProperty(IosDriver::class, 'client'))->setValue($driver, $client);
 
     return $driver;
+}
+
+/**
+ * A client that reads a screen with no keyboard on it, and keeps each key it is sent with
+ * when it was sent, in nanoseconds.
+ */
+function timedClient(): Client
+{
+    return new class extends Client
+    {
+        /** @var list<array{0: string, 1: list<string>|list<list<string>>, 2: int}> */
+        public array $sends = [];
+
+        public function __construct()
+        {
+            parent::__construct('http://127.0.0.1:0');
+        }
+
+        public function unary(string $method, string $message): string
+        {
+            return $method === 'accessibility_info' ? Protobuf::messageField(1, (string) json_encode(['elements' => []])) : '';
+        }
+
+        public function stream(string $method, array $messages, float $durationSeconds = 0.0): string
+        {
+            $this->sends[] = ['stream', $messages, hrtime(true)];
+
+            return '';
+        }
+
+        public function streamStrokes(string $method, array $strokes, int $gapMicroseconds): string
+        {
+            $this->sends[] = ['streamStrokes', $strokes, hrtime(true)];
+
+            return '';
+        }
+    };
+}
+
+/**
+ * A client whose reads fail or answer in turn: an exception fails that read, and null
+ * answers it with an empty screen. The last one repeats.
+ *
+ * @param  list<SimulatorException|null>  $answers
+ */
+function scriptedReads(array $answers): Client
+{
+    return new class($answers) extends Client
+    {
+        public int $reads = 0;
+
+        /**
+         * @param  list<SimulatorException|null>  $answers
+         */
+        public function __construct(private readonly array $answers)
+        {
+            parent::__construct('http://127.0.0.1:0');
+        }
+
+        public function unary(string $method, string $message): string
+        {
+            $answer = $this->answers[min($this->reads, count($this->answers) - 1)];
+            $this->reads++;
+
+            if ($answer !== null) {
+                throw $answer;
+            }
+
+            return Protobuf::messageField(1, (string) json_encode(['elements' => []]));
+        }
+    };
 }
 
 /**

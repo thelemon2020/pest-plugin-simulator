@@ -104,6 +104,18 @@ If the same value is set in more than one place, the plugin uses `Configuration:
 
 `timeout`, `permissions`, and `record_failures` are not `.env` variables. Set a timeout with `Configuration::configure(['timeout' => 15])`. The timeout is how long each step waits, 15 seconds by default. The first screen after the plugin builds and installs the app gets up to 60 seconds from the launch instead, because a NativePHP app unpacks its Laravel code and runs its artisan commands on its first launch before it draws anything. On CI's Android emulator that took 15.5 seconds. Set permissions with `permissions()` inside a test, or with `Configuration::configure(['permissions' => ['location']])` for every test. `record_failures` is under [Debug a flaky test](#debug-a-flaky-test).
 
+A test that copies the database stops the app, so its first screen launches the app again. NativePHP 4.6's iOS app unpacks its Laravel code on every launch, not only the first, unless the build number reads the same on both sides of its check. Set it in `.env`, and read it as a number in `config/nativephp.php`:
+
+```dotenv
+NATIVEPHP_APP_VERSION_CODE=1
+```
+
+```php
+'version_code' => (int) env('NATIVEPHP_APP_VERSION_CODE', 1),
+```
+
+Without both, each test's first step waits for the unpack: 4 seconds a launch on an M1 Pro, and 10 to 20 on a GitHub macOS runner. With both, a rebuild at the same version would keep the old code, so before it builds the app the plugin removes the app's note of what it unpacked. The launch that ends the build unpacks the new code, and the launches after it do not.
+
 `php artisan native:run` runs in the directory the tests run from, and the `idb_companion` and emulator logs are written there. Set another directory with `Configuration::configure(['app_directory' => '/path/to/app'])`.
 
 ## Write a test
@@ -634,7 +646,7 @@ The doctor checks `simctl`, `idb_companion`, the Android SDK, `adb`, `emulator`,
 For your app's device tests on GitHub Actions, this repository has an action for each platform. Run each platform as its own job.
 
 - `thelemon2020/pest-plugin-simulator/actions/android` boots an Android Emulator on a Linux runner. [`.github/workflows/devices.yml`](.github/workflows/devices.yml) runs the sample app's tests with it.
-- `thelemon2020/pest-plugin-simulator/actions/ios` boots an iOS Simulator on a macOS runner. It is not verified in CI yet: this repository's own iOS job does not pass on GitHub's runner.
+- `thelemon2020/pest-plugin-simulator/actions/ios` boots an iOS Simulator on a macOS runner. [`.github/workflows/devices.yml`](.github/workflows/devices.yml) runs the sample app's tests with it.
 
 No release has the actions yet, so the examples use `@main`. Once a release has them, pin its tag instead, so a change on main can't change your CI.
 
@@ -703,7 +715,7 @@ The Android Emulator starts with no window and draws in software. If a boot does
 
 ### iOS
 
-This action is not verified in CI yet. This repository's own iOS job does not pass on GitHub's runner.
+This repository's iOS job runs the sample app's tests with this action. GitHub's macOS runner is several times slower than a Mac, so the sample app gives each step 60 seconds on CI.
 
 ```yaml
 jobs:
@@ -731,7 +743,7 @@ jobs:
           tests: tests/Simulator
 ```
 
-The action installs `idb-companion` from Facebook's tap. It runs the tests on the newest iPhone the runner's Xcode has. Pass `--device` in `pest-arguments` for another. Its inputs are the Android action's, without the emulator ones: `app-directory`, `tests`, `pest-arguments`, `setup-php`, `php-version`, `php-extensions`, and `artifact-prefix`, which is `ios` by default. A macOS runner's minutes cost ten times a Linux runner's, so this repository runs its iOS job by hand and once a week.
+The action installs `idb_companion` 1.6.6, the version this repository's iOS job runs, from Facebook's release archive, checked against its checksum. Facebook's tap only offers the newest. It runs the tests on the newest iPhone the runner's Xcode has. Pass `--device` in `pest-arguments` for another. Its inputs are the Android action's, without the emulator ones: `app-directory`, `tests`, `pest-arguments`, `setup-php`, `php-version`, `php-extensions`, and `artifact-prefix`, which is `ios` by default. A macOS runner's minutes cost ten times a Linux runner's, so this repository runs its iOS job by hand and once a week.
 
 ### Parallel runs
 
@@ -750,4 +762,4 @@ When Pest finishes, it puts back the appearance, text size, location, and status
 
 A run stopped with Ctrl+C or `SIGTERM`, or one that dies of a fatal error, shuts them down too. Catching the signal needs PHP's `pcntl` extension.
 
-A `simctl`, `adb`, or other tool call that does not finish in 60 seconds is stopped, and the test fails naming that command. Listing, booting, erasing, and shutting down Simulators get 10 minutes. `native:run` gets 30.
+A `simctl`, `adb`, or other tool call that does not finish in 60 seconds is stopped, and the test fails naming that command. Listing, booting, erasing, and shutting down Simulators, granting permissions, and adding a photo get 10 minutes. `native:run` gets 30.

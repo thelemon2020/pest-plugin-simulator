@@ -99,6 +99,7 @@ final class IosDriver implements Driver
 
         if ($this->client !== $client) {
             $this->connectKeyboard();
+            $this->warmUpReader();
         }
 
         $this->buildOnce();
@@ -106,6 +107,41 @@ final class IosDriver implements Driver
         if (! $parallel) {
             self::$ready = $this;
         }
+    }
+
+    /**
+     * How long a new companion's first read may take to start idb's reader in the Simulator.
+     */
+    private const READER_WARM_UP_SECONDS = 90.0;
+
+    /**
+     * The first read a new companion makes starts idb's reader inside the Simulator. On CI's
+     * macOS runner, right after the build, that took 45 seconds of the first test's 60: two
+     * reads ran out of time and one could not reach the reader, while the "Open in" prompt
+     * waited to be answered. Reading here, before the app is built, pays for it while no step
+     * is waiting. It reads again only while the reader is still starting: a read that ran out
+     * of time, or could not reach the reader. Any other answer, even an error, means it is up.
+     */
+    private function warmUpReader(): void
+    {
+        $deadline = microtime(true) + self::READER_WARM_UP_SECONDS;
+
+        do {
+            try {
+                $this->accessibilityJson();
+
+                return;
+            } catch (SimulatorException $exception) {
+                $message = $exception->getMessage();
+
+                if (! str_contains($message, 'did not answer in time') && ! str_contains($message, 'guest reader failed')) {
+                    return;
+                }
+            }
+
+            // A reader that is still starting can fail at once, so the next read waits a little.
+            usleep(250_000);
+        } while (microtime(true) < $deadline);
     }
 
     /**
@@ -273,10 +309,25 @@ final class IosDriver implements Driver
         }
     }
 
+    /**
+     * simctl openurl waits for the app to take the link, and gives up with ETIMEDOUT
+     * (NSPOSIXErrorDomain code 60) when its launch is slow. On CI's macOS runner that
+     * happened in three of nine runs, while the app went on launching. The steps after it
+     * wait for the screen, and say what they saw if it never came.
+     */
     public function open(string $url): void
     {
         $this->typing = false;
-        $this->recovering(fn () => $this->command->run('xcrun', ['simctl', 'openurl', $this->udid(), $url]));
+
+        try {
+            $this->recovering(fn () => $this->command->run('xcrun', ['simctl', 'openurl', $this->udid(), $url]));
+        } catch (SimulatorException $exception) {
+            if (! str_contains($exception->getMessage(), 'NSPOSIXErrorDomain, code=60')) {
+                throw $exception;
+            }
+
+            VerboseLog::note("openurl timed out while the app launched; the steps wait for {$url}");
+        }
     }
 
     /**
@@ -571,6 +622,11 @@ final class IosDriver implements Driver
         foreach (IosText::pieces($text) as $piece) {
             if (IosText::paste($piece)) {
                 $this->insertSymbol($piece);
+
+                // The key after a symbol gets the same gap as the keys inside a piece. Sent
+                // 4ms after Shift-2, the "e" of "ada@example.com" was lost on CI's runner, in
+                // each of three tries.
+                usleep(self::TEXT_KEY_GAP_MICROSECONDS);
 
                 continue;
             }
@@ -1149,6 +1205,7 @@ final class IosDriver implements Driver
             return;
         }
 
+        $this->forgetUnpackedApp();
         $this->command->run('php', [
             'artisan', 'native:run', 'ios', $this->udid(), '--build=debug', '--no-tty',
         ], $this->configuration->appDirectory());
@@ -1163,6 +1220,33 @@ final class IosDriver implements Driver
         $this->freshlyInstalled = false;
 
         return $fresh;
+    }
+
+    /**
+     * NativePHP's iOS app unpacks its Laravel bundle on launch only when the bundle's version
+     * and build number differ from the ones it unpacked last, or the version is DEBUG. It
+     * notes what it unpacked in Documents/app/installed.version. So a rebuild at the same
+     * version installs new PHP that the app never unpacks, as on Android. Removing that note
+     * before a build makes the launch native:run ends with unpack the new bundle. After the
+     * build would be too late on CI's macOS runner: a first unpack there took over a minute,
+     * and the first test's launch would make it again. The database and storage are in
+     * Application Support, and stay. A new install has no data container, and nothing to do.
+     */
+    private function forgetUnpackedApp(): void
+    {
+        try {
+            $container = rtrim(trim($this->command->run('xcrun', [
+                'simctl', 'get_app_container', $this->udid(), $this->configuration->bundleId(), 'data',
+            ])), '/');
+        } catch (SimulatorException) {
+            return;
+        }
+
+        $installed = $container.'/Documents/app/installed.version';
+
+        if ($container !== '' && is_file($installed)) {
+            @unlink($installed);
+        }
     }
 
     /**

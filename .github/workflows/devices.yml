@@ -94,17 +94,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The PHP that sample-app/nativephp.lock bundles into the app. With any other, the
-      # build stops to ask whether to bundle that one instead, and nothing answers it.
+      # The sample app's own setup, as a user's job does it before the action. Composer
+      # needs PHP 8.4 or newer for this app. The action then sets up the PHP that
+      # sample-app/nativephp.lock names, 8.5 too, and checks it.
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.5'
-          extensions: exif, gd, sodium, sqlite3, pdo_sqlite, zip
-          ini-values: memory_limit=2G
+          extensions: sqlite3, pdo_sqlite
           coverage: none
-
-      - name: Install idb_companion
-        run: brew install facebook/fb/idb-companion
 
       - name: Install the sample app
         run: |
@@ -114,41 +111,9 @@ jobs:
           touch database/database.sqlite
           php artisan migrate --force
 
-      - name: Install the iOS project
-        run: php artisan native:install ios --no-interaction
-
-      # No --device: the plugin takes the newest iPhone the runner's Xcode has.
-      - name: Run the device tests
-        run: php vendor/bin/pest tests/Simulator --ios --simulator-verbose
-
-      # Only a report: a missing log or a pipe closed early must not fail the job.
-      - name: Summarise the timings
-        if: always()
-        run: |
-          set +e +o pipefail
-          log=simulator-logs/verbose.log
-          [ -f "$log" ] || exit 0
-          {
-            echo '### iOS: slowest commands and steps'
-            echo '```'
-            awk '$3 ~ /^[0-9.]+s$/ { t = $3; sub(/s$/, "", t); $1 = $2 = $3 = ""; printf "%8.1fs %s\n", t, substr($0, 4) }' "$log" | sort -rn | head -25 | cut -c1-180
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload the timings
-        if: always()
-        uses: actions/upload-artifact@v4
+      # Everything else is actions/ios, the action this repository gives users, so this
+      # job tests it.
+      - uses: ./actions/ios
         with:
-          name: ios-timings
-          if-no-files-found: ignore
-          path: sample-app/simulator-logs/
-
-      - name: Upload what failed
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ios-failures
-          if-no-files-found: ignore
-          path: |
-            sample-app/simulator-failures/
-            sample-app/companion*.log
+          app-directory: sample-app
+          tests: tests/Simulator
