@@ -99,7 +99,8 @@ it('fails the test on a stray request the app made, as an app error', function (
         }
     });
 
-    expect(fn () => AppLog::check($this->driver))->toThrow(AppError::class, 'The app logged Illuminate\Http\Client\StrayRequestException: Attempted request to [https://api.shipping.test/rates] without a matching fake.');
+    // Laravel 12 throws a StrayRequestException, 11 a RuntimeException.
+    expect(fn () => AppLog::check($this->driver))->toThrow(AppError::class, 'Attempted request to [https://api.shipping.test/rates] without a matching fake.');
 });
 
 it('sends a fake the test adds after the first screen, and clears what the app recorded before it, as Laravel does', function () {

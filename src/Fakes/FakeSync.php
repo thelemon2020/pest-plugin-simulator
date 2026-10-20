@@ -212,6 +212,10 @@ final class FakeSync
         $set = [];
 
         foreach ($current as $key => $value) {
+            if (self::internal($key)) {
+                continue;
+            }
+
             if (! array_key_exists($key, self::$config) || self::$config[$key] !== $value) {
                 self::requirePlain($key, $value);
                 $set[$key] = $value;
@@ -221,7 +225,7 @@ final class FakeSync
         $forget = [];
 
         foreach (array_keys(array_diff_key(self::$config, $current)) as $key) {
-            if (self::under(array_keys($current), $key) || self::above(array_keys($set), $key)) {
+            if (self::internal($key) || self::under(array_keys($current), $key) || self::above(array_keys($set), $key)) {
                 continue;
             }
 
@@ -248,6 +252,15 @@ final class FakeSync
         if (is_object($value) && ! $value instanceof \Closure) {
             throw new SimulatorException("config('{$key}') holds a ".get_debug_type($value).', which cannot be sent to the app. Set a string, a number, a bool, null, or an array of them.');
         }
+    }
+
+    /**
+     * Config Laravel sets itself while a test runs: the first deprecation configures the
+     * deprecations log channel. It is not the test's to send.
+     */
+    private static function internal(string $key): bool
+    {
+        return str_starts_with($key, 'logging.deprecations') || str_starts_with($key, 'logging.channels.deprecations');
     }
 
     /**
