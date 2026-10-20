@@ -23,3 +23,7 @@ _Avoid_: UDID, emulator as a synonym for both platforms
 **Driver**:
 The platform-specific way a Screen taps, types, and reads the view.
 _Avoid_: Companion, bridge
+
+**Device database**:
+The app's own SQLite database on the device, which the test database is copied into and the app writes to. `assertDatabaseHas()` and `deviceDatabase()` read a copy pulled off the device.
+_Avoid_: App database, remote database

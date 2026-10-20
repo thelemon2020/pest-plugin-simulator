@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use NativePhp\Simulator\Configuration;
+use NativePhp\Simulator\DeviceDatabase;
 use NativePhp\Simulator\DeviceState;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 use NativePhp\Simulator\MobileSuite;
@@ -98,6 +99,23 @@ function enrollBiometrics(): void
     $driver = Sessions::get(Run::device());
     $driver->ensureReady();
     $driver->biometric('enroll');
+}
+
+/**
+ * The app's database as the device has it now, opened with writes turned off. One pull
+ * serves until the next Screen step. Call it after a step that waited for the app, such as
+ * assertSee(), so what the app wrote has landed.
+ */
+function deviceDatabase(): PDO
+{
+    if (! Run::inside()) {
+        throw new SimulatorException('deviceDatabase() only works inside a mobile() suite.');
+    }
+
+    $driver = Sessions::get(Run::device());
+    $driver->ensureReady();
+
+    return DeviceDatabase::open($driver);
 }
 
 function record(?string $path = null): void

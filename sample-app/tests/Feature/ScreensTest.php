@@ -1,6 +1,12 @@
 <?php
 
+use App\Models\Order;
 use Native\Mobile\Testing\Native;
+
+beforeEach(function () {
+    Order::query()->delete();
+    Order::insert([['id' => 1], ['id' => 2], ['id' => 3]]);
+});
 
 /*
  * The same screens the Simulator tests drive on a device, rendered in-process by
@@ -34,4 +40,6 @@ it('pays one order', function () {
     Native::visit('/orders')
         ->call('pay', 2)
         ->assertSet('paid', [1 => false, 2 => true, 3 => false]);
+
+    expect(Order::find(2)->status)->toBe('paid');
 });
