@@ -149,7 +149,7 @@ it('pushes a sqlite file onto the android emulator', function () {
             ->and($shell)->toContain("cp '{$second}' '{$database}.pest-")
             ->and($shell)->toMatch("#mv -f '{$database}\\.pest-[0-9a-f]{8}' '{$database}'#")
             ->and($shell)->toContain('exit $status')
-            ->and($command->calls[3])->toBe([$adb, ['-s', 'emulator-5554', 'shell', 'run-as', 'com.example.app', 'rm', '-f', $database.'-wal', $database.'-shm']]);
+            ->and($command->calls[3])->toBe([$adb, ['-s', 'emulator-5554', 'shell', "run-as 'com.example.app' rm -f '{$database}-wal' '{$database}-shm'"]]);
     } finally {
         unlink($source);
     }

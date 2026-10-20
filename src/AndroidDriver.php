@@ -249,9 +249,12 @@ final class AndroidDriver implements Driver
      */
     private function deleteAppFiles(array $relatives): void
     {
+        // adb joins its arguments with spaces and the device's shell splits them again, so
+        // each path is quoted here, the way installScript() quotes its own.
+        $paths = array_map(fn (string $relative): string => escapeshellarg(self::APP_STORAGE.'/'.ltrim($relative, '/')), $relatives);
+
         $this->command->run($this->adb(), [
-            '-s', $this->serial(), 'shell', 'run-as', $this->configuration->bundleId(), 'rm', '-f',
-            ...array_map(fn (string $relative): string => self::APP_STORAGE.'/'.ltrim($relative, '/'), $relatives),
+            '-s', $this->serial(), 'shell', 'run-as '.escapeshellarg($this->configuration->bundleId()).' rm -f '.implode(' ', $paths),
         ]);
     }
 

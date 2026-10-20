@@ -406,7 +406,10 @@ final class IosDriver implements Driver
 
         $temporary = $destination.'.pest-'.bin2hex(random_bytes(4));
 
+        // A copy that fails partway leaves what it wrote, so it is removed either way.
         if (! @copy($local, $temporary)) {
+            @unlink($temporary);
+
             throw new SimulatorException("Could not copy [{$local}] into [{$destination}].");
         }
 

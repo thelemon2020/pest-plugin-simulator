@@ -62,6 +62,28 @@ it('writes a file into the ios app container without stopping the app, and reads
     }
 });
 
+it('leaves no temp file in the ios app container when a write cannot land', function () {
+    $container = sys_get_temp_dir().'/simulator-ios-'.uniqid('', true);
+    $directory = $container.'/Library/Application Support/storage/app';
+    mkdir($directory.'/taken', 0777, true);
+    file_put_contents($this->local, 'one');
+    $driver = new IosDriver(new Device('ios', 'iPhone 17', true), Configuration::resolve(), new RecordingCommand($container));
+    (new ReflectionProperty(IosDriver::class, 'udid'))->setValue($driver, 'UDID');
+
+    // PHPUnit reports the warning rename() raises even under @.
+    set_error_handler(fn (): bool => true);
+
+    try {
+        // A directory in the way makes the rename fail after the copy landed.
+        expect(fn () => $driver->pushAppFile($this->local, 'storage/app/taken'))
+            ->toThrow(SimulatorException::class, 'Could not copy')
+            ->and(glob($directory.'/*.pest-*'))->toBe([]);
+    } finally {
+        restore_error_handler();
+        exec('rm -rf '.escapeshellarg($container));
+    }
+});
+
 it('reads nothing from an ios app that has no container', function () {
     $command = new RecordingCommand;
     $command->failures = ['get_app_container' => 'No such app'];
@@ -106,8 +128,11 @@ it('cleans up the temp file when a push into the android app fails', function ()
         ->toThrow(SimulatorException::class, 'run-as: package not debuggable');
 
     $remote = $command->calls[0][1][4];
+    $script = $command->calls[1][1][3];
 
-    expect(end($command->calls)[1])->toBe(['-s', 'emulator-5554', 'shell', 'rm', '-f', $remote]);
+    expect(end($command->calls)[1])->toBe(['-s', 'emulator-5554', 'shell', 'rm', '-f', $remote])
+        // The copy inside the app is removed by the same shell when a step after it fails.
+        ->and($script)->toMatch("#\\[ \\\$status -eq 0 \\] \\|\\| run-as 'com\\.example\\.app' rm -f 'app_storage/persisted_data/storage/framework/pest-simulator/fakes\\.pest-[0-9a-f]{8}'#");
 });
 
 it('pulls a file out of the android app byte for byte', function () {
@@ -146,7 +171,25 @@ it('removes a file from the android app', function () {
 
     androidWith($command)->removeAppFile('storage/framework/pest-simulator/fakes');
 
-    expect($command->calls[0][1])->toBe(['-s', 'emulator-5554', 'shell', 'run-as', 'com.example.app', 'rm', '-f', 'app_storage/persisted_data/storage/framework/pest-simulator/fakes']);
+    expect($command->calls[0][1])->toBe(['-s', 'emulator-5554', 'shell', "run-as 'com.example.app' rm -f 'app_storage/persisted_data/storage/framework/pest-simulator/fakes'"]);
+});
+
+it('quotes a path the device shell would split or expand', function () {
+    $command = new RecordingCommand;
+
+    androidWith($command)->removeAppFile('storage/app/my file;*.txt');
+
+    expect($command->calls[0][1])->toBe(['-s', 'emulator-5554', 'shell', "run-as 'com.example.app' rm -f 'app_storage/persisted_data/storage/app/my file;*.txt'"]);
+});
+
+it('quotes a path with a space when it pushes into the android app', function () {
+    $command = new RecordingCommand;
+    file_put_contents($this->local, 'one');
+
+    androidWith($command)->pushAppFile($this->local, 'storage/app/my file.txt');
+
+    expect($command->calls[1][1][3])->toContain("mv -f 'app_storage/persisted_data/storage/app/my file.txt.pest-")
+        ->and($command->calls[1][1][3])->toContain("' 'app_storage/persisted_data/storage/app/my file.txt'");
 });
 
 it('keeps the fake driver\'s app files in memory', function () {
