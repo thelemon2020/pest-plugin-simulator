@@ -6,6 +6,7 @@ namespace Tests\Support;
 
 use Closure;
 use Illuminate\Container\Container;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Events\RouteMatched;
@@ -31,6 +32,8 @@ final class DeviceApp
         $this->root = sys_get_temp_dir().'/simulator-device-app-'.uniqid('', true);
         Mirror::reset();
         mkdir($this->root.'/storage/logs', 0777, true);
+        mkdir($this->root.'/database', 0777, true);
+        touch($this->root.'/database/database.sqlite');
         $host = Container::getInstance();
 
         try {
@@ -41,6 +44,10 @@ final class DeviceApp
             $app['config']->set('app.debug', true);
             $app['config']->set('logging.default', 'single');
             $app['config']->set('logging.channels.single.path', $this->root.'/storage/logs/laravel.log');
+            // The app's own database, which the test's is not: rows written here are only
+            // on the device.
+            $app['config']->set('database.connections.app', ['driver' => 'sqlite', 'database' => $this->root.'/database/database.sqlite', 'prefix' => '', 'foreign_key_constraints' => true]);
+            $app['config']->set('database.default', 'app');
             $this->app = $app;
         } finally {
             self::point($host);
@@ -140,7 +147,7 @@ final class DeviceApp
 
     private function copyOut(): void
     {
-        foreach (['storage/framework/pest-simulator/recorded', 'storage/logs/laravel.log'] as $relative) {
+        foreach (['storage/framework/pest-simulator/recorded', 'storage/logs/laravel.log', 'database/database.sqlite'] as $relative) {
             $path = $this->root.'/'.$relative;
 
             if (is_file($path)) {
@@ -149,6 +156,10 @@ final class DeviceApp
         }
     }
 
+    /**
+     * Eloquent keeps its connections and its event dispatcher in statics, as the facades
+     * do, so they are pointed at the app too.
+     */
     private static function point(Container $app): void
     {
         Container::setInstance($app);
@@ -156,6 +167,14 @@ final class DeviceApp
 
         if ($app instanceof Application) {
             Facade::setFacadeApplication($app);
+        }
+
+        if ($app->bound('db')) {
+            Model::setConnectionResolver($app->make('db'));
+        }
+
+        if ($app->bound('events')) {
+            Model::setEventDispatcher($app->make('events'));
         }
     }
 }

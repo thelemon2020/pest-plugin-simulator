@@ -223,7 +223,7 @@ it('leaves an app without the fakes file as it is', function () {
     $this->device->tap(fn () => null);
 
     expect($this->device->run(fn () => app(Factory::class)))->toBe($real)
-        ->and($this->driver->appFiles)->toBe([])
+        ->and(array_keys($this->driver->appFiles))->toBe(['database/database.sqlite'])
         ->and(is_dir($this->device->root.'/storage/framework/pest-simulator'))->toBeFalse();
 });
 

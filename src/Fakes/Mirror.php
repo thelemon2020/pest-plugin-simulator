@@ -7,11 +7,23 @@ namespace NativePhp\Simulator\Fakes;
 use Carbon\Carbon;
 use Illuminate\Config\Repository;
 use Illuminate\Contracts\Container\Container;
+use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\ResponseSequence;
 use Illuminate\Routing\Events\RouteMatched;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Facade;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Testing\Fakes\BusFake;
+use Illuminate\Support\Testing\Fakes\EventFake;
+use Illuminate\Support\Testing\Fakes\MailFake;
+use Illuminate\Support\Testing\Fakes\NotificationFake;
+use Illuminate\Support\Testing\Fakes\QueueFake;
 use Native\Mobile\Edge\Contracts\TreeObserver;
 use Native\Mobile\Edge\TreeObservers;
 use ReflectionMethod;
@@ -25,9 +37,11 @@ use Throwable;
  * It does nothing unless the app runs inside NativePHP, outside production, with APP_DEBUG
  * on, and finds the fakes file in its storage. A release build has no dev dependencies, so
  * the plugin is not in it at all; the checks keep it inert in a build that has it anyway,
- * such as one for internal testing with APP_ENV=staging. Then it calls Laravel's own fakes, as the test did: fake() on
- * the Http client, Carbon::setTestNow(), config(). After each render it writes what the
- * fakes recorded to the record file, which the test's asserts read (see Records).
+ * such as one for internal testing with APP_ENV=staging. Then it calls Laravel's own fakes,
+ * as the test did: fake() on the Http client, Mail::fake(), Notification::fake(),
+ * Event::fake(), Queue::fake(), Bus::fake(), Carbon::setTestNow(), config(). After each
+ * render it writes what the fakes recorded to the record file, which the test's asserts
+ * read (see Records).
  *
  * A NativePHP screen is one request that does not end while the screen is up, so nothing
  * that runs after a request runs between two taps. The file is checked when a route is
@@ -67,6 +81,23 @@ final class Mirror
     private ?Factory $http = null;
 
     private ?string $written = null;
+
+    /**
+     * Laravel's fakes the app can run, by record section: the facade, Laravel's fake, and
+     * the arrays it records into, with how deep each one's entries sit.
+     *
+     * @var array<string, array{0: class-string, 1: class-string, 2: array<string, int>}>
+     */
+    private const FAKES = [
+        'mail' => [Mail::class, MailFake::class, ['mailables' => 1, 'queuedMailables' => 1]],
+        'notifications' => [Notification::class, NotificationFake::class, ['notifications' => 4]],
+        'events' => [Event::class, EventFake::class, ['events' => 2]],
+        'queue' => [Queue::class, QueueFake::class, ['jobs' => 2]],
+        'bus' => [Bus::class, BusFake::class, ['commands' => 2, 'commandsSync' => 2, 'commandsAfterResponse' => 2]],
+    ];
+
+    /** @var array<string, object> the app's own services the fakes stand in for */
+    private array $real = [];
 
     private function __construct(private readonly Container $app) {}
 
@@ -189,6 +220,17 @@ final class Mirror
                 $records['sequences'] = array_map(fn (ResponseSequence $sequence): bool => $sequence->isEmpty(), $this->sequences);
             }
 
+            foreach (self::FAKES as $section => [$facade, $class, $properties]) {
+                $fake = $facade::getFacadeRoot();
+
+                if (isset($this->real[$section]) && $fake instanceof $class) {
+                    foreach ($properties as $property => $depth) {
+                        $value = (new ReflectionProperty($class, $property))->getValue($fake);
+                        $records[$section][$property] = self::serializable(is_array($value) ? $value : [], $depth);
+                    }
+                }
+            }
+
             $bytes = serialize($records);
             $hash = sha1($bytes);
 
@@ -216,7 +258,7 @@ final class Mirror
     {
         $hashes = is_array($payload['hashes'] ?? null) ? $payload['hashes'] : [];
 
-        foreach (['now', 'config', 'http'] as $section) {
+        foreach (['now', 'config', 'http', ...array_keys(self::FAKES)] as $section) {
             $value = $payload[$section] ?? null;
             $hash = is_string($hashes[$section] ?? null) ? $hashes[$section] : '';
 
@@ -228,6 +270,7 @@ final class Mirror
                 'now' => $this->now(is_array($value) ? $value : null),
                 'config' => $this->config(is_array($value) ? $value : []),
                 'http' => $this->http(is_array($value) ? $value : null),
+                default => $this->fake($section, is_array($value) ? $value : null),
             };
 
             $this->applied[$section] = $hash;
@@ -389,6 +432,104 @@ final class Mirror
         return is_array($callback) ? array_values(array_filter($callback, fn (mixed $value): bool => $value instanceof ResponseSequence)) : [];
     }
 
+    /**
+     * Fakes one of Mail, Notification, Event, Queue, and Bus with Laravel's own fake, as
+     * the test did. Each starts from the app's own service, so a fake the test changed
+     * part way is made again from it, and keeps what the one before it recorded.
+     *
+     * @param  array<array-key, mixed>|null  $settings
+     */
+    private function fake(string $section, ?array $settings): void
+    {
+        [$facade, $class, $properties] = self::FAKES[$section];
+        $current = $facade::getFacadeRoot();
+
+        if ($settings === null) {
+            if (isset($this->real[$section])) {
+                $this->put($section, $this->real[$section]);
+                unset($this->real[$section]);
+            }
+
+            return;
+        }
+
+        $this->real[$section] ??= $current;
+        $this->put($section, $this->real[$section]);
+        $fake = Payload::unpack($settings['fake'] ?? []);
+        $fake = is_array($fake) ? $fake : [];
+
+        $made = match ($section) {
+            'mail' => Mail::fake(),
+            'notifications' => Notification::fake(),
+            // NativePHP's own events stay real: its screens listen for them.
+            'events' => Event::fake($fake)->except([...self::list($settings['dispatch'] ?? []), self::native(...)]),
+            'queue' => Queue::fake($fake)->except(self::list($settings['queue'] ?? [])),
+            'bus' => Bus::fake($fake)->except(self::list($settings['dispatch'] ?? [])),
+            default => throw new \LogicException("No fake for [{$section}]."),
+        };
+
+        if ($current instanceof $class && $current !== $this->real[$section]) {
+            foreach (array_keys($properties) as $property) {
+                $recorded = new ReflectionProperty($class, $property);
+                $recorded->setValue($made, $recorded->getValue($current));
+            }
+        }
+    }
+
+    private function put(string $section, object $service): void
+    {
+        $facade = self::FAKES[$section][0];
+        $facade::swap($service);
+
+        if ($section === 'events' && $service instanceof Dispatcher) {
+            Model::setEventDispatcher($service);
+        }
+    }
+
+    private static function native(mixed $event): bool
+    {
+        return is_string($event) && str_starts_with($event, 'Native\\');
+    }
+
+    /**
+     * @return list<mixed>
+     */
+    private static function list(mixed $value): array
+    {
+        $value = Payload::unpack($value);
+
+        return is_array($value) ? array_values($value) : [];
+    }
+
+    /**
+     * What of a fake's record serialize() can write: a mailable, event, or job holding a
+     * closure or a stream is left out of the record, not the cause of an app error.
+     * Laravel's own events, with a Request or a connection in them, are like that.
+     *
+     * @param  array<array-key, mixed>  $values
+     * @return array<array-key, mixed>
+     */
+    private static function serializable(array $values, int $depth): array
+    {
+        $kept = [];
+
+        foreach ($values as $key => $value) {
+            if ($depth > 1 && is_array($value)) {
+                $kept[$key] = self::serializable($value, $depth - 1);
+
+                continue;
+            }
+
+            try {
+                serialize($value);
+                $kept[$key] = $value;
+            } catch (Throwable) {
+            }
+        }
+
+        return array_is_list($values) ? array_values($kept) : $kept;
+    }
+
     private function bind(Factory $client): void
     {
         $this->app->instance(Factory::class, $client);
@@ -412,6 +553,11 @@ final class Mirror
         }
 
         $this->http(null);
+
+        foreach (array_keys(self::FAKES) as $section) {
+            $this->fake($section, null);
+        }
+
         $this->test = null;
         $this->applied = [];
         $this->written = null;

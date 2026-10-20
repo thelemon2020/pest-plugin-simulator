@@ -46,8 +46,8 @@ final class Records
                 return [];
             }
 
-            // The app writes plain arrays. Nothing it writes becomes an object here.
-            $records = @unserialize((string) file_get_contents($local), ['allowed_classes' => false]);
+            $bytes = (string) file_get_contents($local);
+            $records = Models::fromDevice($bytes, fn (): mixed => @unserialize($bytes));
         } finally {
             @unlink($local);
         }
