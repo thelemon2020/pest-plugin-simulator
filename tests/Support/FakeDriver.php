@@ -83,6 +83,14 @@ final class FakeDriver implements Driver
      */
     public ?Closure $pulling = null;
 
+    /**
+     * The pattern of each tailAppFile(), kept apart from $events: every step reads the
+     * app's log.
+     *
+     * @var list<string>
+     */
+    public array $tails = [];
+
     /** @var list<array{0: string, 1?: string}> */
     public array $events = [];
 
@@ -320,6 +328,28 @@ final class FakeDriver implements Driver
         }
 
         return file_put_contents($local, $this->appFiles[$relative]) !== false;
+    }
+
+    public function tailAppFile(string $pattern, int $offset): ?array
+    {
+        $this->tails[] = $pattern;
+
+        if ($this->pulling !== null) {
+            ($this->pulling)($pattern);
+        }
+
+        $matches = array_values(array_filter(array_keys($this->appFiles), fn (string $path): bool => fnmatch($pattern, $path)));
+
+        if ($matches === []) {
+            return null;
+        }
+
+        // The newest is the last one written, as the app writes them.
+        $path = end($matches);
+        $contents = $this->appFiles[$path];
+        $size = strlen($contents);
+
+        return ['path' => $path, 'size' => $size, 'bytes' => substr($contents, $offset <= $size ? $offset : 0)];
     }
 
     public function removeAppFile(string $relative): void

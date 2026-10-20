@@ -1423,6 +1423,7 @@ final class Screen
                 $this->idle($deadline);
             }
 
+            AppLog::poll($this->driver);
             DeviceDatabase::forget();
             $this->tally('pulls');
 
@@ -1672,6 +1673,8 @@ final class Screen
             if ($this->stepNth !== null && ! $this->nthUsed) {
                 throw new SimulatorException("nth() picks one of the controls a label matches. {$action}() does not look one up, so there is nothing to count.");
             }
+
+            AppLog::check($this->driver);
         } catch (Throwable $exception) {
             $this->endStep($exception instanceof AssertionFailedError ? 'failed' : 'error', $exception->getMessage());
 
@@ -2027,6 +2030,9 @@ final class Screen
      */
     private function describe(): array
     {
+        // Every wait reads the screen, so an error the app logged ends it within a second,
+        // instead of at the timeout.
+        AppLog::poll($this->driver);
         $this->tally('reads');
 
         try {

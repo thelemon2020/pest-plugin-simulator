@@ -626,6 +626,39 @@ It saves `screen.png`, `tree.json`, and the logs as well, unless the device stop
 
 Each failure gets its own directory under `simulator-failures/`, named for when it failed.
 
+## When the app throws
+
+NativePHP catches an exception in a component, logs it, and draws its own "Something went wrong" screen. Without help, the test would only see a screen that never shows what it waits for, and fail at the timeout.
+
+So the plugin reads the app's `laravel.log` as the test runs. The test's first `screen()` notes where the log ends. Every step reads what the app wrote after that, and a step that is waiting reads it once a second. An entry at `ERROR` or above ends the step, and the test fails with the exception:
+
+```text
+The app logged App\Exceptions\AlreadyPaid: Order 2 was paid already.
+
+Thrown at app/NativeComponents/Checkout.php:31
+
+#0 vendor/laravel/framework/src/Illuminate/Container/BoundMethod.php(36): App\NativeComponents\Checkout->pay()
+#1 vendor/laravel/framework/src/Illuminate/Container/Util.php(43): Illuminate\Container\BoundMethod::{closure}()
+```
+
+The step ends `error` in the trace. The failure saves the trace, the tree, the screenshot, and the logs, as any error does. Paths start from the app's own directory.
+
+The log is `storage/logs/laravel.log`, or the newest `laravel-*.log` for the `daily` channel. A channel that writes elsewhere is not read. On the Android emulator one read takes about 0.04 seconds.
+
+A test where the app is meant to log errors calls `allowAppErrors()`. A test that expects one exception names it:
+
+```php
+it('refuses to pay twice', function () {
+    expectAppError(AlreadyPaid::class);
+
+    screen('/orders')->tap('Pay')->tap('Pay');
+});
+```
+
+That error does not fail the test, and neither does one that extends it. A test that ends without it fails. An error of another class still fails the test.
+
+`Configuration::configure(['app_errors' => false])` stops reading the log in every test.
+
 ## Wait for the app, not the clock
 
 A tap or a keystroke on a NativePHP screen goes to PHP, and PHP answers with the next screen. The plugin cannot see that round trip, so it waits by looking: until two reads of the screen match, until a sheet has had time to slide in, until a field reads the same twice. A slow handler, or a busy machine, can outlast every one of those.

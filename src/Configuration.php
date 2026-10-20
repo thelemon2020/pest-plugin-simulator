@@ -25,8 +25,10 @@ final class Configuration
 
     private static bool $copyDatabase = true;
 
+    private static bool $appErrors = true;
+
     /**
-     * @param  array{scheme?: string, host?: string, bundle_id?: string, timeout?: float, app_directory?: string, permissions?: list<string>|null, record_failures?: bool, copy_database?: bool}  $values
+     * @param  array{scheme?: string, host?: string, bundle_id?: string, timeout?: float, app_directory?: string, permissions?: list<string>|null, record_failures?: bool, copy_database?: bool, app_errors?: bool}  $values
      */
     public static function configure(array $values): void
     {
@@ -61,6 +63,10 @@ final class Configuration
         if (isset($values['copy_database'])) {
             self::$copyDatabase = $values['copy_database'];
         }
+
+        if (isset($values['app_errors'])) {
+            self::$appErrors = $values['app_errors'];
+        }
     }
 
     public static function reset(): void
@@ -73,6 +79,7 @@ final class Configuration
         self::$permissions = null;
         self::$recordFailures = false;
         self::$copyDatabase = true;
+        self::$appErrors = true;
     }
 
     public static function resolve(): self
@@ -86,6 +93,7 @@ final class Configuration
             resolvedPermissions: self::$permissions,
             resolvedRecordFailures: self::$recordFailures,
             resolvedCopyDatabase: self::$copyDatabase,
+            resolvedAppErrors: self::$appErrors,
         );
     }
 
@@ -101,6 +109,7 @@ final class Configuration
         private readonly ?array $resolvedPermissions,
         private readonly bool $resolvedRecordFailures,
         private readonly bool $resolvedCopyDatabase = true,
+        private readonly bool $resolvedAppErrors = true,
     ) {}
 
     public function scheme(): string
@@ -168,6 +177,15 @@ final class Configuration
     public function copiesDatabase(): bool
     {
         return $this->resolvedCopyDatabase;
+    }
+
+    /**
+     * Whether an error the app logs fails the test that was driving it (see AppLog).
+     * allowAppErrors() turns it off for one test.
+     */
+    public function checksAppErrors(): bool
+    {
+        return $this->resolvedAppErrors;
     }
 
     public function urlFor(string $path): string

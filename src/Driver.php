@@ -117,6 +117,16 @@ interface Driver
     public function removeAppFile(string $relative): void;
 
     /**
+     * What a file in the app's own storage (see pushAppFile()) holds from $offset on, for a
+     * log the app keeps adding to. A `*` in the file's name picks the newest file that
+     * matches, as for Laravel's daily log. When the file is shorter than $offset it was
+     * started again, and the bytes are the whole file. Null when no file matches.
+     *
+     * @return array{path: string, size: int, bytes: string}|null the file read, its size, and the bytes from $offset, or from 0 when it is shorter
+     */
+    public function tailAppFile(string $pattern, int $offset): ?array;
+
+    /**
      * `light` or `dark`. Null puts back what the device had before the first change.
      */
     public function appearance(?string $mode): void;
