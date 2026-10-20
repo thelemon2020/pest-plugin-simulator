@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Contracts\Database\Query\Expression;
 use NativePhp\Simulator\Device;
 use NativePhp\Simulator\DeviceDatabase;
 use NativePhp\Simulator\Exceptions\SimulatorException;
@@ -9,6 +10,7 @@ use NativePhp\Simulator\Run;
 use NativePhp\Simulator\Screen;
 use NativePhp\Simulator\Sessions;
 use NativePhp\Simulator\TestDatabase;
+use NativePhp\Simulator\Trace;
 use PHPUnit\Framework\AssertionFailedError;
 use Tests\Support\FakeDriver;
 
@@ -19,6 +21,7 @@ beforeEach(function () {
 
 afterEach(function () {
     DeviceDatabase::reset();
+    Trace::reset();
     Sessions::fake(null);
     Run::clear();
     exec('rm -rf '.escapeshellarg($this->failures));
@@ -63,6 +66,14 @@ function orders(string ...$statuses): string
             $pdo->prepare('INSERT INTO orders (status, paid_at) VALUES (?, ?)')->execute([$status, $status === 'paid' ? '2026-12-24 09:00:00' : null]);
         }
     })[0];
+}
+
+/**
+ * What a test's screen() leaves in the trace, so deviceDatabase() knows a screen opened.
+ */
+function openedScreen(): void
+{
+    Trace::add(['action' => 'open', 'target' => 'myapp://orders', 'started' => microtime(true), 'seconds' => 0.0, 'result' => 'ok']);
 }
 
 function deviceScreen(FakeDriver $driver, float $timeout = 0, string $failures = ''): Screen
@@ -176,6 +187,110 @@ it('says when a column is not there', function () {
         ->toThrow(AssertionFailedError::class, "The device's [orders] table has no [total] column.");
 });
 
+it('fails a column that is not there at once, without waiting out the timeout', function () {
+    $this->driver->appFiles['database/database.sqlite'] = orders('paid');
+    $started = microtime(true);
+
+    expect(fn () => deviceScreen($this->driver, timeout: 5, failures: $this->failures)->assertDatabaseHas('orders', ['totl' => 42]))
+        ->toThrow(AssertionFailedError::class, "The device's [orders] table has no [totl] column.")
+        ->and(microtime(true) - $started)->toBeLessThan(1.0);
+});
+
+it('fails a value it cannot compare before it pulls', function (mixed $value, string $message) {
+    $this->driver->appFiles['database/database.sqlite'] = orders('paid');
+    $started = microtime(true);
+
+    expect(fn () => deviceScreen($this->driver, timeout: 5)->assertDatabaseHas('orders', ['status' => $value]))
+        ->toThrow(SimulatorException::class, $message)
+        ->and(microtime(true) - $started)->toBeLessThan(1.0)
+        ->and($this->driver->pulls ?? [])->toBe([]);
+})->with([
+    'an object' => [new ArrayObject, 'Cannot compare [status] with ArrayObject.'],
+]);
+
+it('says a query expression is SQL for the test\'s database', function () {
+    $this->driver->appFiles['database/database.sqlite'] = orders('paid');
+    $expression = new class implements Expression
+    {
+        public function getValue($grammar)
+        {
+            return "json('x')";
+        }
+    };
+
+    expect(fn () => deviceScreen($this->driver, timeout: 5)->assertDatabaseHas('orders', ['status' => $expression]))
+        ->toThrow(SimulatorException::class, 'castAsJson() or DB::raw()');
+})->skip(! interface_exists('Illuminate\Contracts\Database\Query\Expression'), 'Laravel is not installed.');
+
+it('reads a JSON value by its path, as Laravel does', function () {
+    $this->driver->appFiles['database/database.sqlite'] = sqliteBytes(function (PDO $pdo): void {
+        $pdo->exec('CREATE TABLE orders (id INTEGER PRIMARY KEY, meta TEXT)');
+        $pdo->exec('INSERT INTO orders (meta) VALUES (\'{"gift":true,"note":"Wrap it","items":[{"sku":"A1"}]}\')');
+    })[0];
+
+    deviceScreen($this->driver)
+        ->assertDatabaseHas('orders', ['meta->gift' => true, 'meta->note' => 'Wrap it', 'meta->items[0]->sku' => 'A1'])
+        ->assertDatabaseMissing('orders', ['meta->note' => 'Plain']);
+
+    expect(fn () => deviceScreen($this->driver, failures: $this->failures)->assertDatabaseHas('orders', ['metadata->gift' => true]))
+        ->toThrow(AssertionFailedError::class, "The device's [orders] table has no [metadata] column.");
+});
+
+it('takes conditions with an operator under a numeric key, as Laravel\'s where() does', function () {
+    $this->driver->appFiles['database/database.sqlite'] = orders('unpaid', 'paid', 'refunded');
+
+    deviceScreen($this->driver)
+        ->assertDatabaseHas('orders', [['id', '>', 2], 'status' => 'refunded'])
+        ->assertDatabaseHas('orders', [['status', 'like', 'ref%']])
+        ->assertDatabaseHas('orders', [['status', 'paid']])
+        ->assertDatabaseMissing('orders', [['id', '>', 3]])
+        ->assertDatabaseHas('orders', [['paid_at', '!=', null]]);
+
+    expect(fn () => deviceScreen($this->driver)->assertDatabaseHas('orders', [['id', 'between', 1]]))
+        ->toThrow(SimulatorException::class, 'Cannot compare [id] with the operator [between].')
+        ->and(fn () => deviceScreen($this->driver)->assertDatabaseHas('orders', [['id']]))
+        ->toThrow(SimulatorException::class, 'has to be [column, value] or [column, operator, value]');
+});
+
+it('says when a table is not empty', function () {
+    $this->driver->appFiles['database/database.sqlite'] = orders();
+
+    deviceScreen($this->driver)->assertDatabaseEmpty('orders');
+
+    $this->driver->appFiles['database/database.sqlite'] = orders('paid');
+
+    expect(fn () => deviceScreen($this->driver, failures: $this->failures)->assertDatabaseEmpty('orders'))
+        ->toThrow(AssertionFailedError::class, "The device's [orders] table is not empty.");
+});
+
+it('waits for a row to go, and for the count to change', function () {
+    $this->driver->appFiles['database/database.sqlite'] = orders('unpaid', 'paid');
+    $pulls = 0;
+    $this->driver->pulling = function (string $relative) use (&$pulls): void {
+        if ($relative === 'database/database.sqlite' && ++$pulls === 2) {
+            $this->driver->appFiles['database/database.sqlite'] = orders('unpaid', 'refunded', 'unpaid');
+        }
+    };
+
+    deviceScreen($this->driver, timeout: 5)
+        ->assertDatabaseMissing('orders', ['status' => 'paid'])
+        ->assertDatabaseCount('orders', 3);
+
+    expect($pulls)->toBe(3);
+});
+
+it('names a value it cannot write as JSON in the failure, rather than leaving it out', function () {
+    $this->driver->appFiles['database/database.sqlite'] = orders('paid');
+
+    expect(fn () => deviceScreen($this->driver, failures: $this->failures)->assertDatabaseHas('orders', ['status' => DeviceDatabaseShade::Dark]))
+        ->toThrow(AssertionFailedError::class, '"status": "Dark"');
+});
+
+enum DeviceDatabaseShade
+{
+    case Dark;
+}
+
 it('pulls again when a copy is torn', function () {
     $good = orders('paid');
     $this->driver->appFiles['database/database.sqlite'] = substr($good, 0, 100).str_repeat("\xff", strlen($good) - 100);
@@ -209,6 +324,7 @@ it('hands a test the pull until its next step, with writes turned off', function
     Run::useDevice(new Device('ios', 'iPhone 17', true));
     Sessions::fake($this->driver);
     $this->driver->appFiles['database/database.sqlite'] = orders('paid');
+    openedScreen();
 
     $first = deviceDatabase();
 
@@ -228,14 +344,39 @@ it('deletes its pulls when the test begins and ends', function () {
     Sessions::fake($this->driver);
     $this->driver->appFiles['database/database.sqlite'] = orders('paid');
     $directory = sys_get_temp_dir().'/pest-simulator-'.getmypid();
+    openedScreen();
 
     deviceDatabase();
     expect(glob($directory.'/device-*.sqlite'))->toHaveCount(1);
 
     TestDatabase::end();
 
-    expect(glob($directory.'/device-*.sqlite'))->toBe([]);
+    expect(glob($directory.'/device-*.sqlite'))->toBe([])
+        ->and(is_dir($directory))->toBeFalse();
 });
+
+it('keeps only its newest pull while it waits, and any it handed out', function () {
+    Run::useDevice(new Device('ios', 'iPhone 17', true));
+    Sessions::fake($this->driver);
+    $this->driver->appFiles['database/database.sqlite'] = orders('unpaid');
+    $directory = sys_get_temp_dir().'/pest-simulator-'.getmypid();
+    openedScreen();
+    $handed = deviceDatabase();
+
+    expect(fn () => deviceScreen($this->driver, timeout: 1.5, failures: $this->failures)->assertDatabaseHas('orders', ['status' => 'paid']))
+        ->toThrow(AssertionFailedError::class);
+
+    expect(glob($directory.'/device-*.sqlite'))->toHaveCount(2)
+        ->and($handed->query('SELECT status FROM orders')->fetchColumn())->toBe('unpaid');
+});
+
+it('will not read the database before the test has opened a screen', function () {
+    Run::useDevice(new Device('ios', 'iPhone 17', true));
+    Sessions::fake($this->driver);
+    $this->driver->appFiles['database/database.sqlite'] = orders('paid');
+
+    deviceDatabase();
+})->throws(SimulatorException::class, 'deviceDatabase() reads what the app wrote, so call it after screen().');
 
 it('only works inside a mobile suite', function () {
     deviceDatabase();

@@ -6,9 +6,11 @@ namespace NativePhp\Simulator;
 
 use Closure;
 use NativePhp\Simulator\Exceptions\AmbiguousMatch;
+use NativePhp\Simulator\Exceptions\BadDatabaseQuery;
 use NativePhp\Simulator\Exceptions\NoMatch;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 use PDO;
+use PDOException;
 use PHPUnit\Framework\Assert;
 use PHPUnit\Framework\AssertionFailedError;
 use Throwable;
@@ -1310,13 +1312,14 @@ final class Screen
      * database, so $connection is taken for Laravel's signature and not used.
      *
      * @param  string|object  $table  a table, or an Eloquent model or its class
-     * @param  array<string, mixed>  $data
+     * @param  array<array-key, mixed>  $data
      */
     public function assertDatabaseHas(string|object $table, array $data = [], ?string $connection = null): self
     {
-        $name = DeviceDatabase::table($table);
+        return $this->step('assertDatabaseHas', self::tableLabel($table), function () use ($table, $data): void {
+            $name = DeviceDatabase::table($table);
+            DeviceDatabase::conditions($data);
 
-        return $this->step('assertDatabaseHas', $name, function () use ($name, $data): void {
             $this->untilDatabase(
                 $name,
                 fn (PDO $database): bool => DeviceDatabase::count($database, $name, $data) > 0,
@@ -1330,13 +1333,14 @@ final class Screen
      * does, as assertDontSee() waits for text to go.
      *
      * @param  string|object  $table  a table, or an Eloquent model or its class
-     * @param  array<string, mixed>  $data
+     * @param  array<array-key, mixed>  $data
      */
     public function assertDatabaseMissing(string|object $table, array $data = [], ?string $connection = null): self
     {
-        $name = DeviceDatabase::table($table);
+        return $this->step('assertDatabaseMissing', self::tableLabel($table), function () use ($table, $data): void {
+            $name = DeviceDatabase::table($table);
+            DeviceDatabase::conditions($data);
 
-        return $this->step('assertDatabaseMissing', $name, function () use ($name, $data): void {
             $this->untilDatabase(
                 $name,
                 fn (PDO $database): bool => DeviceDatabase::count($database, $name, $data) === 0,
@@ -1352,9 +1356,9 @@ final class Screen
      */
     public function assertDatabaseCount(string|object $table, int $count, ?string $connection = null): self
     {
-        $name = DeviceDatabase::table($table);
+        return $this->step('assertDatabaseCount', self::tableLabel($table), function () use ($table, $count): void {
+            $name = DeviceDatabase::table($table);
 
-        return $this->step('assertDatabaseCount', $name, function () use ($name, $count): void {
             $this->untilDatabase(
                 $name,
                 fn (PDO $database): bool => DeviceDatabase::count($database, $name) === $count,
@@ -1368,10 +1372,37 @@ final class Screen
     }
 
     /**
+     * The app's own table has no rows, waited for until the timeout.
+     *
+     * @param  string|object  $table  a table, or an Eloquent model or its class
+     */
+    public function assertDatabaseEmpty(string|object $table, ?string $connection = null): self
+    {
+        return $this->step('assertDatabaseEmpty', self::tableLabel($table), function () use ($table): void {
+            $name = DeviceDatabase::table($table);
+
+            $this->untilDatabase(
+                $name,
+                fn (PDO $database): bool => DeviceDatabase::count($database, $name) === 0,
+                fn (PDO $database): string => "The device's [{$name}] table is not empty.\n\n".DeviceDatabase::found($database, $name, []),
+            );
+        });
+    }
+
+    /**
+     * The table as the trace names it, before DeviceDatabase::table() has checked it.
+     */
+    private static function tableLabel(string|object $table): string
+    {
+        return is_string($table) ? $table : $table::class;
+    }
+
+    /**
      * Pulls the app's database until $holds says yes or the time runs out. Each pull waits
      * first for the app to take every event it was sent, when it shows the IdleMarker, so
      * a tap's write has had its chance to land. A failure saves the last pull as
-     * device.sqlite beside the screenshot.
+     * device.sqlite beside the screenshot. A query no pull could answer, such as a column
+     * the table does not have, fails at once.
      *
      * @param  Closure(PDO): bool  $holds
      * @param  Closure(PDO): string  $failure
@@ -1402,7 +1433,11 @@ final class Screen
                 if (DeviceDatabase::hasTable($database, $table) && $holds($database)) {
                     return;
                 }
-            } catch (SimulatorException|\PDOException $exception) {
+            } catch (BadDatabaseQuery $exception) {
+                $error = $exception;
+
+                break;
+            } catch (SimulatorException|PDOException $exception) {
                 $error = $exception;
             }
 
@@ -1414,7 +1449,7 @@ final class Screen
         } while (microtime(true) < $deadline);
 
         $message = match (true) {
-            $database === null => $error->getMessage(),
+            $database === null => $error?->getMessage() ?? "Could not read the app's database.",
             ! DeviceDatabase::hasTable($database, $table) => "The device's database has no [{$table}] table.",
             $error instanceof SimulatorException => $error->getMessage(),
             $error !== null => "Could not check the device's [{$table}] table: ".$error->getMessage(),

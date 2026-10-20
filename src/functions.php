@@ -112,10 +112,15 @@ function deviceDatabase(): PDO
         throw new SimulatorException('deviceDatabase() only works inside a mobile() suite.');
     }
 
+    // Before the test's first screen() the device still has the last test's database.
+    if (Trace::steps() === []) {
+        throw new SimulatorException('deviceDatabase() reads what the app wrote, so call it after screen().');
+    }
+
     $driver = Sessions::get(Run::device());
     $driver->ensureReady();
 
-    return DeviceDatabase::open($driver);
+    return DeviceDatabase::handOut($driver);
 }
 
 function record(?string $path = null): void
@@ -166,6 +171,8 @@ function screen(string $path): Screen
     }
 
     Trace::add($step + ['seconds' => microtime(true) - $started, 'result' => 'ok']);
+    // The database was copied in and the route has mounted, so an earlier pull is stale.
+    DeviceDatabase::forget();
 
     return new Screen(
         $driver,

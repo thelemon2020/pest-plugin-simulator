@@ -305,7 +305,7 @@ screen('/settings')
 
 ## Check the app's database
 
-The app writes to its own database, the copy on the device. `assertDatabaseHas()`, `assertDatabaseMissing()`, and `assertDatabaseCount()` check that copy. They take the same arguments as Laravel's.
+The app writes to its own database, the copy on the device. `assertDatabaseHas()`, `assertDatabaseMissing()`, `assertDatabaseCount()`, and `assertDatabaseEmpty()` check that copy. They take the same arguments as Laravel's.
 
 ```php
 it('pays an order', function () {
@@ -326,9 +326,15 @@ Laravel's own `$this->assertDatabaseHas()` checks the host's database, not the a
 
 Each one copies the app's database off the device: `Library/Application Support/database/database.sqlite` on iOS, and `app_storage/persisted_data/database/database.sqlite` on Android. On the Android emulator that takes about 0.04 seconds. The write-ahead log comes with it. A copy read while the app was writing can be torn, so it is checked with `PRAGMA quick_check` and copied again.
 
-They wait like `assertSee()`. `assertDatabaseHas()` copies the database again until the row is there or the timeout runs out. `assertDatabaseMissing()` waits until no row matches. `assertDatabaseCount()` waits for the count. When the app shows the `nativephp-pending` marker (see [Wait for the app, not the clock](#wait-for-the-app-not-the-clock)), each copy waits until PHP has taken every event it was sent.
+They wait like `assertSee()`. `assertDatabaseHas()` copies the database again until the row is there or the timeout runs out. `assertDatabaseMissing()` waits until no row matches. `assertDatabaseCount()` and `assertDatabaseEmpty()` wait for the count. When the app shows the `nativephp-pending` marker (see [Wait for the app, not the clock](#wait-for-the-app-not-the-clock)), each copy waits until PHP has taken every event it was sent.
 
-A table can be named, or given as a model or its class. A value can be a string, a number, a bool, null, an enum, or a date. Null matches a null column. The device has one database, so the `$connection` argument is not used. A column the table does not have fails the step at once, and says so.
+Without that marker, nothing says a tap's write has landed. `assertDatabaseMissing()` and `assertDatabaseCount()` can pass on a copy taken before it did, as `assertDontSee()` can. Put them after a step that waited for the app, like `assertSee()`.
+
+A table can be named, or given as a model or its class. A value can be a string, a number, a bool, null, an enum, or a date. Null matches a null column. The device has one database, so the `$connection` argument is not used.
+
+A JSON column is read by its path, as Laravel reads it: `['meta->gift' => true]`, or `['meta->items[0]->sku' => 'A1']`. A condition with an operator goes under a numeric key, as Laravel's `where()` takes it: `[['total', '>', 100]]`. The operators are `=`, `<`, `>`, `<=`, `>=`, `<>`, `!=`, `like`, and `not like`. `castAsJson()` and `DB::raw()` are SQL for the test's database, so they are not taken. Compare a JSON value by its path instead.
+
+A column the table does not have, a value that cannot be compared, or an operator that is not on that list fails the step at once, and says so. It does not wait out the timeout.
 
 When the row is not there, the failure says what the table holds, as Laravel's does:
 
@@ -356,7 +362,7 @@ screen('/orders')->tap('Pay')->assertSee('Paid');
 expect(deviceDatabase()->query('SELECT paid_at FROM orders')->fetchColumn())->not->toBeNull();
 ```
 
-The copy is kept until the next step on the screen. Call it after a step that waited for the app, like `assertSee()`, so what the app wrote has landed.
+The copy is kept until the next step on the screen, or the next `screen()`. Call it after a step that waited for the app, like `assertSee()`, so what the app wrote has landed. Before the test's first `screen()`, the device still has the last test's database, so `deviceDatabase()` stops and says so.
 
 With `keepDatabase()`, or with `copy_database` off, these still work. They check whatever the app's database holds, including rows from earlier tests.
 
