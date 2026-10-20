@@ -171,7 +171,7 @@ it('puts the app\'s real mailer and dispatcher back when the test ends', functio
         ->and($afterEvents)->toBe($events);
 });
 
-it('keeps what the app recorded when the test changes a fake part way', function () {
+it('starts the record again when the test fakes again part way, as Laravel does', function () {
     Event::fake([OrderPaid::class]);
     FakeSync::sync($this->driver);
     $this->device->boot();
@@ -181,6 +181,97 @@ it('keeps what the app recorded when the test changes a fake part way', function
     FakeSync::sync($this->driver);
     $this->device->tap(fn () => event('app.other'));
 
-    Event::assertDispatched(OrderPaid::class);
+    Event::assertNotDispatched(OrderPaid::class);
     Event::assertDispatched('app.other');
+});
+
+it('gives the models it loads the test\'s connection, so Model::is() matches and fresh() reads the test\'s database', function () {
+    Mail::fake();
+    FakeSync::sync($this->driver);
+    $this->device->boot();
+    $this->device->tap(fn () => Mail::to('ada@example.test')->send(new Receipt(Order::query()->findOrFail(2))));
+    // The same order, in the test's own database, unpaid there.
+    Schema::create('orders', function (Blueprint $table): void {
+        $table->id();
+        $table->string('status');
+    });
+    Order::query()->insert(['id' => 2, 'status' => 'unpaid']);
+    $order = Order::query()->findOrFail(2);
+
+    Mail::assertSent(Receipt::class, fn (Receipt $mail): bool => $mail->order->is($order)
+        && $mail->order->status === 'paid'
+        && $mail->order->fresh()?->status === 'unpaid');
+});
+
+it('reads the rest of the record when the app has since deleted one entry\'s model', function () {
+    Mail::fake();
+    Event::fake([OrderPaid::class]);
+    FakeSync::sync($this->driver);
+    $this->device->boot();
+    $this->device->tap(function (): void {
+        Mail::to('ada@example.test')->send(new Receipt(Order::query()->findOrFail(1)));
+        event(new OrderPaid(Order::query()->findOrFail(2)));
+        Order::query()->whereKey(1)->delete();
+    });
+
+    Event::assertDispatched(OrderPaid::class, fn (OrderPaid $event): bool => $event->order->id === 2);
+    // The mail was sent, though its order is gone: it is not taken for none.
+    Mail::assertSent(Receipt::class);
+    Mail::assertSentCount(1);
+    expect(fn () => Mail::assertNothingSent())->toThrow(AssertionFailedError::class);
+});
+
+it('sends the app the jobs Queue::fake() and fakeExcept() name', function () {
+    Queue::fake([ShipOrder::class]);
+    FakeSync::sync($this->driver);
+
+    expect(FakeSync::payload()['queue']['fake'] ?? null)->toBe([ShipOrder::class]);
+
+    Queue::fakeExcept([ShipOrder::class]);
+    FakeSync::sync($this->driver);
+
+    expect(FakeSync::payload()['queue']['queue'] ?? null)->toBe([ShipOrder::class]);
+});
+
+it('keeps a notification the app sent to a model under that model\'s key', function () {
+    Notification::fake();
+    FakeSync::sync($this->driver);
+    $five = new Order(['id' => 5, 'status' => 'paid']);
+    $five->exists = true;
+    Notification::send($five, new OrderShipped(5));
+    $this->device->boot();
+    $this->device->tap(fn () => Notification::send(Order::query()->findOrFail(2), new OrderShipped(2)));
+
+    Notification::assertSentTo($five, OrderShipped::class);
+    Notification::assertSentTo(Order::query()->getModel()->newInstance(['id' => 2], true), OrderShipped::class, fn (OrderShipped $sent): bool => $sent->order === 2);
+});
+
+it('keeps what the test sent itself after the fake began reading the app', function () {
+    Mail::fake();
+    FakeSync::sync($this->driver);
+    $this->device->boot();
+    $this->device->tap(fn () => Mail::to('ada@example.test')->send(new Receipt(Order::query()->findOrFail(2))));
+    Mail::assertSentCount(1);
+
+    Mail::to('bob@example.test')->send(new Receipt(new Order(['id' => 9, 'status' => 'paid'])));
+
+    Mail::assertSentCount(2);
+    Mail::assertSent(Receipt::class, fn (Receipt $mail): bool => $mail->hasTo('bob@example.test'));
+});
+
+it('forgets what the app sent before the test faked mail again', function () {
+    Mail::fake();
+    FakeSync::sync($this->driver);
+    $this->device->boot();
+    $this->device->tap(fn () => Mail::to('ada@example.test')->send(new Receipt(Order::query()->findOrFail(2))));
+    Mail::assertSentCount(1);
+
+    Mail::fake();
+    FakeSync::sync($this->driver);
+
+    Mail::assertNothingSent();
+
+    $this->device->tap(fn () => null);
+
+    Mail::assertNothingSent();
 });

@@ -11,6 +11,7 @@ use NativePhp\Simulator\IdleMarker;
 use NativePhp\Simulator\Run;
 use NativePhp\Simulator\Sessions;
 use PHPUnit\Framework\AssertionFailedError;
+use ReflectionClass;
 use Throwable;
 
 /**
@@ -23,6 +24,68 @@ use Throwable;
  */
 final class Records
 {
+    /** The key an entry serialized on its own sits under, in the app's record. */
+    public const ENTRY = "\0pest-simulator-entry";
+
+    /**
+     * A section of the record with its entries unserialized, each on its own, with its
+     * models loaded from the device database (see Models). An entry that cannot be read,
+     * such as one whose model the app has since deleted, does not take the rest with it.
+     * It stays as an instance of its class with nothing set, so assertSent(Receipt::class),
+     * a count, and assertNothingSent() still see it was sent. Only a closure that reads
+     * its models cannot.
+     *
+     * @param  array<array-key, mixed>  $section
+     * @return array<array-key, mixed>
+     */
+    public static function entries(array $section): array
+    {
+        $entries = [];
+
+        foreach ($section as $key => $value) {
+            if (! is_array($value)) {
+                continue;
+            }
+
+            if (array_keys($value) === [self::ENTRY] && is_string($value[self::ENTRY])) {
+                $bytes = $value[self::ENTRY];
+
+                try {
+                    $entries[$key] = Models::fromDevice($bytes, fn (): mixed => unserialize($bytes));
+                } catch (Throwable) {
+                    $standIn = self::standIn($bytes);
+
+                    if ($standIn !== null) {
+                        $entries[$key] = $standIn;
+                    }
+                }
+
+                continue;
+            }
+
+            $entries[$key] = self::entries($value);
+        }
+
+        return array_is_list($section) ? array_values($entries) : $entries;
+    }
+
+    /**
+     * An instance of the class a serialized entry names, with no constructor run and
+     * nothing set. Events are recorded as the arguments they were dispatched with, the event first.
+     */
+    private static function standIn(string $bytes): mixed
+    {
+        if (preg_match('/^a:\d+:\{i:0;O:\d+:"([^"]+)"/', $bytes, $match) === 1 && class_exists($match[1])) {
+            return [(new ReflectionClass($match[1]))->newInstanceWithoutConstructor()];
+        }
+
+        if (preg_match('/^O:\d+:"([^"]+)"/', $bytes, $match) === 1 && class_exists($match[1])) {
+            return (new ReflectionClass($match[1]))->newInstanceWithoutConstructor();
+        }
+
+        return null;
+    }
+
     /**
      * What the app recorded for this test, by fake: `http`, `mail`, and the rest.
      *
@@ -46,8 +109,9 @@ final class Records
                 return [];
             }
 
-            $bytes = (string) file_get_contents($local);
-            $records = Models::fromDevice($bytes, fn (): mixed => @unserialize($bytes));
+            // The app writes arrays, with each entry in them serialized on its own (see
+            // entries()). Nothing in the file becomes an object here.
+            $records = @unserialize((string) file_get_contents($local), ['allowed_classes' => false]);
         } finally {
             @unlink($local);
         }

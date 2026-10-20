@@ -14,6 +14,7 @@ use Illuminate\Http\Client\ResponseSequence;
 use Illuminate\Routing\Events\RouteMatched;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Facades\Mail;
@@ -98,6 +99,9 @@ final class Mirror
 
     /** @var array<string, object> the app's own services the fakes stand in for */
     private array $real = [];
+
+    /** @var array<string, int> which of the test's fakes each section's fake stands for */
+    private array $generations = [];
 
     private function __construct(private readonly Container $app) {}
 
@@ -224,7 +228,14 @@ final class Mirror
                 $fake = $facade::getFacadeRoot();
 
                 if (isset($this->real[$section]) && $fake instanceof $class) {
+                    $records[$section] = ['generation' => $this->generations[$section] ?? 0];
+
                     foreach ($properties as $property => $depth) {
+                        // A Laravel that renamed one leaves that part out, not the record.
+                        if (! property_exists($class, $property)) {
+                            continue;
+                        }
+
                         $value = (new ReflectionProperty($class, $property))->getValue($fake);
                         $records[$section][$property] = self::serializable(is_array($value) ? $value : [], $depth);
                     }
@@ -447,7 +458,7 @@ final class Mirror
         if ($settings === null) {
             if (isset($this->real[$section])) {
                 $this->put($section, $this->real[$section]);
-                unset($this->real[$section]);
+                unset($this->real[$section], $this->generations[$section]);
             }
 
             return;
@@ -455,6 +466,10 @@ final class Mirror
 
         $this->real[$section] ??= $current;
         $this->put($section, $this->real[$section]);
+        // Faking again in the test starts its record again, as Laravel's fake() does.
+        $generation = (int) ($settings['generation'] ?? 0);
+        $same = ($this->generations[$section] ?? null) === $generation;
+        $this->generations[$section] = $generation;
         $fake = Payload::unpack($settings['fake'] ?? []);
         $fake = is_array($fake) ? $fake : [];
 
@@ -468,8 +483,12 @@ final class Mirror
             default => throw new \LogicException("No fake for [{$section}]."),
         };
 
-        if ($current instanceof $class && $current !== $this->real[$section]) {
+        if ($same && $current instanceof $class && $current !== $this->real[$section]) {
             foreach (array_keys($properties) as $property) {
+                if (! property_exists($class, $property)) {
+                    continue;
+                }
+
                 $recorded = new ReflectionProperty($class, $property);
                 $recorded->setValue($made, $recorded->getValue($current));
             }
@@ -483,6 +502,12 @@ final class Mirror
 
         if ($section === 'events' && $service instanceof Dispatcher) {
             Model::setEventDispatcher($service);
+
+            // Event::fake() hands the cache its fake too. The app is booted once, so without
+            // this its cache events would go to a fake for good.
+            if ($this->app->bound('cache') && method_exists($facade = Cache::class, 'refreshEventDispatcher')) {
+                $facade::refreshEventDispatcher();
+            }
         }
     }
 
@@ -502,9 +527,11 @@ final class Mirror
     }
 
     /**
-     * What of a fake's record serialize() can write: a mailable, event, or job holding a
-     * closure or a stream is left out of the record, not the cause of an app error.
-     * Laravel's own events, with a Request or a connection in them, are like that.
+     * A fake's record, each mailable, event, or job serialized on its own, so the test
+     * reads each one on its own: one whose model the app has since deleted does not take
+     * the rest with it. One serialize() cannot write, holding a closure or a stream, is left
+     * out of the record, not the cause of an app error. Laravel's own events, with a
+     * Request or a connection in them, are like that.
      *
      * @param  array<array-key, mixed>  $values
      * @return array<array-key, mixed>
@@ -521,8 +548,7 @@ final class Mirror
             }
 
             try {
-                serialize($value);
-                $kept[$key] = $value;
+                $kept[$key] = [Records::ENTRY => serialize($value)];
             } catch (Throwable) {
             }
         }

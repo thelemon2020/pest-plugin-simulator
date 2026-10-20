@@ -7,7 +7,6 @@ namespace NativePhp\Simulator\Fakes;
 use Closure;
 use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\SQLiteConnection;
 use NativePhp\Simulator\DeviceDatabase;
 use NativePhp\Simulator\Run;
 use NativePhp\Simulator\Sessions;
@@ -18,6 +17,11 @@ use NativePhp\Simulator\Sessions;
  * database, so the models are loaded from that one: the device database, pulled with
  * DeviceDatabase. While the record is read, every Eloquent connection is the device's.
  * The test's own connections, and a transaction a test has open on them, are not touched.
+ *
+ * Each read pulls the database again: the app may have written the row since the last
+ * one. A model keeps the name of the connection the app saved it through, so after the
+ * read it is a model of the test's connection by that name, and a relation loaded later
+ * is loaded there, as Model::is() expects.
  */
 final class Models
 {
@@ -35,8 +39,9 @@ final class Models
         }
 
         $previous = Model::getConnectionResolver();
-        $connection = new SQLiteConnection(DeviceDatabase::open(Sessions::get(Run::device())), '', '', ['driver' => 'sqlite', 'name' => 'device']);
-        Model::setConnectionResolver(new DeviceConnections($connection));
+        DeviceDatabase::forget();
+        $database = DeviceDatabase::open(Sessions::get(Run::device()));
+        Model::setConnectionResolver(new DeviceConnections($database, $previous instanceof ConnectionResolverInterface ? $previous->getDefaultConnection() : null));
 
         try {
             return $unserialize();

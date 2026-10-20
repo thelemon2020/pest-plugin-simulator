@@ -420,7 +420,11 @@ it('mails a receipt', function () {
 });
 ```
 
-A mailable, event, job, or notification that uses `SerializesModels` brings its models back by id. They are loaded from the device database (see [Check the app's database](#check-the-apps-database)), so `$mail->order` is the order the app paid, not the test's copy of it. The relations it had loaded come with it. A relation loaded later, inside the assert's closure, comes from the test's database.
+A mailable, event, job, or notification that uses `SerializesModels` brings its models back by id. They are loaded from the device database (see [Check the app's database](#check-the-apps-database)), so `$mail->order` is the order the app paid, not the test's copy of it. The relations it had loaded come with it. The model belongs to the test's default connection, so `$mail->order->is($order)` matches the test's own copy, and `fresh()` or a relation loaded later, inside the assert's closure, reads the test's database. The device has one database, so a model the app saved on a second connection is loaded from that one too.
+
+Each entry is read on its own, from a fresh copy of the device database. One whose model the app has since deleted stays in the record as an instance of its class with nothing set: `Mail::assertSent(Receipt::class)`, the counts, and `assertNothingSent()` still see it, and only a closure that reads its models cannot.
+
+`Mail::fake()` again part way through a test starts the record again, as it does in Laravel: what the app sent before it is gone. Mail the test sends itself, before or after the first `screen()`, is in the record beside the app's.
 
 A mailable, event, or job that does not serialize, such as one holding a closure, is left out of the record. So are Laravel's own events that hold a request or a connection.
 

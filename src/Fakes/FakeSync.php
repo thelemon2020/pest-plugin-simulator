@@ -10,6 +10,7 @@ use Illuminate\Contracts\Bus\Dispatcher as BusDispatcher;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Notifications\ChannelManager;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Mail;
@@ -358,7 +359,10 @@ final class FakeSync
             }
         }
 
-        return match ($class) {
+        // Faking again in the test is another fake, and the app makes its own again.
+        $generation = ['generation' => $root->generation()];
+
+        return $generation + match ($class) {
             EventFake::class => ['fake' => self::read($root, $class, 'eventsToFake'), 'dispatch' => self::read($root, $class, 'eventsToDispatch')],
             QueueFake::class => ['fake' => self::read($root, $class, 'jobsToFake'), 'queue' => self::read($root, $class, 'jobsToBeQueued')],
             BusFake::class => ['fake' => self::read($root, $class, 'jobsToFake'), 'dispatch' => self::read($root, $class, 'jobsToDispatch')],
@@ -380,7 +384,12 @@ final class FakeSync
 
         $value = (new ReflectionProperty($class, $property))->getValue($fake);
 
-        return is_array($value) ? $value : [];
+        // QueueFake keeps its lists as collections.
+        return match (true) {
+            is_array($value) => $value,
+            $value instanceof Collection => $value->all(),
+            default => [],
+        };
     }
 
     /**

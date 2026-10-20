@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace NativePhp\Simulator\Fakes;
 
 use Closure;
+use NativePhp\Simulator\Run;
 use ReflectionClass;
 use ReflectionProperty;
 
@@ -20,11 +21,17 @@ use ReflectionProperty;
 trait PullsFromTheApp
 {
     /**
-     * What the fake held when it became a Remote one: what this process did itself.
+     * What the last pull added from the app, by array, so the next pull can tell it from
+     * what this process recorded itself since.
      *
      * @var array<string, array<array-key, mixed>>
      */
-    private array $local = [];
+    private array $pulled = [];
+
+    /** Which of the test's fakes this is: faking again makes another. */
+    private int $generation = 0;
+
+    private static int $generations = 0;
 
     private bool $asserting = false;
 
@@ -44,29 +51,109 @@ trait PullsFromTheApp
             }
         }
 
-        foreach (self::RECORDED as $name) {
-            $value = self::recorded($name)->getValue($remote);
-            $remote->local[$name] = is_array($value) ? $value : [];
-        }
+        $remote->generation = ++self::$generations;
 
         return $remote;
     }
 
+    public function generation(): int
+    {
+        return $this->generation;
+    }
+
     /**
-     * Puts the app's record beside what this process did itself.
+     * Puts the app's record beside what this process did itself, before and since. A record
+     * from before the test faked again is not this fake's.
      */
     public function pull(): void
     {
-        $section = Records::pull()[self::SECTION] ?? null;
-
-        if (! is_array($section)) {
+        if (! Run::inside() || FakeSync::test() === null) {
             return;
         }
 
-        foreach (self::RECORDED as $name) {
-            $remote = $section[$name] ?? [];
-            self::recorded($name)->setValue($this, array_merge_recursive($this->local[$name] ?? [], is_array($remote) ? $remote : []));
+        $section = Records::pull()[self::SECTION] ?? null;
+
+        if (! is_array($section) || ($section['generation'] ?? null) !== $this->generation) {
+            $section = [];
         }
+
+        foreach (self::RECORDED as $name) {
+            if (! property_exists(parent::class, $name)) {
+                continue;
+            }
+
+            $value = self::recorded($name)->getValue($this);
+            $local = self::without(is_array($value) ? $value : [], $this->pulled[$name] ?? []);
+            $remote = is_array($section[$name] ?? null) ? Records::entries($section[$name]) : [];
+            $this->pulled[$name] = $remote;
+            self::recorded($name)->setValue($this, self::merge($local, $remote));
+        }
+    }
+
+    /**
+     * Two records as one. A list goes on with the other's entries; anything else keeps its
+     * keys, as a notifiable's key, which PHP turns into a number, is a key and not a place.
+     *
+     * @param  array<array-key, mixed>  $local
+     * @param  array<array-key, mixed>  $remote
+     * @return array<array-key, mixed>
+     */
+    private static function merge(array $local, array $remote): array
+    {
+        if ($local === []) {
+            return $remote;
+        }
+
+        if (array_is_list($local) && array_is_list($remote)) {
+            return [...$local, ...$remote];
+        }
+
+        foreach ($remote as $key => $value) {
+            $local[$key] = is_array($value) && is_array($local[$key] ?? null) ? self::merge($local[$key], $value) : $value;
+        }
+
+        return $local;
+    }
+
+    /**
+     * A record without what an earlier pull put in it: what is left is what this process
+     * recorded itself. An array emptied that way goes too.
+     *
+     * @param  array<array-key, mixed>  $record
+     * @param  array<array-key, mixed>  $pulled
+     * @return array<array-key, mixed>
+     */
+    private static function without(array $record, array $pulled): array
+    {
+        if ($pulled === []) {
+            return $record;
+        }
+
+        if (array_is_list($record) && array_is_list($pulled)) {
+            foreach ($pulled as $entry) {
+                $at = array_search($entry, $record, true);
+
+                if ($at !== false) {
+                    unset($record[$at]);
+                }
+            }
+
+            return array_values($record);
+        }
+
+        foreach ($pulled as $key => $value) {
+            if (! is_array($value) || ! is_array($record[$key] ?? null)) {
+                continue;
+            }
+
+            $record[$key] = self::without($record[$key], $value);
+
+            if ($record[$key] === []) {
+                unset($record[$key]);
+            }
+        }
+
+        return $record;
     }
 
     /**
