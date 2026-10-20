@@ -172,6 +172,19 @@ it('takes the fakes back off the app when the test ends', function () {
         ->and($this->driver->appFiles)->not->toHaveKey('storage/'.Payload::RECORDS);
 });
 
+it('applies nothing while the app only boots, as it does for config:cache', function () {
+    config(['features.express' => true]);
+    FakeSync::sync($this->driver);
+
+    $this->device->bootWithoutRoute();
+
+    expect($this->device->run(fn () => config('features.express')))->toBeNull();
+
+    $this->device->boot();
+
+    expect($this->device->run(fn () => config('features.express')))->toBeTrue();
+});
+
 it('leaves an app without the fakes file as it is', function () {
     $real = $this->device->run(fn () => app(Factory::class));
     $this->device->boot();

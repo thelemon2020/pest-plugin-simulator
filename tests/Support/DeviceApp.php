@@ -7,6 +7,9 @@ namespace Tests\Support;
 use Closure;
 use Illuminate\Container\Container;
 use Illuminate\Foundation\Application;
+use Illuminate\Http\Request;
+use Illuminate\Routing\Events\RouteMatched;
+use Illuminate\Routing\Route;
 use Illuminate\Support\Facades\Facade;
 use NativePhp\Simulator\Fakes\Mirror;
 use Orchestra\Testbench\Foundation\Application as Testbench;
@@ -65,11 +68,28 @@ final class DeviceApp
     }
 
     /**
-     * The app boots, as a launch does: Mirror applies the fakes file.
+     * The app boots and opens a screen, as a launch does: Mirror applies the fakes file
+     * when the screen's route is matched.
      */
     public function boot(): void
     {
+        $this->run(function (Application $app): void {
+            Mirror::boot($app);
+            $this->open($app);
+        });
+    }
+
+    /**
+     * Only boots the app, as NativePHP does for an artisan command.
+     */
+    public function bootWithoutRoute(): void
+    {
         $this->run(fn (Application $app) => Mirror::boot($app));
+    }
+
+    private function open(Application $app): void
+    {
+        $app->make('events')->dispatch(new RouteMatched(new Route('GET', '/checkout', fn () => null), Request::create('/checkout')));
     }
 
     /**

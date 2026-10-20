@@ -7,6 +7,7 @@ namespace NativePhp\Simulator\Fakes;
 use Carbon\Carbon;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Http\Client\Factory;
+use Illuminate\Routing\Events\RouteMatched;
 use Illuminate\Support\Facades\Facade;
 use Native\Mobile\Edge\Contracts\TreeObserver;
 use Native\Mobile\Edge\TreeObservers;
@@ -24,11 +25,12 @@ use Throwable;
  * fakes recorded to the record file, which the test's asserts read (see Records).
  *
  * A NativePHP screen is one request that does not end while the screen is up, so nothing
- * that runs after a request runs between two taps. The app's own tree observers do: the
- * file is checked before each event the screen handles, and the record is written after
- * each render (see TreeTap and docs/spikes/laravel-parity.md). Looking costs one stat when
- * there is no file. The app is booted once and kept, so a fake stays in place across
- * requests, and the real services are put back when the file goes.
+ * that runs after a request runs between two taps. The file is checked when a route is
+ * matched, before the screen's mount(), and then NativePHP's own tree observers take over:
+ * before each event the screen handles, and the record is written after each render (see
+ * TreeTap and docs/spikes/laravel-parity.md). Looking costs one stat when there is no
+ * file. The app is booted once and kept, so a fake stays in place across requests, and the
+ * real services are put back when the file goes.
  */
 final class Mirror
 {
@@ -63,13 +65,18 @@ final class Mirror
             return;
         }
 
-        // NativePHP boots Laravel more than once in one process: its artisan commands
-        // first, then the app that stays.
-        if (self::$current?->app !== $app) {
-            self::$current = new self($app);
-        }
+        // Nothing is applied while the app boots. NativePHP boots Laravel for its artisan
+        // commands too, and the first launch after an install runs config:cache: a fake
+        // config value applied then was cached for good. The fakes go in when a route is
+        // matched, before a screen's mount() runs, and before each event after that.
+        $mirror = new self($app);
 
-        self::$current->sync();
+        if ($app->bound('events')) {
+            $app->make('events')->listen(RouteMatched::class, function () use ($mirror): void {
+                self::$current = $mirror;
+                $mirror->sync();
+            });
+        }
 
         if (! self::$observing && interface_exists(TreeObserver::class) && class_exists(TreeObservers::class)) {
             TreeObservers::register(new TreeTap);
