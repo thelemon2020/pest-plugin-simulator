@@ -648,7 +648,7 @@ For your app's device tests on GitHub Actions, this repository has an action for
 - `thelemon2020/pest-plugin-simulator/actions/android` boots an Android Emulator on a Linux runner. [`.github/workflows/devices.yml`](.github/workflows/devices.yml) runs the sample app's tests with it.
 - `thelemon2020/pest-plugin-simulator/actions/ios` boots an iOS Simulator on a macOS runner. [`.github/workflows/devices.yml`](.github/workflows/devices.yml) runs the sample app's tests with it.
 
-No release has the actions yet, so the examples use `@main`. Once a release has them, pin its tag instead, so a change on main can't change your CI.
+The examples pin a release tag, the first one with the actions. Pin a tag rather than `@main`, so a change on main can't change your CI. To update, change it to a newer release's tag.
 
 ### What your job does, and what the action does
 
@@ -690,7 +690,7 @@ jobs:
           touch database/database.sqlite
           php artisan migrate --force
 
-      - uses: thelemon2020/pest-plugin-simulator/actions/android@main
+      - uses: thelemon2020/pest-plugin-simulator/actions/android@v0.5.0
         with:
           tests: tests/Simulator
 ```
@@ -738,7 +738,7 @@ jobs:
           touch database/database.sqlite
           php artisan migrate --force
 
-      - uses: thelemon2020/pest-plugin-simulator/actions/ios@main
+      - uses: thelemon2020/pest-plugin-simulator/actions/ios@v0.5.0
         with:
           tests: tests/Simulator
 ```
