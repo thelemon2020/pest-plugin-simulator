@@ -308,8 +308,13 @@ it('tails a file in the ios app container', function () {
     $driver = new IosDriver(new Device('ios', 'iPhone 17', true), Configuration::resolve(), new RecordingCommand($container));
     (new ReflectionProperty(IosDriver::class, 'udid'))->setValue($driver, 'UDID');
 
-    expect($driver->tailAppFile('storage/logs/laravel*.log', 2))->toBe(['path' => 'storage/logs/laravel-2026-10-20.log', 'size' => 6, 'bytes' => 'cdef'])
-        ->and($driver->tailAppFile('storage/logs/laravel*.log', 10))->toBe(['path' => 'storage/logs/laravel-2026-10-20.log', 'size' => 6, 'bytes' => 'abcdef'])
+    $today = 'storage/logs/laravel-2026-10-20.log';
+
+    expect($driver->tailAppFile('storage/logs/laravel*.log', 2, $today))->toBe(['path' => $today, 'size' => 6, 'bytes' => 'cdef'])
+        ->and($driver->tailAppFile('storage/logs/laravel*.log', 10, $today))->toBe(['path' => $today, 'size' => 6, 'bytes' => 'abcdef'])
+        // The offset counted in yesterday's file, so today's is read whole.
+        ->and($driver->tailAppFile('storage/logs/laravel*.log', 2, 'storage/logs/laravel-2026-10-19.log'))->toBe(['path' => $today, 'size' => 6, 'bytes' => 'abcdef'])
+        ->and($driver->tailAppFile('storage/logs/laravel*.log', null))->toBe(['path' => $today, 'size' => 6, 'bytes' => ''])
         ->and($driver->tailAppFile('storage/logs/laravel.log', 0))->toBeNull();
 });
 
@@ -320,17 +325,126 @@ it('tails a file in the android app with one run-as shell', function () {
     $driver = new AndroidDriver(new Device('android', 'Pixel 8', true), Configuration::resolve(), $command);
     (new ReflectionProperty(AndroidDriver::class, 'serial'))->setValue($driver, 'emulator-5554');
 
-    expect($driver->tailAppFile('storage/logs/laravel.log', 110))->toBe(['path' => 'storage/logs/laravel.log', 'size' => 120, 'bytes' => "new bytes\n"]);
+    expect($driver->tailAppFile('storage/logs/laravel.log', 110, 'storage/logs/laravel.log'))->toBe(['path' => 'storage/logs/laravel.log', 'size' => 120, 'bytes' => "new bytes\n"]);
 
     $script = $command->calls[0][1][3];
 
     expect($command->calls[0][1][2])->toBe('exec-out')
         ->and($script)->toStartWith("run-as 'com.example.app' sh -c ")
         ->and($script)->toContain('ls -t storage/logs/laravel.log')
-        ->and($script)->toContain('tail -c +111');
+        ->and($script)->toContain('tail -c +111')
+        ->and($script)->toContain('-ge 110');
+
+    // Only the size: no tail and no cat, so a big log is not sent over adb.
+    $command->outputs = ['exec-out' => "Ystorage/logs/laravel.log\n120\n"];
+
+    expect($driver->tailAppFile('storage/logs/laravel.log', null))->toBe(['path' => 'storage/logs/laravel.log', 'size' => 120, 'bytes' => ''])
+        ->and($command->calls[1][1][3])->not->toContain('tail')
+        ->and($command->calls[1][1][3])->not->toContain('cat');
+
+    $command->failures = ['exec-out' => 'adb: device offline'];
+
+    expect(fn () => $driver->tailAppFile('storage/logs/laravel.log', null))->toThrow(SimulatorException::class);
+    $command->failures = [];
 
     $command->outputs = ['exec-out' => 'N'];
 
     expect($driver->tailAppFile('storage/logs/laravel-*.log', 0))->toBeNull()
         ->and(fn () => $driver->tailAppFile('storage/logs/$(reboot).log', 0))->toThrow(SimulatorException::class);
+});
+
+it('reads only the size when a test starts, and never takes an old error for a new one', function () {
+    $this->driver->appFiles['storage/logs/laravel.log'] = IOS_ERROR;
+    $this->driver->tailFails = true;
+    AppLog::start($this->driver);
+    $this->driver->tailFails = false;
+
+    // The first read failed, so where the log ended is learned now, not read from 0.
+    AppLog::check($this->driver);
+    AppLog::check($this->driver);
+
+    $this->driver->appFiles['storage/logs/laravel.log'] = IOS_ERROR.ANDROID_ERROR;
+
+    expect(fn () => AppLog::check($this->driver))->toThrow(AppError::class, 'App\Exceptions\AlreadyPaid');
+});
+
+it('reads a new day\'s file from its start, even when it is longer than the last one', function () {
+    $this->driver->appFiles['storage/logs/laravel-2026-10-19.log'] = 'short line'."\n";
+    AppLog::start($this->driver);
+    $this->driver->appFiles['storage/logs/laravel-2026-10-20.log'] = ANDROID_ERROR;
+
+    expect(fn () => AppLog::check($this->driver))->toThrow(AppError::class, 'App\Exceptions\AlreadyPaid')
+        ->and(AppLog::path())->toBe('storage/logs/laravel-2026-10-20.log');
+});
+
+it('finds the exception after other context, and in a message over more than one line', function () {
+    $withUser = str_replace('{"exception"', '{"userId":1,"exception"', ANDROID_ERROR);
+    $multiLine = <<<'LOG'
+[2026-10-20 13:54:09] local.ERROR: Could not pay.
+The card was declined. {"exception":"[object] (App\\Exceptions\\Declined(code: 0): Could not pay.
+The card was declined. at /data/data/com.example.app/app_storage/laravel/app/Pay.php:9)
+[stacktrace]
+#0 /data/data/com.example.app/app_storage/laravel/app/Pay.php(9): pay()
+"}
+
+LOG;
+
+    [$first] = AppLog::parse($withUser);
+    [$second] = AppLog::parse($multiLine);
+
+    expect($first['class'])->toBe('App\Exceptions\AlreadyPaid')
+        ->and($first['message'])->toBe('Order 2 was paid already.')
+        ->and($second['class'])->toBe('App\Exceptions\Declined')
+        ->and($second['message'])->toBe("Could not pay.\nThe card was declined.")
+        ->and($second['where'])->toBe('app/Pay.php:9')
+        ->and($second['frames'])->toBe(['#0 app/Pay.php(9): pay()']);
+});
+
+it('names the app\'s error when an assertion gave up before the log was read again', function () {
+    $this->driver->appFiles['storage/logs/laravel.log'] = '';
+    $this->reads = 0;
+    // Logged after screen() noted where the log ended.
+    $this->driver->pulling = function (string $pattern): void {
+        if (++$this->reads > 1) {
+            $this->driver->appFiles['storage/logs/laravel.log'] = ANDROID_ERROR;
+        }
+    };
+
+    $error = onDevice(function (): void {
+        screen('/checkout')->assertSee('Done');
+    });
+
+    expect($error)->toBeInstanceOf(AppError::class)
+        ->and($error->getMessage())->toContain('The app logged App\Exceptions\AlreadyPaid')
+        ->and($error->getMessage())->toContain('The step had failed first: ')
+        ->and($error->getPrevious())->toBeInstanceOf(AssertionFailedError::class);
+});
+
+it('reads the log once more when a test ends on a tap', function () {
+    $this->driver->appFiles['storage/logs/laravel.log'] = '';
+    $this->reads = 0;
+    $this->driver->pulling = function (string $pattern): void {
+        // The app's PHP answers the tap only after the step that sent it has ended.
+        if ($this->driver->taps !== [] && ++$this->reads > 1) {
+            $this->driver->appFiles['storage/logs/laravel.log'] = ANDROID_ERROR;
+        }
+    };
+
+    expect(onDevice(function (): void {
+        screen('/checkout')->tap('Pay');
+    }))->toBeInstanceOf(AppError::class);
+});
+
+it('says why expectAppError() cannot see anything when the test never read the log', function () {
+    Configuration::configure(['scheme' => 'myapp', 'timeout' => 5, 'app_errors' => false]);
+    $started = microtime(true);
+
+    $error = onDevice(function (): void {
+        expectAppError(RuntimeException::class);
+        screen('/checkout');
+    });
+
+    expect($error)->toBeInstanceOf(AssertionFailedError::class)
+        ->and($error->getMessage())->toContain('while app_errors is turned off')
+        ->and(microtime(true) - $started)->toBeLessThan(1.0);
 });

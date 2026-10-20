@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace NativePhp\Simulator;
 
 use NativePhp\Simulator\Exceptions\AppError;
+use NativePhp\Simulator\Exceptions\SimulatorException;
 use PHPUnit\Framework\Assert;
 use PHPUnit\Framework\AssertionFailedError;
+use Throwable;
 
 /**
  * What the app's PHP logged while a test drove it. An exception in a NativePHP component is
@@ -15,7 +17,9 @@ use PHPUnit\Framework\AssertionFailedError;
  *
  * The test's first screen() notes where laravel.log ends. Each step reads what the app
  * wrote after that, and a wait reads it at most once a second, so an error ends the step
- * that caused it and names the exception, its message, and where it was thrown.
+ * that is under way when it lands, and names the exception, its message, and where it was
+ * thrown. A tap only sends the touch, so its error usually lands in the step after it. A
+ * test whose last step is a tap or a keystroke reads the log once more as it ends.
  *
  * Laravel writes one entry with one write, a header line and the stack after it:
  *
@@ -42,7 +46,13 @@ final class AppLog
     /** The shortest time between two reads inside a wait. */
     private const INTERVAL = 1.0;
 
+    /** How long a test that ends on a tap waits for the app's PHP to answer it. */
+    private const LAST_STEP = 1.0;
+
     private static bool $started = false;
+
+    /** The first read failed, so where the log ended is not known yet. */
+    private static bool $unknown = false;
 
     private static ?string $path = null;
 
@@ -64,6 +74,7 @@ final class AppLog
     public static function begin(): void
     {
         self::$started = false;
+        self::$unknown = false;
         self::$path = null;
         self::$offset = 0;
         self::$partial = '';
@@ -105,13 +116,34 @@ final class AppLog
 
         self::$started = true;
         self::$readAt = microtime(true);
+        self::mark($driver);
+    }
 
-        $tail = $driver->tailAppFile(self::PATTERN, PHP_INT_MAX);
+    /**
+     * Where the log ends now, read without its bytes. A read that fails leaves it unknown,
+     * and the next check() tries again rather than reading the whole log from 0.
+     */
+    private static function mark(Driver $driver): void
+    {
+        try {
+            $tail = $driver->tailAppFile(self::PATTERN, null);
+        } catch (SimulatorException) {
+            self::$unknown = true;
 
-        if ($tail !== null) {
-            self::$path = $tail['path'];
-            self::$offset = $tail['size'];
+            return;
         }
+
+        self::$unknown = false;
+        self::$path = $tail['path'] ?? null;
+        self::$offset = $tail['size'] ?? 0;
+    }
+
+    /**
+     * The file the app's errors were read from, relative to its storage, once it has one.
+     */
+    public static function path(): ?string
+    {
+        return self::$started ? self::$path : null;
     }
 
     /**
@@ -124,6 +156,13 @@ final class AppLog
         }
 
         self::$readAt = microtime(true);
+
+        if (self::$unknown) {
+            self::mark($driver);
+
+            return;
+        }
+
         $entries = self::read($driver);
 
         foreach ($entries as $entry) {
@@ -158,14 +197,37 @@ final class AppLog
     }
 
     /**
-     * Reads the log until the error expectAppError() named is there, for up to the
-     * timeout, when the test ends: the tap that throws can be the test's last step, and it
-     * does not wait for the app. Fails a test whose expected error the app never logged.
+     * The end of a test. A tap does not wait for the app, so a test whose last step was a
+     * tap or a keystroke reads the log for a second more, for the error that tap caused.
+     *
+     * With expectAppError(), it reads the log until the error it named is there, for up to
+     * the timeout, and fails a test whose expected error the app never logged.
      */
-    public static function finish(Driver $driver): void
+    public static function finish(Driver $driver, bool $endedOnInput = false): void
     {
         if (self::$expected === []) {
+            if (self::$started && $endedOnInput) {
+                // A suite that waits for nothing, with a timeout of 0, reads it once.
+                $deadline = microtime(true) + min(self::LAST_STEP, Configuration::resolve()->timeout());
+
+                do {
+                    self::check($driver);
+
+                    if (microtime(true) >= $deadline) {
+                        break;
+                    }
+
+                    usleep(250_000);
+                } while (true);
+            }
+
             return;
+        }
+
+        if (! self::$started) {
+            throw new AssertionFailedError(Configuration::resolve()->checksAppErrors()
+                ? 'expectAppError() reads the log of the app the test drove, and this test never opened a screen().'
+                : 'expectAppError() cannot see the app\'s errors while app_errors is turned off.');
         }
 
         $timeout = Configuration::resolve()->timeout();
@@ -191,6 +253,27 @@ final class AppLog
     }
 
     /**
+     * A step that failed may have failed because the app's PHP did. The log is read once
+     * more, whenever it was last read, and an error there is what the step reports, with
+     * the step's own failure after it.
+     */
+    public static function explain(Driver $driver, Throwable $failure): Throwable
+    {
+        if (! self::$started || $failure instanceof AppError) {
+            return $failure;
+        }
+
+        try {
+            self::check($driver);
+        } catch (AppError $error) {
+            return new AppError($error->getMessage()."\n\nThe step had failed first: ".$failure->getMessage(), $error->class, $failure);
+        } catch (Throwable) {
+        }
+
+        return $failure;
+    }
+
+    /**
      * Whether an expectAppError() is waiting, so the test end has to read the log.
      */
     public static function expecting(): bool
@@ -208,25 +291,48 @@ final class AppLog
         $lines = preg_split('/\r\n|\n|\r/', $text) ?: [];
         $entries = [];
         $current = null;
+        $body = '';
+        $stack = false;
 
         foreach ($lines as $line) {
             if (preg_match('/^\[\d{4}-\d{2}-\d{2}[ T][^\]]*\] [\w-]+\.([A-Z]+): ?(.*)$/', $line, $match) === 1) {
                 if ($current !== null) {
-                    $entries[] = $current;
+                    $entries[] = self::complete($current, $body);
                 }
 
-                $current = self::header($line, $match[1], $match[2]);
+                $current = ['level' => $match[1], 'header' => $line, 'message' => '', 'class' => null, 'where' => null, 'frames' => []];
+                $body = $match[2];
+                $stack = false;
 
                 continue;
             }
 
-            if ($current !== null && count($current['frames']) < self::FRAMES && preg_match('/^#\d+ /', $line) === 1) {
-                $current['frames'][] = self::shorten(stripslashes($line));
+            if ($current === null) {
+                continue;
             }
+
+            if ($line === '[stacktrace]') {
+                $stack = true;
+
+                continue;
+            }
+
+            if ($stack || preg_match('/^#\d+ /', $line) === 1) {
+                $stack = true;
+
+                if (count($current['frames']) < self::FRAMES && preg_match('/^#\d+ /', $line) === 1) {
+                    $current['frames'][] = self::shorten(stripslashes($line));
+                }
+
+                continue;
+            }
+
+            // A message, or the context after it, written over more than one line.
+            $body .= "\n".$line;
         }
 
         if ($current !== null) {
-            $entries[] = $current;
+            $entries[] = self::complete($current, $body);
         }
 
         return $entries;
@@ -237,7 +343,12 @@ final class AppLog
      */
     private static function read(Driver $driver): array
     {
-        $tail = $driver->tailAppFile(self::PATTERN, self::$path === null ? 0 : self::$offset);
+        try {
+            $tail = $driver->tailAppFile(self::PATTERN, self::$path === null ? 0 : self::$offset, self::$path);
+        } catch (SimulatorException) {
+            // The next read picks up from the same place.
+            return [];
+        }
 
         if ($tail === null) {
             return [];
@@ -259,27 +370,34 @@ final class AppLog
     }
 
     /**
+     * The message and the exception, from all the entry's text before its stack. Laravel
+     * puts the report's own context, such as `userId`, ahead of `exception` in the JSON
+     * after the message, and a message can run over more than one line.
+     *
+     * @param  Entry  $entry
      * @return Entry
      */
-    private static function header(string $line, string $level, string $rest): array
+    private static function complete(array $entry, string $body): array
     {
-        $class = null;
-        $where = null;
-        $message = $rest;
-        $context = strpos($rest, ' {"exception":"[object] (');
+        $marker = '"exception":"[object] (';
+        $at = strpos($body, $marker);
+        $message = $body;
 
-        if ($context !== false) {
-            $message = substr($rest, 0, $context);
-            $exception = stripslashes(substr($rest, $context + strlen(' {"exception":"[object] (')));
+        if ($at !== false) {
+            $json = strrpos(substr($body, 0, $at), ' {');
+            $message = $json === false ? substr($body, 0, $at) : substr($body, 0, $json);
+            $exception = stripslashes(substr($body, $at + strlen($marker)));
 
             if (preg_match('/^([A-Za-z_][\w\\\\]*)\(code: [^)]*\): (.*) at (\S+):(\d+)\)/s', $exception, $match) === 1) {
-                $class = $match[1];
+                $entry['class'] = $match[1];
                 $message = $match[2];
-                $where = self::shorten($match[3]).':'.$match[4];
+                $entry['where'] = self::shorten($match[3]).':'.$match[4];
             }
         }
 
-        return ['level' => $level, 'header' => $line, 'message' => trim($message), 'class' => $class, 'where' => $where, 'frames' => []];
+        $entry['message'] = trim($message);
+
+        return $entry;
     }
 
     /**
@@ -301,7 +419,7 @@ final class AppLog
         }
 
         $lines[] = '';
-        $lines[] = 'laravel.log has the whole entry. Call allowAppErrors() in a test where the app is meant to log errors, or expectAppError('.($entry['class'] === null ? 'SomeException' : self::basename($entry['class'])).'::class) for one it is meant to throw.';
+        $lines[] = (self::$path === null ? 'laravel.log' : basename(self::$path)).' has the whole entry. Call allowAppErrors() in a test where the app is meant to log errors, or expectAppError('.($entry['class'] === null ? 'SomeException' : self::basename($entry['class'])).'::class) for one it is meant to throw.';
 
         return implode("\n", $lines);
     }

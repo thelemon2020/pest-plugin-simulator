@@ -401,7 +401,7 @@ final class IosDriver implements Driver
         $this->recovering(fn () => $this->deleteAppFile($relative));
     }
 
-    public function tailAppFile(string $pattern, int $offset): ?array
+    public function tailAppFile(string $pattern, ?int $offset, ?string $from = null): ?array
     {
         try {
             $root = $this->appFile('');
@@ -418,22 +418,31 @@ final class IosDriver implements Driver
             }
         }
 
-        $file = $newest === null ? false : @fopen($newest, 'rb');
-
-        if ($newest === null || $file === false) {
+        if ($newest === null) {
             return null;
+        }
+
+        $path = substr($newest, strlen($root));
+        $file = @fopen($newest, 'rb');
+
+        if ($file === false) {
+            throw new SimulatorException("Could not read [{$path}] in the app's storage.");
         }
 
         try {
             $stat = fstat($file);
             $size = $stat === false ? 0 : $stat['size'];
-            fseek($file, $offset <= $size ? $offset : 0);
-            $bytes = stream_get_contents($file);
+            $bytes = '';
+
+            if ($offset !== null) {
+                fseek($file, $path === $from && $offset <= $size ? $offset : 0);
+                $bytes = stream_get_contents($file);
+            }
         } finally {
             fclose($file);
         }
 
-        return ['path' => substr($newest, strlen($root)), 'size' => $size, 'bytes' => is_string($bytes) ? $bytes : ''];
+        return ['path' => $path, 'size' => $size, 'bytes' => is_string($bytes) ? $bytes : ''];
     }
 
     /**

@@ -106,6 +106,17 @@ final class FailureCapture
             }
         });
 
+        // The daily channel writes laravel-2026-10-20.log, which captureLogs() does not copy.
+        $log = AppLog::path();
+
+        if ($log !== null && basename($log) !== 'laravel.log') {
+            self::attempt(function () use ($driver, $root, $log, &$saved): void {
+                if ($driver->pullAppFile($log, $root.'/'.basename($log))) {
+                    $saved[] = $root.'/'.basename($log);
+                }
+            });
+        }
+
         return $saved;
     }
 

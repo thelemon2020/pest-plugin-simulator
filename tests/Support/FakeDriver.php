@@ -83,6 +83,9 @@ final class FakeDriver implements Driver
      */
     public ?Closure $pulling = null;
 
+    /** Whether tailAppFile() throws, as a read over adb that failed. */
+    public bool $tailFails = false;
+
     /**
      * The pattern of each tailAppFile(), kept apart from $events: every step reads the
      * app's log.
@@ -330,7 +333,7 @@ final class FakeDriver implements Driver
         return file_put_contents($local, $this->appFiles[$relative]) !== false;
     }
 
-    public function tailAppFile(string $pattern, int $offset): ?array
+    public function tailAppFile(string $pattern, ?int $offset, ?string $from = null): ?array
     {
         $this->tails[] = $pattern;
 
@@ -349,7 +352,15 @@ final class FakeDriver implements Driver
         $contents = $this->appFiles[$path];
         $size = strlen($contents);
 
-        return ['path' => $path, 'size' => $size, 'bytes' => substr($contents, $offset <= $size ? $offset : 0)];
+        if ($this->tailFails) {
+            throw new SimulatorException('adb: device offline');
+        }
+
+        if ($offset === null) {
+            return ['path' => $path, 'size' => $size, 'bytes' => ''];
+        }
+
+        return ['path' => $path, 'size' => $size, 'bytes' => substr($contents, $path === $from && $offset <= $size ? $offset : 0)];
     }
 
     public function removeAppFile(string $relative): void

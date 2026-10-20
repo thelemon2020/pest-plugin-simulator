@@ -630,7 +630,7 @@ Each failure gets its own directory under `simulator-failures/`, named for when 
 
 NativePHP catches an exception in a component, logs it, and draws its own "Something went wrong" screen. Without help, the test would only see a screen that never shows what it waits for, and fail at the timeout.
 
-So the plugin reads the app's `laravel.log` as the test runs. The test's first `screen()` notes where the log ends. Every step reads what the app wrote after that, and a step that is waiting reads it once a second. An entry at `ERROR` or above ends the step, and the test fails with the exception:
+So the plugin reads the app's `laravel.log` as the test runs. The test's first `screen()` notes where the log ends. Every step reads what the app wrote after that, and a step that is waiting reads it once a second. An entry at `ERROR` or above ends the step that is under way when it lands, and the test fails with the exception:
 
 ```text
 The app logged App\Exceptions\AlreadyPaid: Order 2 was paid already.
@@ -641,7 +641,9 @@ Thrown at app/NativeComponents/Checkout.php:31
 #1 vendor/laravel/framework/src/Illuminate/Container/Util.php(43): Illuminate\Container\BoundMethod::{closure}()
 ```
 
-The step ends `error` in the trace. The failure saves the trace, the tree, the screenshot, and the logs, as any error does. Paths start from the app's own directory.
+The step ends `error` in the trace. The failure saves the trace, the tree, the screenshot, and the logs, as any error does, including the `daily` channel's file. Paths start from the app's own directory.
+
+A tap only sends the touch. The app's PHP answers it a moment later, so the error a tap causes usually ends the step after it, such as the `assertSee()` that waited for the answer. A step that fails is read once more before it reports, so an assertion that gave up names the app's error, with its own failure after it. A test whose last step is a tap, a keystroke, or a `screen()` reads the log for one second more as it ends, so that tap's error still fails it.
 
 The log is `storage/logs/laravel.log`, or the newest `laravel-*.log` for the `daily` channel. A channel that writes elsewhere is not read. On the Android emulator one read takes about 0.04 seconds.
 
@@ -655,7 +657,7 @@ it('refuses to pay twice', function () {
 });
 ```
 
-That error does not fail the test, and neither does one that extends it. A test that ends without it fails. An error of another class still fails the test.
+That error does not fail the test, and neither does one that extends it. A test that ends without it fails. An error of another class still fails the test. With `app_errors` off, or in a test that never opened a `screen()`, `expectAppError()` fails at once and says why.
 
 `Configuration::configure(['app_errors' => false])` stops reading the log in every test.
 

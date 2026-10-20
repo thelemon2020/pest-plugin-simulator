@@ -67,8 +67,13 @@ final class MobileTestFilter implements TestCaseMethodFilter
             try {
                 $result = $original instanceof \Closure ? $original->call($this, ...$args) : null;
 
-                if (AppLog::expecting()) {
-                    AppLog::finish(Sessions::get($device));
+                $steps = Trace::steps();
+                $last = $steps === [] ? null : end($steps);
+                // A tap, a keystroke or a screen() does not wait for the app's PHP to answer.
+                $endedOnInput = $last !== null && ! str_starts_with((string) ($last['action'] ?? ''), 'assert');
+
+                if (AppLog::expecting() || $endedOnInput) {
+                    AppLog::finish(Sessions::get($device), $endedOnInput);
                 }
 
                 return $result;

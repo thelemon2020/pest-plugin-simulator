@@ -1678,7 +1678,9 @@ final class Screen
         } catch (Throwable $exception) {
             $this->endStep($exception instanceof AssertionFailedError ? 'failed' : 'error', $exception->getMessage());
 
-            throw $exception;
+            // An assertion that gave up before the log's next read would hide the app's
+            // own error, which is the reason it gave up.
+            throw AppLog::explain($this->driver, $exception);
         } finally {
             $this->stepNth = null;
         }
