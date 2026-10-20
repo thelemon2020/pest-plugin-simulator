@@ -424,9 +424,9 @@ A mailable, event, job, or notification that uses `SerializesModels` brings its 
 
 A mailable, event, or job that does not serialize, such as one holding a closure, is left out of the record. So are Laravel's own events that hold a request or a connection.
 
-A request the app makes that `preventStrayRequests()` does not allow throws in the app. The app logs it, and the test fails with it (see [When the app throws](#when-the-app-throws)).
+A request the app makes that `preventStrayRequests()` does not allow throws in the app. Unless the app catches it, NativePHP logs it, and the test fails with it (see [When the app throws](#when-the-app-throws)).
 
-When the test ends, the plugin deletes both files, and the app puts its real client, clock, and config back before its next tap. A run stopped part way, with Ctrl-C, cannot delete them, so each test's first `screen()` deletes any it finds.
+When the test ends, the plugin deletes both files, and the app puts its real Http client, mailer, dispatchers, clock, and config back before its next tap. A run stopped part way, with Ctrl-C, cannot delete them, so each test's first `screen()` deletes any it finds.
 
 Some things do not cross over:
 

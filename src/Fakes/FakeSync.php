@@ -65,6 +65,12 @@ final class FakeSync
     private static bool $cleared = false;
 
     /**
+     * Whether a test's fakes file may still be in the app: one ended while the device was
+     * not answering, so the file could not be removed.
+     */
+    private static bool $leftover = false;
+
+    /**
      * Notes the test's config, to send only what the test changes. Does nothing when the
      * tests do not boot Laravel.
      */
@@ -114,9 +120,10 @@ final class FakeSync
         }
 
         if ($payload === null) {
-            if (self::$pushed !== null) {
+            if (self::$pushed !== null || self::$leftover) {
                 $driver->removeAppFile('storage/'.Payload::FAKES);
                 self::$pushed = null;
+                self::$leftover = false;
             }
 
             return;
@@ -156,6 +163,10 @@ final class FakeSync
                 $driver->removeAppFile('storage/'.Payload::FAKES);
                 $driver->removeAppFile('storage/'.Payload::RECORDS);
             }
+        } catch (SimulatorException) {
+            // A test that ends because the device stopped answering keeps its own error.
+            // The next test removes the file, or replaces it with its own.
+            self::$leftover = true;
         } finally {
             self::$pushed = null;
             self::$cleared = false;

@@ -245,6 +245,23 @@ it('sends nothing for a test that fakes nothing', function () {
         ->and($this->driver->appFiles)->toBe([]);
 });
 
+it('keeps the test\'s own error when the device cannot take the fakes back, and the next test does', function () {
+    Http::fake(['api.stripe.test/*' => Http::response(['status' => 'succeeded'])]);
+    FakeSync::sync($this->driver);
+    $this->driver->removeError = new SimulatorException('device offline');
+
+    FakeSync::end($this->driver);
+
+    expect($this->driver->appFiles)->toHaveKey('storage/'.Payload::FAKES);
+
+    $this->driver->removeError = null;
+    $this->refreshApplication();
+    FakeSync::begin();
+    FakeSync::sync($this->driver);
+
+    expect($this->driver->appFiles)->not->toHaveKey('storage/'.Payload::FAKES);
+});
+
 it('says a closure that uses $this cannot run in the app', function () {
     $this->word = 'hello';
     Http::fake(['api.echo.test/*' => function () {
