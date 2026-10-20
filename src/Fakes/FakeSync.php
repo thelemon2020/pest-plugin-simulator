@@ -32,6 +32,9 @@ final class FakeSync
     /** A hash of the fakes file last pushed, or null when the app has none from this test. */
     private static ?string $pushed = null;
 
+    /** Whether this test has taken away the files a run that stopped part way left. */
+    private static bool $cleared = false;
+
     /**
      * Notes the test's config, to send only what the test changes. Does nothing when the
      * tests do not boot Laravel.
@@ -39,6 +42,7 @@ final class FakeSync
     public static function begin(): void
     {
         self::$pushed = null;
+        self::$cleared = false;
         self::$test = null;
         self::$config = [];
 
@@ -61,11 +65,24 @@ final class FakeSync
      */
     public static function sync(Driver $driver): void
     {
+        $payload = self::$test === null ? null : self::payload();
+
+        // A run stopped with Ctrl-C, or killed, never took its fakes back. The app would
+        // apply them to this test, so the first screen() takes them away. A push replaces
+        // the fakes file anyway.
+        if (! self::$cleared) {
+            self::$cleared = true;
+
+            if ($payload === null) {
+                $driver->removeAppFile('storage/'.Payload::FAKES);
+            }
+
+            $driver->removeAppFile('storage/'.Payload::RECORDS);
+        }
+
         if (self::$test === null) {
             return;
         }
-
-        $payload = self::payload();
 
         if ($payload === null) {
             if (self::$pushed !== null) {
@@ -76,12 +93,13 @@ final class FakeSync
             return;
         }
 
-        $bytes = Payload::encode($payload, Payload::key());
-        $hash = sha1($bytes);
+        $hash = Payload::fingerprint($payload);
 
         if ($hash === self::$pushed) {
             return;
         }
+
+        $bytes = Payload::encode($payload, Payload::key());
 
         $local = tempnam(sys_get_temp_dir(), 'pest-simulator-fakes-');
 
@@ -111,6 +129,7 @@ final class FakeSync
             }
         } finally {
             self::$pushed = null;
+            self::$cleared = false;
             self::$test = null;
             self::$config = [];
         }
@@ -133,7 +152,10 @@ final class FakeSync
     }
 
     /**
-     * @return array{time: string, timezone: string}|null
+     * The moment as a timestamp, which a wall clock time cannot always name: in the hour a
+     * clock goes back, 01:30 happens twice.
+     *
+     * @return array{timestamp: string, timezone: string}|null
      */
     private static function now(): ?array
     {
@@ -143,34 +165,78 @@ final class FakeSync
 
         $now = Carbon::now();
 
-        return ['time' => $now->format('Y-m-d H:i:s.u'), 'timezone' => $now->getTimezone()->getName()];
+        return ['timestamp' => $now->format('U.u'), 'timezone' => $now->getTimezone()->getName()];
     }
 
     /**
-     * The config keys the test changed, as dot keys. A key it removed is sent as null.
+     * The config keys the test changed, as dot keys, and the ones it removed. The app takes
+     * the removed ones away first, then sets the rest. A key removed because a value now
+     * sits under it, or because the array above it was replaced, is not sent: setting the
+     * value does that.
      *
-     * @return array<string, mixed>
+     * @return array{set?: array<string, mixed>, forget?: list<string>}
      */
     private static function config(): array
     {
         $current = self::flatten(self::container()->make('config')->all());
-        $changed = [];
+        $set = [];
 
         foreach ($current as $key => $value) {
             if (! array_key_exists($key, self::$config) || self::$config[$key] !== $value) {
-                $changed[$key] = $value;
+                $set[$key] = $value;
             }
         }
 
-        foreach (array_diff_key(self::$config, $current) as $key => $value) {
-            $changed[$key] = null;
+        $forget = [];
+
+        foreach (array_keys(array_diff_key(self::$config, $current)) as $key) {
+            if (self::under(array_keys($current), $key) || self::above(array_keys($set), $key)) {
+                continue;
+            }
+
+            $forget[] = $key;
         }
 
-        return $changed;
+        return array_filter(['set' => $set, 'forget' => $forget]);
     }
 
     /**
-     * @return array{fakes: list<mixed>, prevent: bool, allow: list<string>}|null
+     * Whether a key in $keys sits under $key.
+     *
+     * @param  list<string>  $keys
+     */
+    private static function under(array $keys, string $key): bool
+    {
+        foreach ($keys as $candidate) {
+            if (str_starts_with($candidate, $key.'.')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether a key in $keys sits above $key.
+     *
+     * @param  list<string>  $keys
+     */
+    private static function above(array $keys, string $key): bool
+    {
+        foreach ($keys as $candidate) {
+            if (str_starts_with($key, $candidate.'.')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * What the test faked, with a fingerprint of each fake, so the app can add a fake the
+     * test added without starting the others again.
+     *
+     * @return array{fakes: list<mixed>, ids: list<string>, prevent: bool, allow: list<string>}|null
      */
     private static function http(): ?array
     {
@@ -181,8 +247,9 @@ final class FakeSync
         }
 
         $factory = $container->make(Factory::class);
+        $remote = $factory instanceof RemoteHttpFactory ? $factory->remote() : null;
 
-        return $factory instanceof RemoteHttpFactory ? $factory->remote() : null;
+        return $remote === null ? null : $remote + ['ids' => array_map(Payload::fingerprint(...), $remote['fakes'])];
     }
 
     /**

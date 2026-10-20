@@ -393,19 +393,23 @@ These reach the app:
 
 - `Http::fake()`, `Http::fakeSequence()`, `Http::response()`, `Http::preventStrayRequests()`, and `Http::allowStrayRequests()`.
 - The time from `$this->travelTo()`, `$this->freezeTime()`, or `Carbon::setTestNow()`. `$this->travelBack()` lets the app's clock go again.
-- `config()` values the test changed. Values set in `beforeEach()` are part of the starting config the plugin compares against, so set them in the test.
+- `config()` values the test changed, and keys it removed. Values set in `beforeEach()` are part of the starting config the plugin compares against, so set them in the test. Only the keys the test changed are sent, so the app keeps its own database paths and the rest.
 
 They need the tests to boot Laravel. The plugin's service provider gives the tests an Http client whose fakes reach the app. Outside `mobile()`, it is Laravel's own client, and nothing changes.
 
 Before each step, the plugin writes what the test has faked to a file and copies it into the app, when it has changed since the last copy. The file is `storage/framework/pest-simulator/fakes` in the app's storage. Fakes set before the first `screen()` go in while the app is stopped for the database copy, so the app has them when it starts. A fake set later reaches the app before the next step acts.
 
-The app runs Laravel's own fakes. A debug build of the app has this package in its vendor directory, and Laravel boots its service provider there too. When the app opens a screen, and before it handles each tap, it reads the file when it has changed, and calls `Http::fake()` with what the test passed it, `Carbon::setTestNow()`, and `config()`. After each render, it writes what its fakes recorded to `storage/framework/pest-simulator/recorded`. With no file, it does nothing but look for one. It does nothing while it only boots, as it does for its own artisan commands: a fake config value would end up in the config cache NativePHP writes on the first launch. A release build does not have the package, and an app with `APP_ENV=production` ignores the file.
+The app runs Laravel's own fakes. A debug build of the app has this package in its vendor directory, and Laravel boots its service provider there too. When the app opens a screen, and before it handles each tap, it reads the file when it has changed, and calls `Http::fake()` with what the test passed it, `Carbon::setTestNow()`, and `config()`. After each render, it writes what its fakes recorded to `storage/framework/pest-simulator/recorded`. With no file, it does nothing but look for one. It does nothing while it only boots, as it does for its own artisan commands: a fake config value would end up in the config cache NativePHP writes on the first launch.
+
+The app only reads the file inside NativePHP, with `APP_DEBUG=true`, and outside `APP_ENV=production`. A release build has no dev dependencies, so the package is not in it at all. A build that has it anyway, such as one for internal testing with `APP_ENV=staging` and `APP_DEBUG=false`, ignores the file. Only the plugin's own classes are unserialized from it.
+
+A fake the test adds after the app has its others is added to the app's client, as `Http::fake()` adds to the test's, so a sequence the app has answered from goes on from where it was. A fake that changed, such as a sequence the test pushed onto after the first `screen()`, starts the app's client over. `Http::assertSequencesAreEmpty()` checks the app's copies of the sequences, which are the ones the app answers from.
 
 `Http::assertSent()` and the other asserts are Laravel's own. They read the app's record first. `assertSent()`, `assertSentCount()`, and `assertSentInOrder()` read it again until they pass or the timeout runs out, as `assertSee()` waits. `assertNotSent()` and `assertNothingSent()` check once, after the app has taken every event it was sent when it shows the `nativephp-pending` marker. Without the marker, they check what the app has recorded so far.
 
 A request the app makes that `preventStrayRequests()` does not allow throws in the app. The app logs it, and the test fails with it (see [When the app throws](#when-the-app-throws)).
 
-When the test ends, the plugin deletes both files, and the app puts its real client, clock, and config back before its next tap.
+When the test ends, the plugin deletes both files, and the app puts its real client, clock, and config back before its next tap. A run stopped part way, with Ctrl-C, cannot delete them, so each test's first `screen()` deletes any it finds.
 
 Some things do not cross over:
 

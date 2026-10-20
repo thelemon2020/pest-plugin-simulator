@@ -46,7 +46,8 @@ final class Records
                 return [];
             }
 
-            $records = @unserialize((string) file_get_contents($local));
+            // The app writes plain arrays. Nothing it writes becomes an object here.
+            $records = @unserialize((string) file_get_contents($local), ['allowed_classes' => false]);
         } finally {
             @unlink($local);
         }

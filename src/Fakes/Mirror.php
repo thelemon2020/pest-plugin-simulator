@@ -5,9 +5,12 @@ declare(strict_types=1);
 namespace NativePhp\Simulator\Fakes;
 
 use Carbon\Carbon;
+use Illuminate\Config\Repository;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Http\Client\Factory;
+use Illuminate\Http\Client\ResponseSequence;
 use Illuminate\Routing\Events\RouteMatched;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Facade;
 use Native\Mobile\Edge\Contracts\TreeObserver;
 use Native\Mobile\Edge\TreeObservers;
@@ -19,8 +22,10 @@ use Throwable;
  * The app's side of the fakes file. A debug build of the app has this package in its vendor
  * directory, and Laravel boots its ServiceProvider there too, which hands the app to boot().
  *
- * It does nothing unless the app runs inside NativePHP, outside production, and finds the
- * fakes file in its storage. Then it calls Laravel's own fakes, as the test did: fake() on
+ * It does nothing unless the app runs inside NativePHP, outside production, with APP_DEBUG
+ * on, and finds the fakes file in its storage. A release build has no dev dependencies, so
+ * the plugin is not in it at all; the checks keep it inert in a build that has it anyway,
+ * such as one for internal testing with APP_ENV=staging. Then it calls Laravel's own fakes, as the test did: fake() on
  * the Http client, Carbon::setTestNow(), config(). After each render it writes what the
  * fakes recorded to the record file, which the test's asserts read (see Records).
  *
@@ -47,8 +52,14 @@ final class Mirror
     /** @var array<string, string> the hash of each fake, as last applied */
     private array $applied = [];
 
-    /** @var array<string, mixed> config values from before the fakes set them */
+    /** @var array<string, array{0: bool, 1: mixed}> config keys the fakes changed: whether each was there, and its value before */
     private array $config = [];
+
+    /** @var list<string> the fingerprint of each Http fake in place, in order */
+    private array $httpIds = [];
+
+    /** @var list<ResponseSequence> the sequences the Http fakes in place answer from */
+    private array $sequences = [];
 
     private bool $time = false;
 
@@ -90,14 +101,27 @@ final class Mirror
     }
 
     /**
-     * Inside NativePHP, outside production. The host never sets NativePHP's flag.
+     * Forgets the app it was booted in. A real app boots once; the tests' stand-in app is
+     * made again for every test.
+     */
+    public static function reset(): void
+    {
+        self::$current = null;
+    }
+
+    /**
+     * Inside NativePHP, outside production, with APP_DEBUG on. The host never sets
+     * NativePHP's flag.
      */
     public static function inside(Container $app): bool
     {
-        $running = ($app->bound('config') && $app->make('config')->get('nativephp-internal.running') === true)
+        $config = $app->bound('config') ? $app->make('config') : null;
+        $running = ($config !== null && $config->get('nativephp-internal.running') === true)
             || ($_SERVER['NATIVEPHP_RUNNING'] ?? getenv('NATIVEPHP_RUNNING')) === 'true';
 
-        return $running && method_exists($app, 'environment') && ! $app->environment('production');
+        return $running
+            && $config !== null && $config->get('app.debug') === true
+            && method_exists($app, 'environment') && ! $app->environment('production');
     }
 
     /**
@@ -117,7 +141,9 @@ final class Mirror
                 return;
             }
 
-            $seen = $stat['ino'].':'.$stat['mtime'].':'.$stat['size'];
+            // A freed inode can be used again at once, and a bool in config keeps the size,
+            // so within one second a push could look the same by its stat alone.
+            $seen = $stat['ino'].':'.$stat['mtime'].':'.$stat['size'].':'.md5_file($path);
 
             if ($seen === $this->seen) {
                 return;
@@ -160,6 +186,7 @@ final class Mirror
 
             if ($this->http !== null && $client !== $this->http) {
                 $records['http'] = HttpRecords::encode($client);
+                $records['sequences'] = array_map(fn (ResponseSequence $sequence): bool => $sequence->isEmpty(), $this->sequences);
             }
 
             $bytes = serialize($records);
@@ -219,34 +246,78 @@ final class Mirror
             return;
         }
 
-        Carbon::setTestNow(Carbon::parse((string) $now['time'], (string) $now['timezone']));
+        $moment = Carbon::createFromFormat('U.u', (string) $now['timestamp']);
+
+        if ($moment === null) {
+            return;
+        }
+
+        Carbon::setTestNow($moment->setTimezone((string) $now['timezone']));
         $this->time = true;
     }
 
     /**
-     * @param  array<array-key, mixed>  $values
+     * Puts back what the last config section changed, then takes away the keys the test
+     * removed and sets the ones it changed.
+     *
+     * @param  array<array-key, mixed>  $section  `forget` and `set`, as FakeSync sends them
      */
-    private function config(array $values): void
+    private function config(array $section): void
     {
         $config = $this->app->make('config');
 
-        foreach (array_diff_key($this->config, $values) as $key => $original) {
-            $config->set($key, $original);
-            unset($this->config[$key]);
+        foreach (array_reverse($this->config, true) as $key => [$had, $value]) {
+            $had ? $config->set($key, $value) : $this->unset($config, $key);
         }
 
-        foreach ($values as $key => $value) {
-            if (! array_key_exists($key, $this->config)) {
-                $this->config[$key] = $config->get($key);
-            }
+        $this->config = [];
 
+        foreach (is_array($section['forget'] ?? null) ? $section['forget'] : [] as $key) {
+            $this->remember($config, (string) $key);
+            $this->unset($config, (string) $key);
+        }
+
+        foreach (is_array($section['set'] ?? null) ? $section['set'] : [] as $key => $value) {
+            $this->remember($config, (string) $key);
             $config->set($key, $value);
+        }
+    }
+
+    private function remember(mixed $config, string $key): void
+    {
+        if (! array_key_exists($key, $this->config)) {
+            $this->config[$key] = [$config->has($key), $config->get($key)];
+        }
+    }
+
+    /**
+     * Takes a key out of config, rather than setting it to null, so config()->has() says
+     * what it says in the test.
+     */
+    private function unset(mixed $config, string $key): void
+    {
+        if (! $config instanceof Repository) {
+            $config->set($key, null);
+
+            return;
+        }
+
+        $items = new ReflectionProperty(Repository::class, 'items');
+        $all = $items->getValue($config);
+
+        if (is_array($all)) {
+            Arr::forget($all, $key);
+            $items->setValue($config, $all);
         }
     }
 
     /**
      * Fakes the app's client the way the test faked its own: a copy of the app's client, so
      * it keeps the app's global middleware and options, given the same fake() calls.
+     *
+     * A fake the test added after the app had its others is added to the client in place,
+     * as Http::fake() adds to the test's, so a sequence the app has answered from goes on
+     * from where it was. A fake that changed starts the client over.
      *
      * @param  array<array-key, mixed>|null  $http
      */
@@ -260,14 +331,31 @@ final class Mirror
                 $this->http = null;
             }
 
+            $this->httpIds = [];
+            $this->sequences = [];
+
             return;
         }
 
         $this->http ??= $current;
-        $fake = clone $this->http;
+        $fakes = array_values(is_array($http['fakes'] ?? null) ? $http['fakes'] : []);
+        $ids = array_values(array_map(strval(...), is_array($http['ids'] ?? null) ? $http['ids'] : []));
+        $faked = $current !== $this->http;
+        $adds = $faked && $this->httpIds !== [] && array_slice($ids, 0, count($this->httpIds)) === $this->httpIds;
+        $recorded = $faked ? $current->recorded()->values()->all() : [];
 
-        foreach (is_array($http['fakes'] ?? null) ? $http['fakes'] : [] as $callback) {
-            $fake->fake(Payload::unpack($callback));
+        if ($adds) {
+            $fake = $current;
+            $fakes = array_slice($fakes, count($this->httpIds));
+        } else {
+            $fake = clone $this->http;
+            $this->sequences = [];
+        }
+
+        foreach ($fakes as $callback) {
+            $callback = Payload::unpack($callback);
+            array_push($this->sequences, ...self::sequencesIn($callback));
+            $fake->fake($callback);
         }
 
         $fake->preventStrayRequests((bool) ($http['prevent'] ?? false));
@@ -279,11 +367,24 @@ final class Mirror
 
         // fake() starts its record again. A fake the test changed part way keeps what the
         // one before it recorded.
-        if ($current !== $this->http) {
-            (new ReflectionProperty(Factory::class, 'recorded'))->setValue($fake, $current->recorded()->values()->all());
+        if ($faked) {
+            (new ReflectionProperty(Factory::class, 'recorded'))->setValue($fake, $recorded);
         }
 
+        $this->httpIds = $ids;
         $this->bind($fake);
+    }
+
+    /**
+     * @return list<ResponseSequence>
+     */
+    private static function sequencesIn(mixed $callback): array
+    {
+        if ($callback instanceof ResponseSequence) {
+            return [$callback];
+        }
+
+        return is_array($callback) ? array_values(array_filter($callback, fn (mixed $value): bool => $value instanceof ResponseSequence)) : [];
     }
 
     private function bind(Factory $client): void

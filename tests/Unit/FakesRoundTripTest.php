@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Carbon\Carbon;
+use Illuminate\Foundation\Application;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
@@ -242,3 +243,148 @@ it('pushes the fakes set before the first screen while the app is stopped for th
 
     expect($order)->toBe(['install', 'pushFile', 'open']);
 });
+
+it('goes on through a sequence when the test adds a fake, and pushes nothing for a closure that did not change', function () {
+    Http::fake(['api.echo.test/*' => fn () => Http::response('echo')]);
+    Http::fakeSequence('api.rates.test/*')->push(['rate' => 1])->push(['rate' => 2]);
+    FakeSync::sync($this->driver);
+    FakeSync::sync($this->driver);
+    $this->device->boot();
+
+    $first = $this->device->tap(fn () => Http::get('https://api.rates.test/a')->json('rate'));
+
+    Http::preventStrayRequests();
+    FakeSync::sync($this->driver);
+
+    $second = $this->device->tap(fn () => Http::get('https://api.rates.test/b')->json('rate'));
+
+    expect([$first, $second])->toBe([1, 2])
+        ->and(array_filter($this->driver->events, fn (array $event): bool => $event === ['pushFile', 'storage/'.Payload::FAKES]))->toHaveCount(2);
+
+    Http::assertSequencesAreEmpty();
+});
+
+it('says a sequence the app has not run through is not empty', function () {
+    Http::fakeSequence('api.rates.test/*')->push(['rate' => 1])->push(['rate' => 2]);
+    FakeSync::sync($this->driver);
+    $this->device->boot();
+    $this->device->tap(fn () => Http::get('https://api.rates.test/a'));
+
+    expect(fn () => Http::assertSequencesAreEmpty())->toThrow(AssertionFailedError::class, 'Not all response sequences are empty.');
+});
+
+it('sets a config value under an empty array, and empties one, as the test did', function () {
+    config(['features.flags' => [], 'features.options' => ['key' => 'x'], 'features.gone' => 'here']);
+    FakeSync::begin();
+
+    config(['features.flags.beta' => true, 'features.options' => []]);
+    $all = config('features');
+    unset($all['gone']);
+    config(['features' => $all]);
+    FakeSync::sync($this->driver);
+    $this->device->run(fn () => config(['features.gone' => 'app', 'features.options' => ['key' => 'app']]));
+    $this->device->boot();
+
+    [$flags, $options, $gone] = $this->device->tap(fn (): array => [config('features.flags'), config('features.options'), config()->has('features.gone')]);
+
+    expect($flags)->toBe(['beta' => true])
+        ->and($options)->toBe([])
+        ->and($gone)->toBeFalse();
+
+    FakeSync::end($this->driver);
+
+    [$options, $gone] = $this->device->tap(fn (): array => [config('features.options'), config('features.gone')]);
+
+    expect($options)->toBe(['key' => 'app'])
+        ->and($gone)->toBe('app');
+});
+
+it('hands the test a GET request\'s query and a multipart request\'s parts', function () {
+    Http::fake();
+    FakeSync::sync($this->driver);
+    $this->device->boot();
+
+    $this->device->tap(function (): void {
+        Http::get('https://api.shop.test/search', ['q' => 'shoes']);
+        Http::asMultipart()->attach('receipt', 'PDF bytes', 'receipt.pdf')->post('https://api.shop.test/upload', ['order' => '2']);
+    });
+
+    Http::assertSent(fn (Request $request): bool => $request->url() === 'https://api.shop.test/search?q=shoes' && $request['q'] === 'shoes');
+    Http::assertSent(fn (Request $request): bool => $request->hasFile('receipt', 'PDF bytes', 'receipt.pdf'));
+});
+
+it('leaves Laravel\'s own Http fake as it is outside a mobile() test', function () {
+    Run::clear();
+    FakeSync::end($this->driver);
+
+    Http::fake();
+    Http::get('https://example.test/x');
+    Http::fake();
+
+    Http::assertNothingSent();
+});
+
+it('freezes the same moment in the app in the hour a clock goes back', function () {
+    $this->travelTo(Carbon::parse('2026-11-01 05:30:00', 'UTC')->setTimezone('America/New_York'));
+    $expected = now()->getTimestamp();
+    FakeSync::sync($this->driver);
+    Carbon::setTestNow();
+    $this->device->boot();
+
+    expect($this->device->tap(fn (): int => now()->getTimestamp()))->toBe($expected);
+});
+
+it('takes away the fakes a run that stopped part way left on the app', function () {
+    $this->driver->appFiles['storage/'.Payload::FAKES] = 'left over';
+    $this->driver->appFiles['storage/'.Payload::RECORDS] = 'left over';
+
+    FakeSync::sync($this->driver);
+
+    expect($this->driver->appFiles)->toBe([]);
+});
+
+it('notices a push that kept the file\'s size within the same second', function () {
+    config(['features.express' => true]);
+    FakeSync::sync($this->driver);
+    $this->device->boot();
+
+    config(['features.express' => false]);
+    FakeSync::sync($this->driver);
+
+    expect($this->device->tap(fn () => config('features.express')))->toBeFalse();
+});
+
+it('reads no fakes file in an app that is not a debug build', function () {
+    config(['features.express' => true]);
+    FakeSync::sync($this->driver);
+    $this->device->run(fn () => config(['app.debug' => false]));
+    $this->device->boot();
+
+    expect($this->device->tap(fn () => config('features.express')))->toBeNull();
+});
+
+it('reads no fakes file in an app in production', function () {
+    config(['features.express' => true]);
+    FakeSync::sync($this->driver);
+    $this->device->run(function (Application $app): void {
+        $app['env'] = 'production';
+    });
+    $this->device->boot();
+
+    expect($this->device->tap(fn () => config('features.express')))->toBeNull();
+});
+
+it('unserializes no class the fakes file is not made of', function () {
+    $bytes = 'pest-simulator-fakes 1 key'."\n".serialize(['test' => 'x', 'config' => new ArrayObject]);
+
+    expect(Payload::decode($bytes)['config'])->toBeInstanceOf(__PHP_Incomplete_Class::class);
+});
+
+it('allows the stray requests the test let through', function () {
+    Http::fake(['api.stripe.test/*' => Http::response('ok')]);
+    Http::preventStrayRequests();
+    Http::allowStrayRequests(['https://api.maps.test/*']);
+    FakeSync::sync($this->driver);
+
+    expect(FakeSync::payload()['http']['allow'] ?? null)->toBe(['https://api.maps.test/*']);
+})->skip(! (new ReflectionClass(Factory::class))->hasProperty('allowedStrayRequestUrls'), 'Laravel 11 has no list of stray requests to allow.');

@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace NativePhp\Simulator\Fakes;
 
 use Illuminate\Http\Client\Factory;
+use NativePhp\Simulator\Run;
+use PHPUnit\Framework\Assert as PHPUnit;
 use ReflectionClass;
 use ReflectionProperty;
 
@@ -39,6 +41,9 @@ final class RemoteHttpFactory extends Factory
 
     private bool $asserting = false;
 
+    /** @var list<bool> whether each sequence the app answers from has run out */
+    private array $appSequences = [];
+
     private bool $faking = false;
 
     public function fake($callback = null)
@@ -49,7 +54,9 @@ final class RemoteHttpFactory extends Factory
             return parent::fake($callback);
         }
 
+        // Laravel's fake() starts its record again, so this process's part of it goes too.
         $this->fakes[] = $callback;
+        $this->local = [];
         $this->faking = true;
 
         try {
@@ -95,7 +102,15 @@ final class RemoteHttpFactory extends Factory
      */
     public function pull(): void
     {
+        // Outside a mobile() test the app has recorded nothing, and Laravel's own record is
+        // the whole record.
+        if (! Run::inside() || FakeSync::test() === null) {
+            return;
+        }
+
         $records = Records::pull();
+        $sequences = $records['sequences'] ?? [];
+        $this->appSequences = is_array($sequences) ? array_values(array_map(boolval(...), $sequences)) : [];
         $http = $records['http'] ?? [];
 
         if (! is_array($http)) {
@@ -129,6 +144,25 @@ final class RemoteHttpFactory extends Factory
     public function assertNothingSent()
     {
         $this->asserting(fn () => Records::settled($this->pull(...), fn () => parent::assertNothingSent()));
+    }
+
+    /**
+     * The app answers from its own copy of each sequence, so it is the app's copies that
+     * have to have run out.
+     */
+    public function assertSequencesAreEmpty()
+    {
+        if (! Run::inside() || FakeSync::test() === null) {
+            parent::assertSequencesAreEmpty();
+
+            return;
+        }
+
+        $this->asserting(fn () => Records::settled($this->pull(...), function (): void {
+            foreach ($this->appSequences as $empty) {
+                PHPUnit::assertTrue($empty, 'Not all response sequences are empty.');
+            }
+        }));
     }
 
     /**

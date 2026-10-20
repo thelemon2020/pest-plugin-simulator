@@ -25,13 +25,21 @@ final class StubSequence
 
     public static function fromSequence(ResponseSequence $sequence): self
     {
+        [$responses, $failWhenEmpty, $whenEmpty] = self::parts($sequence);
+
+        return new self(array_map(Payload::pack(...), $responses), $failWhenEmpty, Payload::pack($whenEmpty));
+    }
+
+    /**
+     * The responses left, whether it fails once they run out, and what it gives then.
+     *
+     * @return array{0: list<mixed>, 1: bool, 2: mixed}
+     */
+    public static function parts(ResponseSequence $sequence): array
+    {
         $responses = self::read($sequence, 'responses');
 
-        return new self(
-            array_values(array_map(Payload::pack(...), is_array($responses) ? $responses : [])),
-            self::read($sequence, 'failWhenEmpty') !== false,
-            Payload::pack(self::read($sequence, 'emptyResponse')),
-        );
+        return [is_array($responses) ? array_values($responses) : [], self::read($sequence, 'failWhenEmpty') !== false, self::read($sequence, 'emptyResponse')];
     }
 
     public function toSequence(): ResponseSequence

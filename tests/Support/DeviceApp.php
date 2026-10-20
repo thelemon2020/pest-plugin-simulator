@@ -29,6 +29,7 @@ final class DeviceApp
     public function __construct(private readonly FakeDriver $driver)
     {
         $this->root = sys_get_temp_dir().'/simulator-device-app-'.uniqid('', true);
+        Mirror::reset();
         mkdir($this->root.'/storage/logs', 0777, true);
         $host = Container::getInstance();
 
@@ -36,6 +37,8 @@ final class DeviceApp
             $app = Testbench::create(options: ['enables_package_discoveries' => false]);
             $app->useStoragePath($this->root.'/storage');
             $app['config']->set('nativephp-internal.running', true);
+            // A debug build, as the plugin builds the app.
+            $app['config']->set('app.debug', true);
             $app['config']->set('logging.default', 'single');
             $app['config']->set('logging.channels.single.path', $this->root.'/storage/logs/laravel.log');
             $this->app = $app;
