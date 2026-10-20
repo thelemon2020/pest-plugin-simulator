@@ -96,6 +96,26 @@ interface Driver
     public function installDatabase(string $sqlitePath): void;
 
     /**
+     * Copies a file into the app's own storage. $relative is under `Library/Application
+     * Support/` on iOS and `app_storage/persisted_data/` on Android, where a NativePHP app
+     * keeps its database and its storage directory: `database/database.sqlite` is the app's
+     * database. The file is written beside its name and moved over it, so an app that reads
+     * it while it runs sees the old file or the new one, never half of one.
+     */
+    public function pushAppFile(string $local, string $relative): void;
+
+    /**
+     * Copies a file out of the app's own storage (see pushAppFile()). False when the app has
+     * no such file, or it could not be read.
+     */
+    public function pullAppFile(string $relative, string $local): bool;
+
+    /**
+     * Deletes a file from the app's own storage (see pushAppFile()), if it is there.
+     */
+    public function removeAppFile(string $relative): void;
+
+    /**
      * `light` or `dark`. Null puts back what the device had before the first change.
      */
     public function appearance(?string $mode): void;

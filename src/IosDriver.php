@@ -362,23 +362,76 @@ final class IosDriver implements Driver
     private function copyDatabase(string $sqlitePath): void
     {
         $this->terminate();
+        $this->writeAppFile($sqlitePath, 'database/database.sqlite');
+        $this->deleteAppFile('database/database.sqlite-wal');
+        $this->deleteAppFile('database/database.sqlite-shm');
+    }
 
-        $destination = $this->dataContainer().'/Library/Application Support/database/database.sqlite';
+    public function pushAppFile(string $local, string $relative): void
+    {
+        $this->recovering(fn () => $this->writeAppFile($local, $relative));
+    }
+
+    public function pullAppFile(string $relative, string $local): bool
+    {
+        try {
+            $source = $this->appFile($relative);
+        } catch (SimulatorException) {
+            return false;
+        }
+
+        clearstatcache(true, $source);
+
+        return is_file($source) && @copy($source, $local);
+    }
+
+    public function removeAppFile(string $relative): void
+    {
+        $this->recovering(fn () => $this->deleteAppFile($relative));
+    }
+
+    /**
+     * The Simulator's data container is a directory on this Mac, so a file goes in with a
+     * plain copy. It is copied beside its name and renamed over it, which is atomic, so an
+     * app that reads the file while it runs never reads half of it.
+     */
+    private function writeAppFile(string $local, string $relative): void
+    {
+        $destination = $this->appFile($relative);
         $directory = dirname($destination);
 
         if (! is_dir($directory) && ! mkdir($directory, 0777, true) && ! is_dir($directory)) {
             throw new SimulatorException("Could not create [{$directory}].");
         }
 
-        if (! copy($sqlitePath, $destination)) {
-            throw new SimulatorException("Could not copy the test database into [{$destination}].");
+        $temporary = $destination.'.pest-'.bin2hex(random_bytes(4));
+
+        if (! @copy($local, $temporary)) {
+            throw new SimulatorException("Could not copy [{$local}] into [{$destination}].");
         }
 
-        foreach ([$destination.'-wal', $destination.'-shm'] as $sidecar) {
-            if (is_file($sidecar) && ! unlink($sidecar)) {
-                throw new SimulatorException("Could not remove [{$sidecar}].");
-            }
+        if (! @rename($temporary, $destination)) {
+            @unlink($temporary);
+
+            throw new SimulatorException("Could not copy [{$local}] into [{$destination}].");
         }
+    }
+
+    private function deleteAppFile(string $relative): void
+    {
+        $path = $this->appFile($relative);
+
+        if (is_file($path) && ! unlink($path)) {
+            throw new SimulatorException("Could not remove [{$path}].");
+        }
+    }
+
+    /**
+     * Where a file under the app's `Library/Application Support/` is on this Mac.
+     */
+    private function appFile(string $relative): string
+    {
+        return $this->dataContainer().'/Library/Application Support/'.ltrim($relative, '/');
     }
 
     private function terminate(): void
@@ -993,19 +1046,7 @@ final class IosDriver implements Driver
 
     public function captureLogs(string $directory): array
     {
-        try {
-            $container = $this->dataContainer();
-        } catch (SimulatorException) {
-            return [];
-        }
-
-        $source = $container.'/Library/Application Support/storage/logs/laravel.log';
-
-        if (! is_file($source) || ! copy($source, $directory.'/laravel.log')) {
-            return [];
-        }
-
-        return [$directory.'/laravel.log'];
+        return $this->pullAppFile('storage/logs/laravel.log', $directory.'/laravel.log') ? [$directory.'/laravel.log'] : [];
     }
 
     public function appearance(?string $mode): void
