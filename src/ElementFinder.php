@@ -752,11 +752,50 @@ final class ElementFinder
     private const TEXT_ROLES = ['TextField', 'TextView'];
 
     /**
+     * Whether $text is only the label of a Button among $matches: not a Button itself, with
+     * the same label, and its center inside that Button's frame.
+     *
+     * @param  Tappable  $text
+     * @param  list<Tappable>  $matches
+     */
+    private function drawsLabelOf(array $text, array $matches): bool
+    {
+        if ($text['role'] === 'Button') {
+            return false;
+        }
+
+        foreach ($matches as $control) {
+            $frame = $control['frame'] ?? null;
+
+            if ($control['role'] !== 'Button' || $control['label'] !== $text['label'] || ! is_array($frame)) {
+                continue;
+            }
+
+            [$x, $y, $width, $height] = $frame;
+            [$centerX, $centerY] = $text['center'];
+
+            if ($centerX >= $x && $centerX <= $x + $width && $centerY >= $y && $centerY <= $y + $height) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * @param  list<Tappable>  $matches
      * @return Tappable
      */
     private function nth(array $matches, string $target, int $nth): array
     {
+        // Android reads a NativePHP button twice: the Button, and the TextView inside it
+        // that draws the same label. Counted apart, nth(2)->tap('Pay') on three orders
+        // tapped the first order's Button, the second match from the top.
+        $matches = array_values(array_filter(
+            $matches,
+            fn (array $match): bool => ! $this->drawsLabelOf($match, $matches),
+        ));
+
         usort($matches, function (array $left, array $right): int {
             $vertical = $left['center'][1] <=> $right['center'][1];
 
