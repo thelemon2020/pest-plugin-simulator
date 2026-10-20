@@ -3,18 +3,18 @@ parameters:
     paths:
         - src
         - tests/Support
+    scanFiles:
+        # NativePHP is not a dependency. The app that runs src/Fakes on the device has it.
+        - tests/Support/nativephp.stub
     excludePaths:
-        # Laravel is not a dependency, so the classes these two extend are not there to
-        # check them against.
-        - src/Laravel
         # Scripts the tests run as processes of their own, which read $argv.
         - tests/Support/descriptors.php
         - tests/Support/shutdown.php
         - tests/Support/stub-companion.php
         - tests/Support/stub-reader.php
     ignoreErrors:
-        # The app's database connection: Laravel's, or a test's stand-in for it. Laravel is
-        # not a dependency, so there is no class to give it.
+        # The app's database connection: Laravel's, or a test's stand-in for it, so there is
+        # no one class to give it.
         -
             identifier: method.notFound
             path: src/TestDatabase.php

@@ -2,6 +2,7 @@
 
 use App\NativeComponents\Alerts;
 use App\NativeComponents\Boom;
+use App\NativeComponents\Checkout;
 use App\NativeComponents\Controls;
 use App\NativeComponents\Form;
 use App\NativeComponents\Home;
@@ -25,3 +26,4 @@ Route::native('/alerts', Alerts::class)->layout(StackLayout::class);
 Route::native('/slow', Slow::class)->layout(StackLayout::class);
 Route::native('/photos', Photos::class)->layout(StackLayout::class);
 Route::native('/boom', Boom::class)->layout(StackLayout::class);
+Route::native('/checkout', Checkout::class)->layout(StackLayout::class);

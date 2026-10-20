@@ -45,7 +45,7 @@ jobs:
 
       - name: Check types
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: vendor/bin/phpstan analyse --no-progress
+        run: vendor/bin/phpstan analyse --no-progress --memory-limit=1G
 
       - name: Check style
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}

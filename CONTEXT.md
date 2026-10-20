@@ -31,3 +31,11 @@ _Avoid_: App database, remote database
 **App error**:
 An entry at `ERROR` or above that the app writes to its `laravel.log` while a test drives it. It fails the step that was running.
 _Avoid_: Crash, device error
+
+**Fakes file**:
+What the test faked with Laravel's own API, written by the plugin and copied into the app's storage, where the app applies it with the same fakes.
+_Avoid_: Mock file, stub file
+
+**Record file**:
+What the app's fakes recorded, written by the app after each render. The test's asserts read it.
+_Avoid_: Results, recordings (a recording is a screen video)

@@ -7,6 +7,7 @@ use NativePhp\Simulator\Configuration;
 use NativePhp\Simulator\DeviceDatabase;
 use NativePhp\Simulator\DeviceState;
 use NativePhp\Simulator\Exceptions\SimulatorException;
+use NativePhp\Simulator\Fakes\FakeSync;
 use NativePhp\Simulator\MobileSuite;
 use NativePhp\Simulator\Permissions;
 use NativePhp\Simulator\Photo;
@@ -177,6 +178,7 @@ function screen(string $path): Screen
     SystemUi::close($driver);
     Recording::begin($driver, $device);
     TestDatabase::publish($driver);
+    FakeSync::sync($driver);
     AppLog::start($driver);
     Permissions::apply($driver, $device->key());
     DeviceState::apply($driver, $device->key());

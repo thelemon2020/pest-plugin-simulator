@@ -138,7 +138,7 @@ final class TestDatabase
             return is_object($connection) ? $connection : null;
         }
 
-        if (! class_exists(DB::class)) {
+        if (! Laravel::booted()) {
             return null;
         }
 
