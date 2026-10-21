@@ -183,6 +183,7 @@ final class FakeSync
 
         foreach ($current as $key => $value) {
             if (! array_key_exists($key, self::$config) || self::$config[$key] !== $value) {
+                self::requirePlain($key, $value);
                 $set[$key] = $value;
             }
         }
@@ -198,6 +199,25 @@ final class FakeSync
         }
 
         return array_filter(['set' => $set, 'forget' => $forget]);
+    }
+
+    /**
+     * Only plain values reach the app. The fakes file unserializes no class of the app's
+     * own, so an enum or another object would arrive broken.
+     */
+    private static function requirePlain(string $key, mixed $value): void
+    {
+        if (is_array($value)) {
+            foreach ($value as $inner) {
+                self::requirePlain($key, $inner);
+            }
+
+            return;
+        }
+
+        if (is_object($value) && ! $value instanceof \Closure) {
+            throw new SimulatorException("config('{$key}') holds a ".get_debug_type($value).', which cannot be sent to the app. Set a string, a number, a bool, null, or an array of them.');
+        }
     }
 
     /**

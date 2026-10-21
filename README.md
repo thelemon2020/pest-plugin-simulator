@@ -393,7 +393,7 @@ These reach the app:
 
 - `Http::fake()`, `Http::fakeSequence()`, `Http::response()`, `Http::preventStrayRequests()`, and `Http::allowStrayRequests()`.
 - The time from `$this->travelTo()`, `$this->freezeTime()`, or `Carbon::setTestNow()`. `$this->travelBack()` lets the app's clock go again.
-- `config()` values the test changed, and keys it removed. Values set in `beforeEach()` are part of the starting config the plugin compares against, so set them in the test. Only the keys the test changed are sent, so the app keeps its own database paths and the rest.
+- `config()` values the test changed, and keys it removed. Values set in `beforeEach()` are part of the starting config the plugin compares against, so set them in the test. Only the keys the test changed are sent, so the app keeps its own database paths and the rest, unless the test changes them too. A value has to be a string, a number, a bool, null, or an array of them: an enum or another object stops the test and names the key.
 
 They need the tests to boot Laravel. The plugin's service provider gives the tests an Http client whose fakes reach the app. Outside `mobile()`, it is Laravel's own client, and nothing changes.
 
@@ -403,7 +403,7 @@ The app runs Laravel's own fakes. A debug build of the app has this package in i
 
 The app only reads the file inside NativePHP, with `APP_DEBUG=true`, and outside `APP_ENV=production`. A release build has no dev dependencies, so the package is not in it at all. A build that has it anyway, such as one for internal testing with `APP_ENV=staging` and `APP_DEBUG=false`, ignores the file. Only the plugin's own classes are unserialized from it.
 
-A fake the test adds after the app has its others is added to the app's client, as `Http::fake()` adds to the test's, so a sequence the app has answered from goes on from where it was. A fake that changed, such as a sequence the test pushed onto after the first `screen()`, starts the app's client over. `Http::assertSequencesAreEmpty()` checks the app's copies of the sequences, which are the ones the app answers from.
+A fake the test adds after the app has its others is added to the app's client, as `Http::fake()` adds to the test's, so a sequence the app has answered from goes on from where it was. As in Laravel, that `Http::fake()` also clears what the app had recorded, so `assertSent()` sees only the requests after it. `preventStrayRequests()` alone keeps the record. A fake that changed, such as a sequence the test pushed onto after the first `screen()`, starts the app's client over. `Http::assertSequencesAreEmpty()` checks the app's copies of the sequences, which are the ones the app answers from.
 
 `Http::assertSent()` and the other asserts are Laravel's own. They read the app's record first. `assertSent()`, `assertSentCount()`, and `assertSentInOrder()` read it again until they pass or the timeout runs out, as `assertSee()` waits. `assertNotSent()` and `assertNothingSent()` check once, after the app has taken every event it was sent when it shows the `nativephp-pending` marker. Without the marker, they check what the app has recorded so far.
 

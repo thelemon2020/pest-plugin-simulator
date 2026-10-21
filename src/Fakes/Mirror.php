@@ -365,9 +365,11 @@ final class Mirror
             $fake->allowStrayRequests($allow);
         }
 
-        // fake() starts its record again. A fake the test changed part way keeps what the
-        // one before it recorded.
-        if ($faked) {
+        // Laravel's fake() starts its record again, so a fake the test added clears what
+        // the app recorded before it, as Http::fake() clears the test's. A fake the test
+        // only changed, such as a sequence it pushed onto, or preventStrayRequests(),
+        // keeps the record.
+        if ($faked && ! ($adds && $fakes !== [])) {
             (new ReflectionProperty(Factory::class, 'recorded'))->setValue($fake, $recorded);
         }
 

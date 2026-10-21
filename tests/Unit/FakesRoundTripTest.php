@@ -7,6 +7,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Laravel\SerializableClosure\Serializers\Native;
 use NativePhp\Simulator\AppLog;
 use NativePhp\Simulator\Configuration;
 use NativePhp\Simulator\Device;
@@ -101,7 +102,7 @@ it('fails the test on a stray request the app made, as an app error', function (
     expect(fn () => AppLog::check($this->driver))->toThrow(AppError::class, 'The app logged Illuminate\Http\Client\StrayRequestException: Attempted request to [https://api.shipping.test/rates] without a matching fake.');
 });
 
-it('sends a fake the test adds after the first screen, and keeps what the app recorded before it', function () {
+it('sends a fake the test adds after the first screen, and clears what the app recorded before it, as Laravel does', function () {
     Http::fake(['api.stripe.test/*' => Http::response(['status' => 'succeeded'])]);
     FakeSync::sync($this->driver);
     $this->device->boot();
@@ -115,7 +116,37 @@ it('sends a fake the test adds after the first screen, and keeps what the app re
     expect($express)->toBe(1200)
         ->and(array_filter($this->driver->events, fn (array $event): bool => $event === ['pushFile', 'storage/'.Payload::FAKES]))->toHaveCount(2);
 
-    Http::assertSentCount(2);
+    Http::assertSentCount(1);
+    Http::assertNotSent(fn (Request $request): bool => str_contains($request->url(), 'charges'));
+});
+
+it('keeps what the app recorded when the test only stops stray requests', function () {
+    Http::fake(['api.stripe.test/*' => Http::response(['status' => 'succeeded'])]);
+    FakeSync::sync($this->driver);
+    $this->device->boot();
+    $this->device->tap(fn () => Http::post('https://api.stripe.test/charges', ['amount' => 1]));
+
+    Http::preventStrayRequests();
+    FakeSync::sync($this->driver);
+    $this->device->tap(fn () => null);
+
+    Http::assertSentCount(1);
+});
+
+it('says a config value it cannot send to the app is not a plain value', function () {
+    config(['features.mode' => new ArrayObject]);
+
+    expect(fn () => FakeSync::sync($this->driver))
+        ->toThrow(SimulatorException::class, "config('features.mode') holds a ArrayObject");
+});
+
+it('still runs a signed closure, with the class that runs closure code left out of the file', function () {
+    $bytes = Payload::encode(['test' => 'x', 'http' => ['fakes' => [fn () => 'hi']]], 'key');
+    $closure = Payload::unpack(Payload::decode($bytes)['http']['fakes'][0]);
+    $bare = 'pest-simulator-fakes 1 key'."\n".serialize(['config' => new Native(fn () => 'ran')]);
+
+    expect($closure())->toBe('hi')
+        ->and(Payload::decode($bare)['config'])->toBeInstanceOf(__PHP_Incomplete_Class::class);
 });
 
 it('pushes the fakes file only when what the test faked has changed', function () {

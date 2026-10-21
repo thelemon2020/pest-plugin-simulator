@@ -8,7 +8,6 @@ use Closure;
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Http\Client\ResponseSequence;
 use Laravel\SerializableClosure\SerializableClosure;
-use Laravel\SerializableClosure\Serializers\Native;
 use Laravel\SerializableClosure\Serializers\Signed;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 use ReflectionFunction;
@@ -40,8 +39,12 @@ final class Payload
 
     private const HEADER = 'pest-simulator-fakes 1 ';
 
-    /** What the fakes file is made of, and all unserialize() makes from it. */
-    private const CLASSES = [SerializableClosure::class, Signed::class, Native::class, StubResponse::class, StubSequence::class];
+    /**
+     * What the fakes file is made of, and all unserialize() makes from it. A closure's own
+     * code sits inside its Signed wrapper, which checks the signature before it reads it,
+     * so the class that runs that code is not one of these.
+     */
+    private const CLASSES = [SerializableClosure::class, Signed::class, StubResponse::class, StubSequence::class];
 
     /**
      * @param  array<string, mixed>  $data
