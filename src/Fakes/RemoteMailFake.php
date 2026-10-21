@@ -19,6 +19,8 @@ final class RemoteMailFake extends MailFake
 
     private const RECORDED = ['mailables', 'queuedMailables'];
 
+    private const DEPTH = 1;
+
     /**
      * @param  mixed  ...$arguments
      */
@@ -150,5 +152,25 @@ final class RemoteMailFake extends MailFake
         $this->pullOutsideAnAssert();
 
         return parent::queued(...$arguments);
+    }
+
+    /**
+     * @param  mixed  ...$arguments
+     */
+    public function hasSent(...$arguments)
+    {
+        $this->pullOutsideAnAssert();
+
+        return parent::hasSent(...$arguments);
+    }
+
+    /**
+     * @param  mixed  ...$arguments
+     */
+    public function hasQueued(...$arguments)
+    {
+        $this->pullOutsideAnAssert();
+
+        return parent::hasQueued(...$arguments);
     }
 }

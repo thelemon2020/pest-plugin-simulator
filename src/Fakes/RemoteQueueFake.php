@@ -19,6 +19,8 @@ final class RemoteQueueFake extends QueueFake
 
     private const RECORDED = ['jobs'];
 
+    private const DEPTH = 2;
+
     /**
      * @param  mixed  ...$arguments
      */
@@ -113,5 +115,36 @@ final class RemoteQueueFake extends QueueFake
         $this->pullOutsideAnAssert();
 
         return parent::pushed(...$arguments);
+    }
+
+    /**
+     * @param  mixed  ...$arguments
+     */
+    public function hasPushed(...$arguments)
+    {
+        $this->pullOutsideAnAssert();
+
+        return parent::hasPushed(...$arguments);
+    }
+
+    /**
+     * @param  mixed  ...$arguments
+     * @return array<array-key, mixed>
+     */
+    public function pushedJobs(...$arguments)
+    {
+        $this->pullOutsideAnAssert();
+
+        return parent::pushedJobs(...$arguments);
+    }
+
+    /**
+     * @param  mixed  ...$arguments
+     */
+    public function pushedRaw(...$arguments)
+    {
+        $this->pullOutsideAnAssert();
+
+        return parent::pushedRaw(...$arguments);
     }
 }

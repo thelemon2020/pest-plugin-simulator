@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Cache\Events\KeyWritten;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Event;
@@ -9,6 +10,7 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Testing\Fakes\BusFake;
 use NativePhp\Simulator\Configuration;
 use NativePhp\Simulator\Device;
 use NativePhp\Simulator\DeviceDatabase;
@@ -274,4 +276,93 @@ it('forgets what the app sent before the test faked mail again', function () {
     $this->device->tap(fn () => null);
 
     Mail::assertNothingSent();
+});
+
+it('reads the app\'s record from the readers as well as the asserts', function () {
+    Bus::fake();
+    Event::fake([OrderPaid::class]);
+    Queue::fake();
+    FakeSync::sync($this->driver);
+    $this->device->boot();
+    $this->device->tap(function (): void {
+        Bus::dispatch(new ShipOrder(Order::query()->findOrFail(2)));
+        event(new OrderPaid(Order::query()->findOrFail(2)));
+    });
+
+    expect(Bus::hasDispatched(ShipOrder::class))->toBeTrue()
+        ->and(Event::hasDispatched(OrderPaid::class))->toBeTrue()
+        ->and(Event::dispatchedEvents())->toHaveKey(OrderPaid::class)
+        ->and(fn () => Bus::assertNothingPlaced())->toThrow(AssertionFailedError::class);
+})->skip(! method_exists(BusFake::class, 'assertNothingPlaced'), 'This Laravel has no assertNothingPlaced().');
+
+it('fills the fake Laravel\'s fake() returned, for a test that kept it', function () {
+    $mail = Mail::fake();
+    FakeSync::sync($this->driver);
+    $this->device->boot();
+    $this->device->tap(fn () => Mail::to('ada@example.test')->send(new Receipt(Order::query()->findOrFail(2))));
+
+    // The facade's assert waits for the app; the object kept from Mail::fake() sees what it pulled.
+    Mail::assertSent(Receipt::class);
+
+    expect($mail->sent(Receipt::class))->toHaveCount(1);
+    $mail->assertSentCount(1);
+});
+
+it('pulls the device database once for a record with many models in it', function () {
+    Mail::fake();
+    FakeSync::sync($this->driver);
+    $this->device->boot();
+    $this->device->tap(function (): void {
+        foreach ([1, 2, 1, 2] as $id) {
+            Mail::to('ada@example.test')->send(new Receipt(Order::query()->findOrFail($id)));
+        }
+    });
+    $before = count(array_filter($this->driver->events, fn (array $event): bool => $event === ['pullFile', DeviceDatabase::PATH]));
+
+    Mail::assertSentCount(4);
+
+    $after = count(array_filter($this->driver->events, fn (array $event): bool => $event === ['pullFile', DeviceDatabase::PATH]));
+
+    expect($after - $before)->toBe(1);
+});
+
+it('sends the test\'s own cache events to the fake asserts read', function () {
+    // The test's cache store exists, so Event::fake() hands it the fake it makes.
+    cache()->get('warm');
+    Event::fake();
+    $this->device->boot();
+    FakeSync::sync($this->driver);
+
+    cache()->put('k', 'v');
+
+    Event::assertDispatched(KeyWritten::class);
+});
+
+it('fails, and says why, when an assert reads a model the device no longer has', function () {
+    Mail::fake();
+    FakeSync::sync($this->driver);
+    $this->device->boot();
+    $this->device->tap(function (): void {
+        Mail::to('ada@example.test')->send(new Receipt(Order::query()->findOrFail(1)));
+        Order::query()->whereKey(1)->delete();
+    });
+
+    expect(fn () => Mail::assertSent(Receipt::class, fn (Receipt $mail): bool => $mail->order->id === 1))
+        ->toThrow(AssertionFailedError::class, 'a model it holds is no longer in the device database');
+});
+
+it('keeps a notification under its notifiable\'s key when the keys look like a list', function () {
+    Notification::fake();
+    FakeSync::sync($this->driver);
+    $zero = new Order(['id' => 0, 'status' => 'paid']);
+    $zero->exists = true;
+    Notification::send($zero, new OrderShipped(0));
+    $this->device->boot();
+    $this->device->tap(function (): void {
+        $order = new Order(['id' => 0, 'status' => 'paid']);
+        $order->exists = true;
+        Notification::send($order, new OrderShipped(10));
+    });
+
+    Notification::assertSentToTimes($zero, OrderShipped::class, 2);
 });

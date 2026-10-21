@@ -19,6 +19,8 @@ final class RemoteBusFake extends BusFake
 
     private const RECORDED = ['commands', 'commandsSync', 'commandsAfterResponse'];
 
+    private const DEPTH = 2;
+
     /**
      * @param  mixed  ...$arguments
      */
@@ -134,5 +136,62 @@ final class RemoteBusFake extends BusFake
         $this->pullOutsideAnAssert();
 
         return parent::dispatched(...$arguments);
+    }
+
+    /**
+     * @param  mixed  ...$arguments
+     * @return Collection<array-key, mixed>
+     */
+    public function dispatchedSync(...$arguments)
+    {
+        $this->pullOutsideAnAssert();
+
+        return parent::dispatchedSync(...$arguments);
+    }
+
+    /**
+     * @param  mixed  ...$arguments
+     * @return Collection<array-key, mixed>
+     */
+    public function dispatchedAfterResponse(...$arguments)
+    {
+        $this->pullOutsideAnAssert();
+
+        return parent::dispatchedAfterResponse(...$arguments);
+    }
+
+    /**
+     * @param  mixed  ...$arguments
+     */
+    public function hasDispatched(...$arguments)
+    {
+        $this->pullOutsideAnAssert();
+
+        return parent::hasDispatched(...$arguments);
+    }
+
+    /**
+     * @param  mixed  ...$arguments
+     */
+    public function hasDispatchedSync(...$arguments)
+    {
+        $this->pullOutsideAnAssert();
+
+        return parent::hasDispatchedSync(...$arguments);
+    }
+
+    /**
+     * @param  mixed  ...$arguments
+     */
+    public function hasDispatchedAfterResponse(...$arguments)
+    {
+        $this->pullOutsideAnAssert();
+
+        return parent::hasDispatchedAfterResponse(...$arguments);
+    }
+
+    public function assertNothingPlaced()
+    {
+        $this->settled(fn () => parent::assertNothingPlaced());
     }
 }

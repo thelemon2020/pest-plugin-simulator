@@ -357,6 +357,16 @@ final class FakeSync
             if ($root instanceof EventFake && class_exists(Model::class)) {
                 Model::setEventDispatcher($root);
             }
+
+            // Event::fake() handed the cache the fake it made, which is no longer the one
+            // asserts read.
+            if ($root instanceof EventFake && $container->bound('cache')) {
+                $cache = $container->make('cache');
+
+                if (is_object($cache) && method_exists($cache, 'refreshEventDispatcher')) {
+                    $cache->refreshEventDispatcher();
+                }
+            }
         }
 
         // Faking again in the test is another fake, and the app makes its own again.

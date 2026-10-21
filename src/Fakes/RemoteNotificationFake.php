@@ -19,6 +19,8 @@ final class RemoteNotificationFake extends NotificationFake
 
     private const RECORDED = ['notifications'];
 
+    private const DEPTH = 4;
+
     /**
      * @param  mixed  ...$arguments
      */
@@ -113,5 +115,26 @@ final class RemoteNotificationFake extends NotificationFake
         $this->pullOutsideAnAssert();
 
         return parent::sent(...$arguments);
+    }
+
+    /**
+     * @param  mixed  ...$arguments
+     */
+    public function hasSent(...$arguments)
+    {
+        $this->pullOutsideAnAssert();
+
+        return parent::hasSent(...$arguments);
+    }
+
+    /**
+     * @param  mixed  ...$arguments
+     * @return array<array-key, mixed>
+     */
+    public function sentNotifications(...$arguments)
+    {
+        $this->pullOutsideAnAssert();
+
+        return parent::sentNotifications(...$arguments);
     }
 }

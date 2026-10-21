@@ -25,6 +25,42 @@ use NativePhp\Simulator\Sessions;
  */
 final class Models
 {
+    /** Whether reading() is under way, and the device's database is already in place. */
+    private static bool $reading = false;
+
+    private static bool $pulled = false;
+
+    /**
+     * Runs $read, which unserializes a section of the record entry by entry, with the
+     * device's database pulled at most once for all of them.
+     *
+     * @template T
+     *
+     * @param  Closure(): T  $read
+     * @return T
+     */
+    public static function reading(Closure $read): mixed
+    {
+        if (self::$reading) {
+            return $read();
+        }
+
+        self::$reading = true;
+        self::$pulled = false;
+        $previous = class_exists(Model::class) ? Model::getConnectionResolver() : null;
+
+        try {
+            return $read();
+        } finally {
+            self::$reading = false;
+
+            if (self::$pulled) {
+                self::$pulled = false;
+                self::restore($previous);
+            }
+        }
+    }
+
     /**
      * @template T
      *
@@ -38,19 +74,36 @@ final class Models
             return $unserialize();
         }
 
+        // Inside reading(), the first entry with a model puts the database in place for
+        // the rest, and reading() puts the test's connections back.
+        if (self::$reading && self::$pulled) {
+            return $unserialize();
+        }
+
         $previous = Model::getConnectionResolver();
         DeviceDatabase::forget();
         $database = DeviceDatabase::open(Sessions::get(Run::device()));
         Model::setConnectionResolver(new DeviceConnections($database, $previous instanceof ConnectionResolverInterface ? $previous->getDefaultConnection() : null));
 
+        if (self::$reading) {
+            self::$pulled = true;
+
+            return $unserialize();
+        }
+
         try {
             return $unserialize();
         } finally {
-            if ($previous instanceof ConnectionResolverInterface) {
-                Model::setConnectionResolver($previous);
-            } else {
-                Model::unsetConnectionResolver();
-            }
+            self::restore($previous);
+        }
+    }
+
+    private static function restore(mixed $previous): void
+    {
+        if ($previous instanceof ConnectionResolverInterface) {
+            Model::setConnectionResolver($previous);
+        } else {
+            Model::unsetConnectionResolver();
         }
     }
 }

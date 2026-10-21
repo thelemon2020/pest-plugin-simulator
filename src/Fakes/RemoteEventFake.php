@@ -20,6 +20,8 @@ final class RemoteEventFake extends EventFake
 
     private const RECORDED = ['events'];
 
+    private const DEPTH = 2;
+
     /**
      * @param  mixed  ...$arguments
      */
@@ -66,5 +68,26 @@ final class RemoteEventFake extends EventFake
         $this->pullOutsideAnAssert();
 
         return parent::dispatched(...$arguments);
+    }
+
+    /**
+     * @param  mixed  ...$arguments
+     */
+    public function hasDispatched(...$arguments)
+    {
+        $this->pullOutsideAnAssert();
+
+        return parent::hasDispatched(...$arguments);
+    }
+
+    /**
+     * @param  mixed  ...$arguments
+     * @return array<array-key, mixed>
+     */
+    public function dispatchedEvents(...$arguments)
+    {
+        $this->pullOutsideAnAssert();
+
+        return parent::dispatchedEvents(...$arguments);
     }
 }

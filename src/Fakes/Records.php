@@ -146,7 +146,7 @@ final class Records
             $pull();
 
             try {
-                $assert();
+                self::attempt($assert);
 
                 return;
             } catch (AssertionFailedError $failure) {
@@ -174,7 +174,27 @@ final class Records
         }
 
         $pull();
-        $assert();
+        self::attempt($assert);
+    }
+
+    /**
+     * Runs an assert. A closure that reads a model from an entry the app recorded, whose
+     * model is no longer on the device (see entries()), finds the property unset; that is
+     * a failed assertion that says why, not an Error.
+     *
+     * @param  Closure(): void  $assert
+     */
+    private static function attempt(Closure $assert): void
+    {
+        try {
+            $assert();
+        } catch (\Error $error) {
+            if (! str_contains($error->getMessage(), 'must not be accessed before initialization')) {
+                throw $error;
+            }
+
+            throw new AssertionFailedError('An entry the app recorded could not be read back whole: a model it holds is no longer in the device database. '.$error->getMessage(), 0, $error);
+        }
     }
 
     private static function idle(Driver $driver): void

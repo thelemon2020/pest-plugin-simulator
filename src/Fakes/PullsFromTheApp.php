@@ -13,7 +13,8 @@ use ReflectionProperty;
  * What a Remote fake adds to the Laravel fake it extends: the app's record goes into the
  * arrays Laravel's own asserts read, before each assert.
  *
- * A class that uses it names its record section in SECTION and the arrays in RECORDED. Its
+ * A class that uses it names its record section in SECTION, the arrays in RECORDED, and in
+ * DEPTH how deep in them the lists of entries are, as Mirror writes them. Its
  * positive asserts call eventually(), which reads the record again until the assert passes
  * or the timeout runs out. Its negative asserts call settled(), which reads it once, after
  * the app has taken every event it was sent.
@@ -53,6 +54,18 @@ trait PullsFromTheApp
 
         $remote->generation = ++self::$generations;
 
+        // The test may have kept the fake Mail::fake() returned, and assert through it.
+        // Its record arrays are this one's, so it sees what this one pulls from the app.
+        $share = function (object $from, object $to, string $name): void {
+            $from->{$name} = &$to->{$name};
+        };
+
+        foreach (self::RECORDED as $name) {
+            if (property_exists(parent::class, $name)) {
+                Closure::bind($share, null, parent::class)($fake, $remote, $name);
+            }
+        }
+
         return $remote;
     }
 
@@ -83,33 +96,30 @@ trait PullsFromTheApp
             }
 
             $value = self::recorded($name)->getValue($this);
-            $local = self::without(is_array($value) ? $value : [], $this->pulled[$name] ?? []);
-            $remote = is_array($section[$name] ?? null) ? Records::entries($section[$name]) : [];
+            $local = self::without(is_array($value) ? $value : [], $this->pulled[$name] ?? [], self::DEPTH);
+            $remote = is_array($section[$name] ?? null) ? Models::reading(fn (): array => Records::entries($section[$name])) : [];
             $this->pulled[$name] = $remote;
-            self::recorded($name)->setValue($this, self::merge($local, $remote));
+            self::recorded($name)->setValue($this, self::merge($local, $remote, self::DEPTH));
         }
     }
 
     /**
-     * Two records as one. A list goes on with the other's entries; anything else keeps its
-     * keys, as a notifiable's key, which PHP turns into a number, is a key and not a place.
+     * Two records as one. At $depth the entries are a list, and the other's go on after
+     * this one's. Above it every array is keyed, by a class or a notifiable's key, and
+     * the two are merged by key, even when the keys PHP made of ids look like a list.
      *
      * @param  array<array-key, mixed>  $local
      * @param  array<array-key, mixed>  $remote
      * @return array<array-key, mixed>
      */
-    private static function merge(array $local, array $remote): array
+    private static function merge(array $local, array $remote, int $depth): array
     {
-        if ($local === []) {
-            return $remote;
-        }
-
-        if (array_is_list($local) && array_is_list($remote)) {
-            return [...$local, ...$remote];
+        if ($depth <= 1) {
+            return [...array_values($local), ...array_values($remote)];
         }
 
         foreach ($remote as $key => $value) {
-            $local[$key] = is_array($value) && is_array($local[$key] ?? null) ? self::merge($local[$key], $value) : $value;
+            $local[$key] = is_array($value) && is_array($local[$key] ?? null) ? self::merge($local[$key], $value, $depth - 1) : $value;
         }
 
         return $local;
@@ -123,13 +133,13 @@ trait PullsFromTheApp
      * @param  array<array-key, mixed>  $pulled
      * @return array<array-key, mixed>
      */
-    private static function without(array $record, array $pulled): array
+    private static function without(array $record, array $pulled, int $depth): array
     {
         if ($pulled === []) {
             return $record;
         }
 
-        if (array_is_list($record) && array_is_list($pulled)) {
+        if ($depth <= 1) {
             foreach ($pulled as $entry) {
                 $at = array_search($entry, $record, true);
 
@@ -146,7 +156,7 @@ trait PullsFromTheApp
                 continue;
             }
 
-            $record[$key] = self::without($record[$key], $value);
+            $record[$key] = self::without($record[$key], $value, $depth - 1);
 
             if ($record[$key] === []) {
                 unset($record[$key]);
