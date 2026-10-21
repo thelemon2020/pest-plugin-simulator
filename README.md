@@ -305,7 +305,7 @@ screen('/settings')
 
 ## Check the app's database
 
-The app writes to its own database, the copy on the device. `assertDatabaseHas()`, `assertDatabaseMissing()`, `assertDatabaseCount()`, and `assertDatabaseEmpty()` check that copy. They take the same arguments as Laravel's.
+The app writes to its own database, the copy on the device. `assertDatabaseHas()`, `assertDatabaseMissing()`, `assertDatabaseCount()`, `assertDatabaseEmpty()`, `assertModelExists()`, `assertModelMissing()`, `assertSoftDeleted()`, and `assertNotSoftDeleted()` check that copy. They take the same arguments as Laravel's.
 
 ```php
 it('pays an order', function () {
@@ -330,7 +330,7 @@ They wait like `assertSee()`. `assertDatabaseHas()` looks again until the row is
 
 Without that marker, nothing says a tap's write has landed. `assertDatabaseMissing()` and `assertDatabaseCount()` can pass on a copy taken before it did, as `assertDontSee()` can. Put them after a step that waited for the app, like `assertSee()`.
 
-A table can be named, or given as a model or its class. A value can be a string, a number, a bool, null, an enum, or a date. Null matches a null column. The device has one database, so the `$connection` argument is not used.
+A table can be named, or given as a model or its class. As in Laravel, a model instance is that model's row: `assertDatabaseHas($order, ['status' => 'paid'])` checks the order with `$order`'s key, not any order. A list of models, or of tables, is checked one by one, and a list of rows in `$data`, such as `[['id' => 1], ['id' => 2]]`, checks each row. `assertDatabaseCount(['orders' => 3, 'items' => 9])` checks each count. `assertSoftDeleted()` and `assertNotSoftDeleted()` read a soft-deleting model's own deleted-at column, or the `$deletedAtColumn` given for a table. A value can be a string, a number, a bool, null, an enum, or a date. Null matches a null column. The device has one database, so the `$connection` argument is not used.
 
 A JSON column is read by its path, as Laravel reads it: `['meta->gift' => true]`, or `['meta->items[0]->sku' => 'A1']`. A condition with an operator goes under a numeric key, as Laravel's `where()` takes it: `[['total', '>', 100]]`. The operators are `=`, `<`, `>`, `<=`, `>=`, `<>`, `!=`, `like`, and `not like`. `castAsJson()` and `DB::raw()` are SQL for the test's database, so they are not taken. Compare a JSON value by its path instead.
 
