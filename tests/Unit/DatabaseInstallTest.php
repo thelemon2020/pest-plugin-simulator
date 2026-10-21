@@ -140,7 +140,7 @@ it('pushes a sqlite file onto the android emulator', function () {
 
         expect($first)->not->toBe($second)
             ->and($first)->toStartWith('/data/local/tmp/pest-simulator-')
-            ->and($command->calls)->toHaveCount(4)
+            ->and($command->calls)->toHaveCount(3)
             ->and($command->calls[0])->toBe([$adb, ['-s', 'emulator-5554', 'shell', 'am', 'force-stop', 'com.example.app']])
             ->and($command->calls[1])->toBe([$adb, ['-s', 'emulator-5554', 'push', $source, $second]])
             ->and($shell)->toContain('chmod 644')
@@ -149,7 +149,8 @@ it('pushes a sqlite file onto the android emulator', function () {
             ->and($shell)->toContain("cp '{$second}' '{$database}.pest-")
             ->and($shell)->toMatch("#mv -f '{$database}\\.pest-[0-9a-f]{8}' '{$database}'#")
             ->and($shell)->toContain('exit $status')
-            ->and($command->calls[3])->toBe([$adb, ['-s', 'emulator-5554', 'shell', "run-as 'com.example.app' rm -f '{$database}-wal' '{$database}-shm'"]]);
+            // The old write-ahead log goes in the same shell as the copy.
+            ->and($shell)->toContain("run-as 'com.example.app' rm -f '{$database}-wal' '{$database}-shm'");
     } finally {
         unlink($source);
     }

@@ -170,8 +170,8 @@ final class AndroidDriver implements Driver
     private function pushDatabase(string $sqlitePath): void
     {
         $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'am', 'force-stop', $this->configuration->bundleId()]);
-        $this->sendAppFile($sqlitePath, 'database/database.sqlite');
-        $this->deleteAppFiles(['database/database.sqlite-wal', 'database/database.sqlite-shm']);
+        // The old database's write-ahead log and shared memory go in the same shell.
+        $this->sendAppFile($sqlitePath, 'database/database.sqlite', ['database/database.sqlite-wal', 'database/database.sqlite-shm']);
     }
 
     public function pushAppFile(string $local, string $relative): void
@@ -275,9 +275,9 @@ final class AndroidDriver implements Driver
         return self::APP_STORAGE.'/'.ltrim($relative, '/');
     }
 
-    public function removeAppFile(string $relative): void
+    public function removeAppFile(string ...$relatives): void
     {
-        $this->recovering(fn () => $this->deleteAppFiles([$relative]));
+        $this->recovering(fn () => $this->deleteAppFiles(array_values($relatives)));
     }
 
     /**
@@ -286,38 +286,97 @@ final class AndroidDriver implements Driver
      */
     public function tailAppFile(string $pattern, ?int $offset, ?string $from = null): ?array
     {
-        if (preg_match('#^[A-Za-z0-9._/*?-]+$#', $pattern) !== 1) {
-            throw new SimulatorException("[{$pattern}] has a character tailAppFile() cannot pass to the device's shell.");
+        return $this->tailAppFiles([['pattern' => $pattern, 'offset' => $offset, 'from' => $from]])[0];
+    }
+
+    /**
+     * Every read in one run-as shell, about 0.04 seconds on an emulator. For each it finds
+     * the newest file the pattern matches and prints its name, its size, and how many
+     * bytes follow, then those bytes: from the offset with `tail`, or the whole file. The
+     * count is taken with the size and the bytes are cut to it, so a file the app writes to
+     * meanwhile cannot run into the next one's.
+     */
+    public function tailAppFiles(array $reads): array
+    {
+        if ($reads === []) {
+            return [];
         }
 
-        $lines = [
-            'cd '.self::APP_STORAGE.' 2>/dev/null || { printf N; exit 0; }',
-            'f=$(ls -t '.$pattern.' 2>/dev/null | head -n 1)',
-            '[ -n "$f" ] && [ -f "$f" ] || { printf N; exit 0; }',
-            's=$(wc -c < "$f")',
-            'printf "Y%s\n%s\n" "$f" $s',
-        ];
+        $blocks = [];
 
-        // From $offset only in the file it counts in, and only when the file still reaches
-        // it. Anything else is a new file, read whole.
-        if ($offset !== null) {
-            $offset = max(0, $offset);
-            $lines[] = 'if [ "$f" = '.escapeshellarg((string) $from).' ] && [ $s -ge '.$offset.' ]; then tail -c +'.($offset + 1).' "$f"; else cat "$f"; fi';
+        foreach ($reads as $read) {
+            if (preg_match('#^[A-Za-z0-9._/*?-]+$#', $read['pattern']) !== 1) {
+                throw new SimulatorException("[{$read['pattern']}] has a character tailAppFile() cannot pass to the device's shell.");
+            }
+
+            $offset = $read['offset'];
+
+            // From the offset only in the file it counts in, and only when the file still
+            // reaches it. Anything else is a new file, read whole.
+            $bytes = $offset === null
+                ? 'n=0'
+                : 'if [ "$f" = '.escapeshellarg((string) $read['from']).' ] && [ $s -ge '.max(0, $offset).' ]; then n=$((s - '.max(0, $offset).')); c="tail -c +'.(max(0, $offset) + 1).'"; else n=$s; c=cat; fi';
+
+            $blocks[] = implode('; ', [
+                'f=$(ls -t '.$read['pattern'].' 2>/dev/null | head -n 1)',
+                'if [ -n "$f" ] && [ -f "$f" ]; then s=$(wc -c < "$f")',
+                $bytes,
+                'printf "Y%s\n%s\n%s\n" "$f" $s $n',
+                '[ $n -gt 0 ] && $c "$f" | head -c $n',
+                'else printf N; fi',
+            ]);
         }
 
-        $output = $this->command->run($this->adb(), ['-s', $this->serial(), 'exec-out', 'run-as '.escapeshellarg($this->configuration->bundleId()).' sh -c '.escapeshellarg(implode('; ', $lines))]);
+        $script = 'cd '.self::APP_STORAGE.' 2>/dev/null || { printf '.str_repeat('N', count($reads)).'; exit 0; }; '.implode('; ', $blocks).'; true';
+        $output = $this->command->run($this->adb(), ['-s', $this->serial(), 'exec-out', 'run-as '.escapeshellarg($this->configuration->bundleId()).' sh -c '.escapeshellarg($script)]);
 
-        if (! str_starts_with($output, 'Y')) {
-            return null;
+        return self::tails($output, count($reads));
+    }
+
+    /**
+     * The reads tailAppFiles() printed, one after another.
+     *
+     * @return list<array{path: string, size: int, bytes: string}|null>
+     */
+    private static function tails(string $output, int $count): array
+    {
+        $tails = [];
+        $at = 0;
+
+        for ($index = 0; $index < $count; $index++) {
+            $marker = $output[$at] ?? '';
+            $at++;
+
+            if ($marker === 'N') {
+                $tails[] = null;
+
+                continue;
+            }
+
+            $lines = [];
+
+            for ($line = 0; $line < 3; $line++) {
+                $end = $marker === 'Y' ? strpos($output, "\n", $at) : false;
+
+                if ($end === false) {
+                    throw new SimulatorException("Could not read a log in the app's storage: ".trim(substr($output, 0, 200)));
+                }
+
+                $lines[] = substr($output, $at, $end - $at);
+                $at = $end + 1;
+            }
+
+            [$path, $size, $length] = $lines;
+
+            if (! ctype_digit(trim($size)) || ! ctype_digit(trim($length))) {
+                throw new SimulatorException("Could not read the size of [{$path}] in the app's storage.");
+            }
+
+            $tails[] = ['path' => $path, 'size' => (int) trim($size), 'bytes' => (string) substr($output, $at, (int) trim($length))];
+            $at += (int) trim($length);
         }
 
-        $parts = explode("\n", substr($output, 1), 3);
-
-        if (count($parts) < 2 || ! ctype_digit(trim($parts[1]))) {
-            throw new SimulatorException('Could not read the size of ['.$parts[0]."] in the app's storage.");
-        }
-
-        return ['path' => $parts[0], 'size' => (int) trim($parts[1]), 'bytes' => $parts[2] ?? ''];
+        return $tails;
     }
 
     /**
@@ -325,7 +384,10 @@ final class AndroidDriver implements Driver
      * read. The copy lands beside its name and is moved over it, which is atomic, so an app
      * that reads the file while it runs never reads half of it.
      */
-    private function sendAppFile(string $local, string $relative): void
+    /**
+     * @param  list<string>  $remove  files to delete once it is in place
+     */
+    private function sendAppFile(string $local, string $relative, array $remove = []): void
     {
         $serial = $this->serial();
         $adb = $this->adb();
@@ -335,7 +397,7 @@ final class AndroidDriver implements Driver
             $this->command->run($adb, ['-s', $serial, 'push', $local, $remote]);
             // One shell: chmod, copy into the app, move it into place, and delete the temp
             // file even when the copy fails.
-            $this->command->run($adb, ['-s', $serial, 'shell', $this->installScript($this->configuration->bundleId(), $remote, $relative)]);
+            $this->command->run($adb, ['-s', $serial, 'shell', $this->installScript($this->configuration->bundleId(), $remote, $relative, $remove)]);
         } catch (SimulatorException $exception) {
             try {
                 $this->command->run($adb, ['-s', $serial, 'shell', 'rm', '-f', $remote]);
@@ -346,7 +408,10 @@ final class AndroidDriver implements Driver
         }
     }
 
-    private function installScript(string $bundle, string $remote, string $relative): string
+    /**
+     * @param  list<string>  $remove
+     */
+    private function installScript(string $bundle, string $remote, string $relative, array $remove = []): string
     {
         $path = self::storagePath($relative);
         $runAs = 'run-as '.escapeshellarg($bundle).' ';
@@ -357,6 +422,7 @@ final class AndroidDriver implements Driver
             $runAs.'mkdir -p '.escapeshellarg(dirname($path)),
             $runAs.'cp '.$quotedRemote.' '.$temporary,
             $runAs.'mv -f '.$temporary.' '.escapeshellarg($path),
+            ...($remove === [] ? [] : [$runAs.'rm -f '.implode(' ', array_map(fn (string $file): string => escapeshellarg(self::storagePath($file)), $remove))]),
         ]);
 
         return '('.$install.'); status=$?; [ $status -eq 0 ] || '.$runAs.'rm -f '.$temporary.'; rm -f '.$quotedRemote.'; exit $status';

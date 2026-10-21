@@ -115,26 +115,29 @@ final class AppLog
         self::$started = true;
         self::$readAt = microtime(true);
 
-        foreach (self::SOURCES as $source) {
-            self::mark($driver, $source);
-        }
+        self::markAll($driver);
     }
 
     /**
-     * Where a log ends now, read without its bytes. A read that fails leaves it unknown,
-     * and the next check() tries again rather than reading the whole log from 0.
+     * Where each log ends now, read without its bytes, in one look. A read that fails
+     * leaves them unknown, and the next check() tries again rather than reading a whole
+     * log from 0.
      */
-    private static function mark(Driver $driver, string $source): void
+    private static function markAll(Driver $driver): void
     {
         try {
-            $tail = $driver->tailAppFile($source, null);
+            $tails = $driver->tailAppFiles(array_map(fn (string $source): array => ['pattern' => $source, 'offset' => null, 'from' => null], self::SOURCES));
         } catch (SimulatorException) {
-            self::$sources[$source] = ['path' => null, 'offset' => 0, 'partial' => '', 'unknown' => true];
+            foreach (self::SOURCES as $source) {
+                self::$sources[$source] = ['path' => null, 'offset' => 0, 'partial' => '', 'unknown' => true];
+            }
 
             return;
         }
 
-        self::$sources[$source] = ['path' => $tail['path'] ?? null, 'offset' => $tail['size'] ?? 0, 'partial' => '', 'unknown' => false];
+        foreach (self::SOURCES as $index => $source) {
+            self::$sources[$source] = ['path' => $tails[$index]['path'] ?? null, 'offset' => $tails[$index]['size'] ?? 0, 'partial' => '', 'unknown' => false];
+        }
     }
 
     /**
@@ -157,17 +160,7 @@ final class AppLog
 
         self::$readAt = microtime(true);
 
-        $entries = [];
-
-        foreach (self::SOURCES as $source) {
-            if (self::$sources[$source]['unknown'] ?? true) {
-                self::mark($driver, $source);
-
-                continue;
-            }
-
-            array_push($entries, ...self::read($driver, $source));
-        }
+        $entries = self::readAll($driver);
 
         foreach ($entries as $entry) {
             if (! in_array($entry['level'], self::LEVELS, true)) {
@@ -374,23 +367,54 @@ final class AppLog
     }
 
     /**
+     * What each log holds since it was last read, in one look. A log whose end is not known
+     * yet, because the read that should have noted it failed, has it noted now instead.
+     *
      * @return list<Entry>
      */
-    private static function read(Driver $driver, string $source): array
+    private static function readAll(Driver $driver): array
     {
-        $state = self::$sources[$source];
+        $reads = [];
+
+        foreach (self::SOURCES as $source) {
+            $state = self::$sources[$source] ?? ['path' => null, 'offset' => 0, 'partial' => '', 'unknown' => true];
+            $reads[] = ['pattern' => $source, 'offset' => $state['unknown'] ? null : ($state['path'] === null ? 0 : $state['offset']), 'from' => $state['path']];
+        }
 
         try {
-            $tail = $driver->tailAppFile($source, $state['path'] === null ? 0 : $state['offset'], $state['path']);
+            $tails = $driver->tailAppFiles($reads);
         } catch (SimulatorException) {
             // The next read picks up from the same place.
             return [];
         }
 
-        if ($tail === null) {
-            return [];
+        $entries = [];
+
+        foreach (self::SOURCES as $index => $source) {
+            $state = self::$sources[$source] ?? ['path' => null, 'offset' => 0, 'partial' => '', 'unknown' => true];
+            $tail = $tails[$index] ?? null;
+
+            if ($state['unknown']) {
+                self::$sources[$source] = ['path' => $tail['path'] ?? null, 'offset' => $tail['size'] ?? 0, 'partial' => '', 'unknown' => false];
+
+                continue;
+            }
+
+            if ($tail !== null) {
+                array_push($entries, ...self::take($source, $state, $tail));
+            }
         }
 
+        return $entries;
+    }
+
+    /**
+     * @param  array{path: ?string, offset: int, partial: string, unknown: bool}  $state
+     * @param  array{path: string, size: int, bytes: string}  $tail
+     * @return list<Entry>
+     */
+    private static function take(string $source, array $state, array $tail): array
+    {
         // A new day's file, or one that was started again, is read from its start.
         $restarted = $tail['path'] !== $state['path'] || $state['offset'] > $tail['size'];
         $start = $restarted ? 0 : $state['offset'];

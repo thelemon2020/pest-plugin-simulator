@@ -121,9 +121,10 @@ interface Driver
     public function appFilesDigest(array $files): ?string;
 
     /**
-     * Deletes a file from the app's own storage (see pushAppFile()), if it is there.
+     * Deletes files from the app's own storage (see pushAppFile()), those that are there,
+     * in one go.
      */
-    public function removeAppFile(string $relative): void;
+    public function removeAppFile(string ...$relatives): void;
 
     /**
      * What a file in the app's own storage (see pushAppFile()) holds from $offset on, for a
@@ -140,6 +141,15 @@ interface Driver
      * @return array{path: string, size: int, bytes: string}|null the file read, its size, and the bytes from $offset, or from 0
      */
     public function tailAppFile(string $pattern, ?int $offset, ?string $from = null): ?array;
+
+    /**
+     * Several tailAppFile() reads in one go, in the order given, each as tailAppFile()
+     * returns it. A read that fails throws for all of them.
+     *
+     * @param  list<array{pattern: string, offset: ?int, from: ?string}>  $reads
+     * @return list<array{path: string, size: int, bytes: string}|null>
+     */
+    public function tailAppFiles(array $reads): array;
 
     /**
      * `light` or `dark`. Null puts back what the device had before the first change.

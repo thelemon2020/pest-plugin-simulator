@@ -371,6 +371,11 @@ final class FakeDriver implements Driver
         return file_put_contents($local, $this->appFiles[$relative]) !== false;
     }
 
+    public function tailAppFiles(array $reads): array
+    {
+        return array_map(fn (array $read): ?array => $this->tailAppFile($read['pattern'], $read['offset'], $read['from']), $reads);
+    }
+
     public function tailAppFile(string $pattern, ?int $offset, ?string $from = null): ?array
     {
         $this->tails[] = $pattern;
@@ -405,18 +410,20 @@ final class FakeDriver implements Driver
      * Removing a file that is not there leaves no event, so a test that never wrote one
      * sees the steps it expects.
      */
-    public function removeAppFile(string $relative): void
+    public function removeAppFile(string ...$relatives): void
     {
         if ($this->removeError !== null) {
             throw $this->removeError;
         }
 
-        if (! array_key_exists($relative, $this->appFiles)) {
-            return;
-        }
+        foreach ($relatives as $relative) {
+            if (! array_key_exists($relative, $this->appFiles)) {
+                continue;
+            }
 
-        unset($this->appFiles[$relative]);
-        $this->events[] = ['removeFile', $relative];
+            unset($this->appFiles[$relative]);
+            $this->events[] = ['removeFile', $relative];
+        }
     }
 
     public function appearance(?string $mode): void
