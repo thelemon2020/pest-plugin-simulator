@@ -1429,16 +1429,22 @@ final class Screen
             try {
                 $database = DeviceDatabase::open($this->driver);
                 $error = null;
-
-                if (DeviceDatabase::hasTable($database, $table) && $holds($database)) {
-                    return;
-                }
-            } catch (BadDatabaseQuery $exception) {
-                $error = $exception;
-
-                break;
             } catch (SimulatorException|PDOException $exception) {
                 $error = $exception;
+            }
+
+            // A query that fails on a sound copy, such as json_extract() on a column that is
+            // not JSON, fails the same way on every pull, so it fails the step at once.
+            if ($error === null) {
+                try {
+                    if (DeviceDatabase::hasTable($database, $table) && $holds($database)) {
+                        return;
+                    }
+                } catch (BadDatabaseQuery|PDOException $exception) {
+                    $error = $exception;
+
+                    break;
+                }
             }
 
             if ($this->timeoutSeconds <= 0) {

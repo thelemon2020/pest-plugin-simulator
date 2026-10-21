@@ -52,6 +52,9 @@ final class DeviceDatabase
 
     private const OPERATORS = ['=', '<', '>', '<=', '>=', '<>', '!=', 'like', 'not like'];
 
+    /** The first bytes of a rollback journal that holds a transaction. */
+    private const JOURNAL_MAGIC = "\xd9\xd5\x05\xf9\x20\xa1\x63\xd7";
+
     /**
      * The device's database, pulled now unless this step already pulled it.
      */
@@ -64,9 +67,14 @@ final class DeviceDatabase
         $failure = null;
 
         for ($attempt = 1; $attempt <= self::ATTEMPTS; $attempt++) {
-            $path = self::pull($driver);
+            $midTransaction = false;
+            $path = self::pull($driver, $midTransaction);
 
             try {
+                if ($midTransaction) {
+                    throw new SimulatorException('The app was part way through a transaction.');
+                }
+
                 self::check($path);
             } catch (PDOException|SimulatorException $exception) {
                 $failure = $exception;
@@ -282,7 +290,14 @@ final class DeviceDatabase
         return (string) json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR);
     }
 
-    private static function pull(Driver $driver): string
+    /**
+     * In SQLite's default rollback-journal mode, a transaction writes its pages into the
+     * database file itself and keeps the old ones in database.sqlite-journal until it
+     * commits. A copy taken while that journal is live can hold half a transaction, and
+     * every page still looks sound to quick_check. So the journal is looked at before and
+     * after the copy, and $midTransaction says whether a live one was there either time.
+     */
+    private static function pull(Driver $driver, bool &$midTransaction): string
     {
         $directory = self::directory();
 
@@ -295,13 +310,40 @@ final class DeviceDatabase
         $path = $directory.'/device-'.bin2hex(random_bytes(4)).'.sqlite';
         self::$files[] = $path;
 
+        $midTransaction = self::journalLive($driver, $path);
+
         if (! $driver->pullAppFile(self::PATH, $path)) {
             throw new SimulatorException('The app has no database yet. There is no '.self::PATH.' in its storage.');
         }
 
+        $midTransaction = self::journalLive($driver, $path) || $midTransaction;
         $driver->pullAppFile(self::PATH.'-wal', $path.'-wal');
 
         return $path;
+    }
+
+    /**
+     * Whether the app's rollback journal holds a transaction now. A journal that only
+     * starts with zeroes, or is empty, is one SQLite keeps between transactions in its
+     * PERSIST and TRUNCATE modes.
+     */
+    private static function journalLive(Driver $driver, string $path): bool
+    {
+        $probe = $path.'-journal-probe';
+
+        try {
+            if (! $driver->pullAppFile(self::PATH.'-journal', $probe)) {
+                return false;
+            }
+
+            $header = (string) file_get_contents($probe, length: 8);
+
+            return $header === self::JOURNAL_MAGIC;
+        } finally {
+            if (is_file($probe)) {
+                @unlink($probe);
+            }
+        }
     }
 
     /**
@@ -426,7 +468,9 @@ final class DeviceDatabase
                 continue;
             }
 
-            $clauses[] = $target.' '.strtoupper($condition['operator']).' ?';
+            // A JSON value has no column type, so a float bound as text never equals it.
+            $placeholder = is_float($condition['value']) ? 'CAST(? AS REAL)' : '?';
+            $clauses[] = $target.' '.strtoupper($condition['operator']).' '.$placeholder;
             $bindings[] = $condition['value'];
         }
 
@@ -438,13 +482,18 @@ final class DeviceDatabase
      */
     private static function jsonPath(string $path): string
     {
-        $segments = array_map(function (string $segment): string {
-            // A key, then any [0] indexes after it.
-            if (preg_match('/^(.*?)((?:\[\d+\])*)$/', $segment, $parts) !== 1) {
-                return '."'.str_replace('"', '""', $segment).'"';
+        $segments = array_map(function (string $segment) use ($path): string {
+            // SQLite's JSON paths have no way to write a quote inside a key.
+            if (str_contains($segment, '"')) {
+                throw new BadDatabaseQuery("Cannot read the JSON path [{$path}]: SQLite cannot name a key with a double quote in it.");
             }
 
-            return ($parts[1] === '' ? '' : '."'.str_replace('"', '""', $parts[1]).'"').$parts[2];
+            // A key, then any [0] indexes after it.
+            if (preg_match('/^(.*?)((?:\[\d+\])*)$/', $segment, $parts) !== 1) {
+                return '."'.$segment.'"';
+            }
+
+            return ($parts[1] === '' ? '' : '."'.$parts[1].'"').$parts[2];
         }, explode('->', $path));
 
         return '$'.implode('', $segments);

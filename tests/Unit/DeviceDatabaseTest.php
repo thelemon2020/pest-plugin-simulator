@@ -291,6 +291,68 @@ enum DeviceDatabaseShade
     case Dark;
 }
 
+it('pulls again while the app is part way through a transaction', function () {
+    $this->driver->appFiles['database/database.sqlite'] = orders('paid');
+    $this->driver->appFiles['database/database.sqlite-journal'] = "\xd9\xd5\x05\xf9\x20\xa1\x63\xd7".str_repeat("\0", 504);
+    $pulls = 0;
+    $this->driver->pulling = function (string $relative) use (&$pulls): void {
+        // The transaction commits while the second copy is taken.
+        if ($relative === 'database/database.sqlite' && ++$pulls === 2) {
+            unset($this->driver->appFiles['database/database.sqlite-journal']);
+        }
+    };
+
+    deviceScreen($this->driver)->assertDatabaseHas('orders', ['status' => 'paid']);
+
+    expect($pulls)->toBe(3);
+});
+
+it('takes a journal SQLite keeps between transactions for no transaction', function () {
+    $this->driver->appFiles['database/database.sqlite'] = orders('paid');
+    // PERSIST mode zeroes the header; TRUNCATE leaves an empty file.
+    $this->driver->appFiles['database/database.sqlite-journal'] = str_repeat("\0", 512);
+
+    deviceScreen($this->driver)->assertDatabaseHas('orders', ['status' => 'paid']);
+
+    $this->driver->appFiles['database/database.sqlite-journal'] = '';
+
+    expect(deviceScreen($this->driver)->assertDatabaseHas('orders', ['status' => 'paid']))->toBeInstanceOf(Screen::class);
+});
+
+it('says so when every copy was taken part way through a transaction', function () {
+    $this->driver->appFiles['database/database.sqlite'] = orders('paid');
+    $this->driver->appFiles['database/database.sqlite-journal'] = "\xd9\xd5\x05\xf9\x20\xa1\x63\xd7";
+
+    expect(fn () => deviceScreen($this->driver, failures: $this->failures)->assertDatabaseHas('orders', ['status' => 'paid']))
+        ->toThrow(AssertionFailedError::class, 'part way through a transaction');
+});
+
+it('compares a float with a JSON value', function () {
+    $this->driver->appFiles['database/database.sqlite'] = sqliteBytes(function (PDO $pdo): void {
+        $pdo->exec('CREATE TABLE orders (id INTEGER PRIMARY KEY, meta TEXT, total REAL)');
+        $pdo->exec('INSERT INTO orders (meta, total) VALUES (\'{"total":42.5}\', 42.5)');
+    })[0];
+
+    expect(deviceScreen($this->driver)
+        ->assertDatabaseHas('orders', ['meta->total' => 42.5, 'total' => 42.5])
+        ->assertDatabaseHas('orders', [['meta->total', '>', 42.25]]))->toBeInstanceOf(Screen::class);
+});
+
+it('fails a query that fails on every copy at once', function () {
+    $this->driver->appFiles['database/database.sqlite'] = sqliteBytes(function (PDO $pdo): void {
+        $pdo->exec('CREATE TABLE orders (id INTEGER PRIMARY KEY, notes TEXT)');
+        $pdo->exec("INSERT INTO orders (notes) VALUES ('plain words')");
+    })[0];
+    $started = microtime(true);
+
+    expect(fn () => deviceScreen($this->driver, timeout: 5, failures: $this->failures)->assertDatabaseHas('orders', ['notes->x' => 1]))
+        ->toThrow(AssertionFailedError::class, "Could not check the device's [orders] table")
+        ->and(microtime(true) - $started)->toBeLessThan(1.0)
+        ->and(fn () => deviceScreen($this->driver, timeout: 5, failures: $this->failures)->assertDatabaseHas('orders', ['notes->say "hi"' => 1]))
+        ->toThrow(AssertionFailedError::class, 'SQLite cannot name a key with a double quote in it')
+        ->and(microtime(true) - $started)->toBeLessThan(2.0);
+});
+
 it('pulls again when a copy is torn', function () {
     $good = orders('paid');
     $this->driver->appFiles['database/database.sqlite'] = substr($good, 0, 100).str_repeat("\xff", strlen($good) - 100);
