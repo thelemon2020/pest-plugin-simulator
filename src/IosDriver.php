@@ -420,9 +420,18 @@ final class IosDriver implements Driver
         return hash_final($hash);
     }
 
-    public function removeAppFile(string $relative): void
+    public function removeAppFile(string ...$relatives): void
     {
-        $this->recovering(fn () => $this->deleteAppFile($relative));
+        $this->recovering(function () use ($relatives): void {
+            foreach ($relatives as $relative) {
+                $this->deleteAppFile($relative);
+            }
+        });
+    }
+
+    public function tailAppFiles(array $reads): array
+    {
+        return array_map(fn (array $read): ?array => $this->tailAppFile($read['pattern'], $read['offset'], $read['from']), $reads);
     }
 
     public function tailAppFile(string $pattern, ?int $offset, ?string $from = null): ?array

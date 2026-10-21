@@ -109,11 +109,8 @@ final class FakeSync
         if (! self::$cleared) {
             self::$cleared = true;
 
-            if ($payload === null) {
-                $driver->removeAppFile('storage/'.Payload::FAKES);
-            }
-
-            $driver->removeAppFile('storage/'.Payload::RECORDS);
+            // One call for both: a push replaces the fakes file anyway.
+            $driver->removeAppFile(...($payload === null ? ['storage/'.Payload::FAKES, 'storage/'.Payload::RECORDS] : ['storage/'.Payload::RECORDS]));
         }
 
         if (self::$test === null) {
@@ -161,8 +158,7 @@ final class FakeSync
     {
         try {
             if (self::$pushed !== null) {
-                $driver->removeAppFile('storage/'.Payload::FAKES);
-                $driver->removeAppFile('storage/'.Payload::RECORDS);
+                $driver->removeAppFile('storage/'.Payload::FAKES, 'storage/'.Payload::RECORDS);
             }
         } catch (SimulatorException) {
             // A test that ends because the device stopped answering keeps its own error.

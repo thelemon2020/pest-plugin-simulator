@@ -322,7 +322,7 @@ it('tails a file in the ios app container', function () {
 it('tails a file in the android app with one run-as shell', function () {
     Configuration::configure(['bundle_id' => 'com.example.app']);
     $command = new RecordingCommand;
-    $command->outputs = ['exec-out' => "Ystorage/logs/laravel.log\n120\nnew bytes\n"];
+    $command->outputs = ['exec-out' => "Ystorage/logs/laravel.log\n120\n10\nnew bytes\n"];
     $driver = new AndroidDriver(new Device('android', 'Pixel 8', true), Configuration::resolve(), $command);
     (new ReflectionProperty(AndroidDriver::class, 'serial'))->setValue($driver, 'emulator-5554');
 
@@ -337,11 +337,11 @@ it('tails a file in the android app with one run-as shell', function () {
         ->and($script)->toContain('-ge 110');
 
     // Only the size: no tail and no cat, so a big log is not sent over adb.
-    $command->outputs = ['exec-out' => "Ystorage/logs/laravel.log\n120\n"];
+    $command->outputs = ['exec-out' => "Ystorage/logs/laravel.log\n120\n0\n"];
 
     expect($driver->tailAppFile('storage/logs/laravel.log', null))->toBe(['path' => 'storage/logs/laravel.log', 'size' => 120, 'bytes' => ''])
         ->and($command->calls[1][1][3])->not->toContain('tail')
-        ->and($command->calls[1][1][3])->not->toContain('cat');
+        ->and($command->calls[1][1][3])->not->toContain('c=cat');
 
     $command->failures = ['exec-out' => 'adb: device offline'];
 
@@ -523,4 +523,41 @@ it('still waits the second at the end without the marker, for the tap\'s error',
         screen('/checkout')->tap('Pay');
     }))->toBeNull()
         ->and(microtime(true) - $started)->toBeGreaterThan(0.95);
+});
+
+it('reads every log in one run-as shell, each cut to the bytes it said would follow', function () {
+    Configuration::configure(['bundle_id' => 'com.example.app']);
+    $command = new RecordingCommand;
+    // The first log grew between its size and its bytes: what follows the count is the next log's.
+    $command->outputs = ['exec-out' => "Ystorage/logs/laravel.log\n120\n6\nlast\n\nNYstorage/logs/laravel-2026-10-21.log\n40\n40\n".str_repeat('d', 40)];
+    $driver = new AndroidDriver(new Device('android', 'Pixel 8', true), Configuration::resolve(), $command);
+    (new ReflectionProperty(AndroidDriver::class, 'serial'))->setValue($driver, 'emulator-5554');
+
+    $tails = $driver->tailAppFiles([
+        ['pattern' => 'storage/logs/laravel.log', 'offset' => 114, 'from' => 'storage/logs/laravel.log'],
+        ['pattern' => 'storage/logs/missing.log', 'offset' => null, 'from' => null],
+        ['pattern' => 'storage/logs/laravel-????-??-??.log', 'offset' => 0, 'from' => null],
+    ]);
+
+    expect($tails)->toBe([
+        ['path' => 'storage/logs/laravel.log', 'size' => 120, 'bytes' => "last\n\n"],
+        null,
+        ['path' => 'storage/logs/laravel-2026-10-21.log', 'size' => 40, 'bytes' => str_repeat('d', 40)],
+    ])
+        ->and($command->calls)->toHaveCount(1)
+        ->and($command->calls[0][1][3])->toContain('head -c $n');
+});
+
+it('reads both logs with one look each time it checks', function () {
+    $this->driver->appFiles['storage/logs/laravel.log'] = '';
+    $this->driver->appFiles['storage/logs/laravel-2026-10-21.log'] = '';
+    $calls = 0;
+    $this->driver->pulling = function (string $pattern) use (&$calls): void {
+        $calls++;
+    };
+    AppLog::start($this->driver);
+    AppLog::check($this->driver);
+
+    // Two logs a look, one tailAppFiles() each: start, then check.
+    expect($calls)->toBe(4);
 });
