@@ -26,8 +26,8 @@ stack when `app.debug` is on). The log line is Laravel's usual one:
 ```
 
 **Decision:** the app error check reads laravel.log. It does not need to read the error
-screen. On Android the error screen's tree has no `testing_events`, so the patched idle
-marker (docs/nativephp-idle-signal.md) then reads busy for good: a test waiting on the
+screen. The error screen's tree has no `testing_events`, so on both platforms the patched
+idle marker (docs/nativephp-idle-signal.md) then reads busy for good: a test waiting on the
 screen would time out, which is one more reason to fail on the log first.
 
 ## 2. Is a pull of the database consistent while the app writes? What does a pull cost?

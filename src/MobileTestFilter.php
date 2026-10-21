@@ -55,6 +55,7 @@ final class MobileTestFilter implements TestCaseMethodFilter
             Trace::begin();
             VerboseLog::note('test '.Trace::test()." on {$device->platform} {$device->name}");
             TestDatabase::begin();
+            AppLog::begin();
             Permissions::beginTest();
             DeviceState::beginTest();
             SystemUi::beginTest();
@@ -64,7 +65,18 @@ final class MobileTestFilter implements TestCaseMethodFilter
             }
 
             try {
-                return $original instanceof \Closure ? $original->call($this, ...$args) : null;
+                $result = $original instanceof \Closure ? $original->call($this, ...$args) : null;
+
+                $steps = Trace::steps();
+                $last = $steps === [] ? null : end($steps);
+                // A tap, a keystroke or a screen() does not wait for the app's PHP to answer.
+                $endedOnInput = $last !== null && ! str_starts_with((string) ($last['action'] ?? ''), 'assert');
+
+                if (AppLog::expecting() || $endedOnInput) {
+                    AppLog::finish(Sessions::get($device), $endedOnInput);
+                }
+
+                return $result;
             } catch (\Throwable $exception) {
                 if (! $expectsError) {
                     FailureCapture::error($exception);
@@ -78,6 +90,7 @@ final class MobileTestFilter implements TestCaseMethodFilter
                     Permissions::forgetRequest();
                     DeviceState::forgetRequest();
                     TestDatabase::end();
+                    AppLog::begin();
                     Trace::reset();
                     Run::clear();
                 }

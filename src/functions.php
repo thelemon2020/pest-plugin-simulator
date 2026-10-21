@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use NativePhp\Simulator\AppLog;
 use NativePhp\Simulator\Configuration;
 use NativePhp\Simulator\DeviceDatabase;
 use NativePhp\Simulator\DeviceState;
@@ -37,6 +38,25 @@ function permissions(array $services): void
 function keepDatabase(): void
 {
     TestDatabase::keep();
+}
+
+/**
+ * Errors the app logs during this test do not fail it.
+ */
+function allowAppErrors(): void
+{
+    AppLog::allow();
+}
+
+/**
+ * The app logs this exception, or one that extends it, during this test. That error does
+ * not fail the test, and the test fails if the app never logs it.
+ *
+ * @param  class-string|string  $class
+ */
+function expectAppError(string $class): void
+{
+    AppLog::expect($class);
 }
 
 /**
@@ -157,6 +177,7 @@ function screen(string $path): Screen
     SystemUi::close($driver);
     Recording::begin($driver, $device);
     TestDatabase::publish($driver);
+    AppLog::start($driver);
     Permissions::apply($driver, $device->key());
     DeviceState::apply($driver, $device->key());
     $url = $configuration->urlFor($path);

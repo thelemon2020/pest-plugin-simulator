@@ -27,6 +27,7 @@ it('renders every screen', function (string $uri, string $text) {
     ['/alerts', 'Nothing deleted'],
     ['/slow', 'Not started'],
     ['/photos', 'No photo'],
+    ['/boom', 'Ready to blow up'],
 ]);
 
 it('saves the form', function () {

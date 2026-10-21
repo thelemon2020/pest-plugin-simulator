@@ -235,6 +235,46 @@ final class AndroidDriver implements Driver
     }
 
     /**
+     * One `run-as sh -c`, about 0.04 seconds on an emulator: it finds the newest file the
+     * pattern matches, prints its name and size, then its bytes from $offset with `tail`.
+     */
+    public function tailAppFile(string $pattern, ?int $offset, ?string $from = null): ?array
+    {
+        if (preg_match('#^[A-Za-z0-9._/*?-]+$#', $pattern) !== 1) {
+            throw new SimulatorException("[{$pattern}] has a character tailAppFile() cannot pass to the device's shell.");
+        }
+
+        $lines = [
+            'cd '.self::APP_STORAGE.' 2>/dev/null || { printf N; exit 0; }',
+            'f=$(ls -t '.$pattern.' 2>/dev/null | head -n 1)',
+            '[ -n "$f" ] && [ -f "$f" ] || { printf N; exit 0; }',
+            's=$(wc -c < "$f")',
+            'printf "Y%s\n%s\n" "$f" $s',
+        ];
+
+        // From $offset only in the file it counts in, and only when the file still reaches
+        // it. Anything else is a new file, read whole.
+        if ($offset !== null) {
+            $offset = max(0, $offset);
+            $lines[] = 'if [ "$f" = '.escapeshellarg((string) $from).' ] && [ $s -ge '.$offset.' ]; then tail -c +'.($offset + 1).' "$f"; else cat "$f"; fi';
+        }
+
+        $output = $this->command->run($this->adb(), ['-s', $this->serial(), 'exec-out', 'run-as '.escapeshellarg($this->configuration->bundleId()).' sh -c '.escapeshellarg(implode('; ', $lines))]);
+
+        if (! str_starts_with($output, 'Y')) {
+            return null;
+        }
+
+        $parts = explode("\n", substr($output, 1), 3);
+
+        if (count($parts) < 2 || ! ctype_digit(trim($parts[1]))) {
+            throw new SimulatorException('Could not read the size of ['.$parts[0]."] in the app's storage.");
+        }
+
+        return ['path' => $parts[0], 'size' => (int) trim($parts[1]), 'bytes' => $parts[2] ?? ''];
+    }
+
+    /**
      * Into the app's storage through /data/local/tmp, which adb can write and run-as can
      * read. The copy lands beside its name and is moved over it, which is atomic, so an app
      * that reads the file while it runs never reads half of it.

@@ -401,6 +401,50 @@ final class IosDriver implements Driver
         $this->recovering(fn () => $this->deleteAppFile($relative));
     }
 
+    public function tailAppFile(string $pattern, ?int $offset, ?string $from = null): ?array
+    {
+        try {
+            $root = $this->appFile('');
+        } catch (SimulatorException) {
+            return null;
+        }
+
+        clearstatcache();
+        $newest = null;
+
+        foreach (glob($root.ltrim($pattern, '/')) ?: [] as $path) {
+            if (is_file($path) && ($newest === null || filemtime($path) > filemtime($newest))) {
+                $newest = $path;
+            }
+        }
+
+        if ($newest === null) {
+            return null;
+        }
+
+        $path = substr($newest, strlen($root));
+        $file = @fopen($newest, 'rb');
+
+        if ($file === false) {
+            throw new SimulatorException("Could not read [{$path}] in the app's storage.");
+        }
+
+        try {
+            $stat = fstat($file);
+            $size = $stat === false ? 0 : $stat['size'];
+            $bytes = '';
+
+            if ($offset !== null) {
+                fseek($file, $path === $from && $offset <= $size ? $offset : 0);
+                $bytes = stream_get_contents($file);
+            }
+        } finally {
+            fclose($file);
+        }
+
+        return ['path' => $path, 'size' => $size, 'bytes' => is_string($bytes) ? $bytes : ''];
+    }
+
     /**
      * The Simulator's data container is a directory on this Mac, so a file goes in with a
      * plain copy. It is copied beside its name and renamed over it, which is atomic, so an
