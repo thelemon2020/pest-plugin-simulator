@@ -2,6 +2,9 @@
 
 declare(strict_types=1);
 
+use Monolog\Formatter\JsonFormatter;
+use Monolog\Handler\StreamHandler;
+use Monolog\Logger;
 use NativePhp\Simulator\AndroidDriver;
 use NativePhp\Simulator\AppLog;
 use NativePhp\Simulator\Configuration;
@@ -560,4 +563,62 @@ it('reads both logs with one look each time it checks', function () {
 
     // Two logs a look, one tailAppFiles() each: start, then check.
     expect($calls)->toBe(4);
+});
+
+/**
+ * What Monolog's JsonFormatter writes for an exception the app reported.
+ */
+function jsonLogLine(Throwable $exception, bool $traces = false): string
+{
+    $stream = fopen('php://memory', 'w+');
+    $handler = new StreamHandler($stream);
+    $formatter = new JsonFormatter;
+    $formatter->includeStacktraces($traces);
+    $handler->setFormatter($formatter);
+    (new Logger('local', [$handler]))->error($exception->getMessage(), ['exception' => $exception, 'userId' => 1]);
+    rewind($stream);
+
+    return (string) stream_get_contents($stream);
+}
+
+it('reads an entry Monolog\'s JsonFormatter wrote', function () {
+    $line = jsonLogLine(new LogicException("Order 2 was paid already.\nTwice."), traces: true);
+
+    [$entry] = AppLog::parse($line);
+
+    expect($entry['level'])->toBe('ERROR')
+        ->and($entry['class'])->toBe('LogicException')
+        ->and($entry['message'])->toBe("Order 2 was paid already.\nTwice.")
+        ->and($entry['where'])->toContain('AppLogTest.php:')
+        ->and($entry['frames'])->not->toBe([])
+        ->and($entry['frames'][0])->toStartWith('#0 ');
+});
+
+it('reads JSON entries beside ordinary ones, and fails on the JSON error', function () {
+    $this->driver->appFiles['storage/logs/laravel.log'] = '';
+    AppLog::start($this->driver);
+    $this->driver->appFiles['storage/logs/laravel.log'] = "[2026-10-21 09:00:00] local.INFO: started\n"
+        .'{"message":"tapped","context":{},"level":200,"level_name":"INFO","channel":"local","datetime":"2026-10-21T09:00:01+00:00","extra":{}}'."\n"
+        .jsonLogLine(new LogicException('Order 2 was paid already.'));
+
+    expect(fn () => AppLog::check($this->driver))->toThrow(AppError::class, 'The app logged LogicException: Order 2 was paid already.');
+});
+
+it('passes a test that expects the error a JSON log names', function () {
+    $this->driver->appFiles['storage/logs/laravel.log'] = '';
+    AppLog::start($this->driver);
+    AppLog::expect(LogicException::class);
+    $this->driver->appFiles['storage/logs/laravel.log'] = jsonLogLine(new LogicException('expected'));
+
+    AppLog::check($this->driver);
+    AppLog::finish($this->driver);
+
+    expect(true)->toBeTrue();
+});
+
+it('reads an entry from an environment whose name has a dot in it', function () {
+    [$entry] = AppLog::parse(str_replace('local.ERROR', 'staging.eu.ERROR', ANDROID_ERROR));
+
+    expect($entry['level'])->toBe('ERROR')
+        ->and($entry['class'])->toBe('App\Exceptions\AlreadyPaid');
 });
