@@ -55,6 +55,19 @@ it('taps the nth match in reading order', function () {
     expect($driver->taps)->toBe([[300.0, 200.0]]);
 });
 
+it('counts an Android button once, not again for the text that draws its label', function () {
+    // As the Pixel emulator read the sample app's orders: each Pay is a Button with a
+    // TextView inside it, the text a little above the Button's center.
+    $driver = new FakeDriver([array_merge(...array_map(fn (float $top): array => [
+        scopedControl('Pay', 152.0, $top + 20.0, ['role' => 'android.widget.TextView', 'frame' => [120.0, $top + 10.0, 64.0, 20.0]]),
+        scopedControl('Pay', 152.0, $top + 23.5, ['frame' => [100.0, $top, 104.0, 47.0]]),
+    ], [550.0, 750.0, 950.0]))]);
+
+    (new Screen($driver, timeoutSeconds: 0))->nth(2)->tap('Pay');
+
+    expect($driver->taps)->toBe([[152.0, 773.5]]);
+});
+
 it('counts left to right within one line', function () {
     $driver = new FakeDriver([[
         scopedControl('Star', 120.0, 100.0),

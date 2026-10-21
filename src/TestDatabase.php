@@ -22,6 +22,7 @@ final class TestDatabase
     {
         self::$published = false;
         self::$keep = false;
+        DeviceDatabase::reset();
     }
 
     public static function end(): void
@@ -29,6 +30,7 @@ final class TestDatabase
         self::$published = false;
         self::$keep = false;
         self::$connection = null;
+        DeviceDatabase::reset();
     }
 
     /**

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use NativePhp\Simulator\Configuration;
+use NativePhp\Simulator\DeviceDatabase;
 use NativePhp\Simulator\DeviceState;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 use NativePhp\Simulator\MobileSuite;
@@ -100,6 +101,28 @@ function enrollBiometrics(): void
     $driver->biometric('enroll');
 }
 
+/**
+ * The app's database as the device has it now, opened with writes turned off. One pull
+ * serves until the next Screen step. Call it after a step that waited for the app, such as
+ * assertSee(), so what the app wrote has landed.
+ */
+function deviceDatabase(): PDO
+{
+    if (! Run::inside()) {
+        throw new SimulatorException('deviceDatabase() only works inside a mobile() suite.');
+    }
+
+    // Before the test's first screen() the device still has the last test's database.
+    if (Trace::steps() === []) {
+        throw new SimulatorException('deviceDatabase() reads what the app wrote, so call it after screen().');
+    }
+
+    $driver = Sessions::get(Run::device());
+    $driver->ensureReady();
+
+    return DeviceDatabase::handOut($driver);
+}
+
 function record(?string $path = null): void
 {
     if (! Run::inside()) {
@@ -148,6 +171,8 @@ function screen(string $path): Screen
     }
 
     Trace::add($step + ['seconds' => microtime(true) - $started, 'result' => 'ok']);
+    // The database was copied in and the route has mounted, so an earlier pull is stale.
+    DeviceDatabase::forget();
 
     return new Screen(
         $driver,

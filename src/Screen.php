@@ -6,8 +6,11 @@ namespace NativePhp\Simulator;
 
 use Closure;
 use NativePhp\Simulator\Exceptions\AmbiguousMatch;
+use NativePhp\Simulator\Exceptions\BadDatabaseQuery;
 use NativePhp\Simulator\Exceptions\NoMatch;
 use NativePhp\Simulator\Exceptions\SimulatorException;
+use PDO;
+use PDOException;
 use PHPUnit\Framework\Assert;
 use PHPUnit\Framework\AssertionFailedError;
 use Throwable;
@@ -1302,6 +1305,172 @@ final class Screen
         });
     }
 
+    /**
+     * A row in the app's own database holds every value in $data, as Laravel's
+     * assertDatabaseHas() checks the test's. It reads the database the device has, and waits
+     * for the row until the timeout, as assertSee() waits for text. The device has one
+     * database, so $connection is taken for Laravel's signature and not used.
+     *
+     * @param  string|object  $table  a table, or an Eloquent model or its class
+     * @param  array<array-key, mixed>  $data
+     */
+    public function assertDatabaseHas(string|object $table, array $data = [], ?string $connection = null): self
+    {
+        return $this->step('assertDatabaseHas', self::tableLabel($table), function () use ($table, $data): void {
+            $name = DeviceDatabase::table($table);
+            DeviceDatabase::conditions($data);
+
+            $this->untilDatabase(
+                $name,
+                fn (PDO $database): bool => DeviceDatabase::count($database, $name, $data) > 0,
+                fn (PDO $database): string => "Did not find a row in the device's [{$name}] table matching ".DeviceDatabase::json($data).".\n\n".DeviceDatabase::similar($database, $name, $data),
+            );
+        });
+    }
+
+    /**
+     * No row in the app's own database holds every value in $data. It waits until none
+     * does, as assertDontSee() waits for text to go.
+     *
+     * @param  string|object  $table  a table, or an Eloquent model or its class
+     * @param  array<array-key, mixed>  $data
+     */
+    public function assertDatabaseMissing(string|object $table, array $data = [], ?string $connection = null): self
+    {
+        return $this->step('assertDatabaseMissing', self::tableLabel($table), function () use ($table, $data): void {
+            $name = DeviceDatabase::table($table);
+            DeviceDatabase::conditions($data);
+
+            $this->untilDatabase(
+                $name,
+                fn (PDO $database): bool => DeviceDatabase::count($database, $name, $data) === 0,
+                fn (PDO $database): string => "Still found a row in the device's [{$name}] table matching ".DeviceDatabase::json($data).".\n\n".DeviceDatabase::found($database, $name, $data),
+            );
+        });
+    }
+
+    /**
+     * The app's own table has $count rows, waited for until the timeout.
+     *
+     * @param  string|object  $table  a table, or an Eloquent model or its class
+     */
+    public function assertDatabaseCount(string|object $table, int $count, ?string $connection = null): self
+    {
+        return $this->step('assertDatabaseCount', self::tableLabel($table), function () use ($table, $count): void {
+            $name = DeviceDatabase::table($table);
+
+            $this->untilDatabase(
+                $name,
+                fn (PDO $database): bool => DeviceDatabase::count($database, $name) === $count,
+                function (PDO $database) use ($name, $count): string {
+                    $actual = DeviceDatabase::count($database, $name);
+
+                    return "The device's [{$name}] table has {$actual} ".($actual === 1 ? 'row' : 'rows').", not {$count}.";
+                },
+            );
+        });
+    }
+
+    /**
+     * The app's own table has no rows, waited for until the timeout.
+     *
+     * @param  string|object  $table  a table, or an Eloquent model or its class
+     */
+    public function assertDatabaseEmpty(string|object $table, ?string $connection = null): self
+    {
+        return $this->step('assertDatabaseEmpty', self::tableLabel($table), function () use ($table): void {
+            $name = DeviceDatabase::table($table);
+
+            $this->untilDatabase(
+                $name,
+                fn (PDO $database): bool => DeviceDatabase::count($database, $name) === 0,
+                fn (PDO $database): string => "The device's [{$name}] table is not empty.\n\n".DeviceDatabase::found($database, $name, []),
+            );
+        });
+    }
+
+    /**
+     * The table as the trace names it, before DeviceDatabase::table() has checked it.
+     */
+    private static function tableLabel(string|object $table): string
+    {
+        return is_string($table) ? $table : $table::class;
+    }
+
+    /**
+     * Pulls the app's database until $holds says yes or the time runs out. Each pull waits
+     * first for the app to take every event it was sent, when it shows the IdleMarker, so
+     * a tap's write has had its chance to land. A failure saves the last pull as
+     * device.sqlite beside the screenshot. A query no pull could answer, such as a column
+     * the table does not have, fails at once.
+     *
+     * @param  Closure(PDO): bool  $holds
+     * @param  Closure(PDO): string  $failure
+     */
+    private function untilDatabase(string $table, Closure $holds, Closure $failure): void
+    {
+        $deadline = $this->deadline();
+        $database = null;
+        $error = null;
+
+        do {
+            if ($this->pending !== null) {
+                try {
+                    $this->read();
+                } catch (SimulatorException) {
+                }
+
+                $this->idle($deadline);
+            }
+
+            DeviceDatabase::forget();
+            $this->tally('pulls');
+
+            try {
+                $database = DeviceDatabase::open($this->driver);
+                $error = null;
+            } catch (SimulatorException|PDOException $exception) {
+                $error = $exception;
+            }
+
+            // A query that fails on a sound copy, such as json_extract() on a column that is
+            // not JSON, fails the same way on every pull, so it fails the step at once.
+            if ($error === null) {
+                try {
+                    if (DeviceDatabase::hasTable($database, $table) && $holds($database)) {
+                        return;
+                    }
+                } catch (BadDatabaseQuery|PDOException $exception) {
+                    $error = $exception;
+
+                    break;
+                }
+            }
+
+            if ($this->timeoutSeconds <= 0) {
+                break;
+            }
+
+            usleep(400_000);
+        } while (microtime(true) < $deadline);
+
+        $message = match (true) {
+            $database === null => $error?->getMessage() ?? "Could not read the app's database.",
+            ! DeviceDatabase::hasTable($database, $table) => "The device's database has no [{$table}] table.",
+            $error instanceof SimulatorException => $error->getMessage(),
+            $error !== null => "Could not check the device's [{$table}] table: ".$error->getMessage(),
+            default => $failure($database),
+        };
+
+        $root = $this->failureDirectory !== '' ? $this->failureDirectory : FailureCapture::directory();
+
+        if (! is_dir($root)) {
+            @mkdir($root, 0777, true);
+        }
+
+        $this->fail($message, $this->screenElements, null, $root, DeviceDatabase::save($root));
+    }
+
     public function screenshot(string $path): self
     {
         return $this->step('screenshot', $path, function () use ($path): void {
@@ -1483,6 +1652,7 @@ final class Screen
             return $this;
         }
 
+        DeviceDatabase::forget();
         $this->stepNth = $this->nth;
         $this->nth = null;
         $this->nthUsed = false;

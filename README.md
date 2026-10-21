@@ -303,6 +303,69 @@ screen('/settings')
 
 `longPress()`, `input()`, and `pressBack()` are `press()`, `type()`, and `goBack()` under the harness's names.
 
+## Check the app's database
+
+The app writes to its own database, the copy on the device. `assertDatabaseHas()`, `assertDatabaseMissing()`, `assertDatabaseCount()`, and `assertDatabaseEmpty()` check that copy. They take the same arguments as Laravel's.
+
+```php
+it('pays an order', function () {
+    $order = Order::factory()->create(['total' => 4200]);
+
+    screen('/orders')
+        ->tap('Pay')
+        ->assertSee('Paid')
+        ->assertDatabaseHas('orders', ['id' => $order->id, 'status' => 'paid'])
+        ->assertDatabaseMissing(Order::class, ['status' => 'unpaid'])
+        ->assertDatabaseCount('orders', 1);
+});
+```
+
+The rows the test creates on the host go into the app with the database copy. A test that uses `DatabaseTransactions` or `RefreshDatabase` still copies them: the plugin reads them through the test's own connection.
+
+Laravel's own `$this->assertDatabaseHas()` checks the host's database, not the app's. Call these on the screen instead.
+
+Each one copies the app's database off the device: `Library/Application Support/database/database.sqlite` on iOS, and `app_storage/persisted_data/database/database.sqlite` on Android. On the Android emulator that takes about 0.04 seconds. The write-ahead log comes with it. A copy read while the app was writing can be torn, so it is checked with `PRAGMA quick_check` and copied again. In SQLite's default rollback-journal mode, a transaction writes into the database file itself, and every page of a half-written copy still looks sound. So the app's `database.sqlite-journal` is looked at before and after each copy, and a copy taken while it held a transaction is taken again.
+
+They wait like `assertSee()`. `assertDatabaseHas()` copies the database again until the row is there or the timeout runs out. `assertDatabaseMissing()` waits until no row matches. `assertDatabaseCount()` and `assertDatabaseEmpty()` wait for the count. When the app shows the `nativephp-pending` marker (see [Wait for the app, not the clock](#wait-for-the-app-not-the-clock)), each copy waits until PHP has taken every event it was sent.
+
+Without that marker, nothing says a tap's write has landed. `assertDatabaseMissing()` and `assertDatabaseCount()` can pass on a copy taken before it did, as `assertDontSee()` can. Put them after a step that waited for the app, like `assertSee()`.
+
+A table can be named, or given as a model or its class. A value can be a string, a number, a bool, null, an enum, or a date. Null matches a null column. The device has one database, so the `$connection` argument is not used.
+
+A JSON column is read by its path, as Laravel reads it: `['meta->gift' => true]`, or `['meta->items[0]->sku' => 'A1']`. A condition with an operator goes under a numeric key, as Laravel's `where()` takes it: `[['total', '>', 100]]`. The operators are `=`, `<`, `>`, `<=`, `>=`, `<>`, `!=`, `like`, and `not like`. `castAsJson()` and `DB::raw()` are SQL for the test's database, so they are not taken. Compare a JSON value by its path instead.
+
+A column the table does not have, a value that cannot be compared, an operator that is not on that list, or a query SQLite rejects, such as a JSON path on a column that is not JSON, fails the step at once, and says so. It does not wait out the timeout. A key with a double quote in it cannot be written as a SQLite JSON path.
+
+When the row is not there, the failure says what the table holds, as Laravel's does:
+
+```text
+Did not find a row in the device's [orders] table matching {
+    "id": 2,
+    "status": "paid"
+}.
+
+Found similar results: [
+    {
+        "id": 2,
+        "status": "unpaid"
+    }
+]
+```
+
+It saves the copy it checked as `device.sqlite`, next to `screen.png`.
+
+`deviceDatabase()` returns a `PDO` for the same copy, with writes turned off, for anything the assertions do not cover:
+
+```php
+screen('/orders')->tap('Pay')->assertSee('Paid');
+
+expect(deviceDatabase()->query('SELECT paid_at FROM orders')->fetchColumn())->not->toBeNull();
+```
+
+The copy is kept until the next step on the screen, or the next `screen()`. Call it after a step that waited for the app, like `assertSee()`, so what the app wrote has landed. Before the test's first `screen()`, the device still has the last test's database, so `deviceDatabase()` stops and says so.
+
+With `keepDatabase()`, or with `copy_database` off, these still work. They check whatever the app's database holds, including rows from earlier tests.
+
 ## Screenshots and recordings
 
 These calls go inside a test that is wrapped in `mobile()`.
