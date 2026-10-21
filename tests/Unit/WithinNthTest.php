@@ -68,6 +68,32 @@ it('counts an Android button once, not again for the text that draws its label',
     expect($driver->taps)->toBe([[152.0, 773.5]]);
 });
 
+it('counts an iOS button once, not again for the static text inside it', function () {
+    $driver = new FakeDriver([array_merge(...array_map(fn (float $top): array => [
+        scopedControl('Pay', 152.0, $top + 20.0, ['role' => 'StaticText', 'frame' => [120.0, $top + 10.0, 64.0, 20.0]]),
+        scopedControl('Pay', 152.0, $top + 23.5, ['frame' => [100.0, $top, 104.0, 47.0]]),
+    ], [100.0, 200.0]))]);
+
+    (new Screen($driver, timeoutSeconds: 0))->nth(2)->tap('Pay');
+
+    expect($driver->taps)->toBe([[152.0, 223.5]]);
+});
+
+it('still counts a control of its own inside a button with the same label', function () {
+    // A card that is a Button named Remove, with its own Remove switch on it, then a
+    // second Remove button below.
+    $driver = new FakeDriver([[
+        scopedControl('Remove', 195.0, 150.0, ['frame' => [0.0, 100.0, 390.0, 100.0]]),
+        scopedControl('Remove', 340.0, 160.0, ['role' => 'Switch', 'frame' => [310.0, 145.0, 60.0, 30.0]]),
+        scopedControl('Remove', 195.0, 300.0, ['frame' => [0.0, 250.0, 390.0, 100.0]]),
+    ]]);
+
+    (new Screen($driver, timeoutSeconds: 0))->nth(2)->tap('Remove');
+
+    // Reading order: the card (y 150), its switch (y 160), the button below (y 300).
+    expect($driver->taps)->toBe([[340.0, 160.0]]);
+});
+
 it('counts left to right within one line', function () {
     $driver = new FakeDriver([[
         scopedControl('Star', 120.0, 100.0),
