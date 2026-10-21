@@ -363,8 +363,16 @@ final class FakeDriver implements Driver
         return ['path' => $path, 'size' => $size, 'bytes' => substr($contents, $path === $from && $offset <= $size ? $offset : 0)];
     }
 
+    /**
+     * Removing a file that is not there leaves no event, so a test that never wrote one
+     * sees the steps it expects.
+     */
     public function removeAppFile(string $relative): void
     {
+        if (! array_key_exists($relative, $this->appFiles)) {
+            return;
+        }
+
         unset($this->appFiles[$relative]);
         $this->events[] = ['removeFile', $relative];
     }

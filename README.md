@@ -366,6 +366,57 @@ The copy is kept until the next step on the screen, or the next `screen()`. Call
 
 With `keepDatabase()`, or with `copy_database` off, these still work. They check whatever the app's database holds, including rows from earlier tests.
 
+## Fake what the app talks to
+
+The app's code runs on the device, not in the test. Fake it the way a Laravel test does, with Laravel's own API. The plugin sends the fakes to the app, and the app runs them.
+
+```php
+it('pays at the express rate', function () {
+    Http::fake([
+        'api.shipping.test/*' => Http::response(['express' => 1200]),
+        'api.stripe.test/*' => Http::response(['status' => 'succeeded']),
+    ]);
+    Http::preventStrayRequests();
+    $this->travelTo('2026-12-24 09:00');
+    config(['features.express' => true]);
+
+    screen('/checkout')
+        ->assertSee('Express: $12.00', 'Arrives Monday, December 28')
+        ->tap('Pay')
+        ->assertSee('Paid');
+
+    Http::assertSent(fn ($request) => $request['amount'] === 4200);
+});
+```
+
+These reach the app:
+
+- `Http::fake()`, `Http::fakeSequence()`, `Http::response()`, `Http::preventStrayRequests()`, and `Http::allowStrayRequests()`.
+- The time from `$this->travelTo()`, `$this->freezeTime()`, or `Carbon::setTestNow()`. `$this->travelBack()` lets the app's clock go again.
+- `config()` values the test changed, and keys it removed. Values set in `beforeEach()` are part of the starting config the plugin compares against, so set them in the test. Only the keys the test changed are sent, so the app keeps its own database paths and the rest, unless the test changes them too. A value has to be a string, a number, a bool, null, or an array of them: an enum or another object stops the test and names the key.
+
+They need the tests to boot Laravel. The plugin's service provider gives the tests an Http client whose fakes reach the app. Outside `mobile()`, it is Laravel's own client, and nothing changes.
+
+Before each step, the plugin writes what the test has faked to a file and copies it into the app, when it has changed since the last copy. The file is `storage/framework/pest-simulator/fakes` in the app's storage. Fakes set before the first `screen()` go in while the app is stopped for the database copy, so the app has them when it starts. A fake set later reaches the app before the next step acts.
+
+The app runs Laravel's own fakes. A debug build of the app has this package in its vendor directory, and Laravel boots its service provider there too. When the app opens a screen, and before it handles each tap, it reads the file when it has changed, and calls `Http::fake()` with what the test passed it, `Carbon::setTestNow()`, and `config()`. After each render, it writes what its fakes recorded to `storage/framework/pest-simulator/recorded`. With no file, it does nothing but look for one. It does nothing while it only boots, as it does for its own artisan commands: a fake config value would end up in the config cache NativePHP writes on the first launch.
+
+The app only reads the file inside NativePHP, with `APP_DEBUG=true`, and outside `APP_ENV=production`. A release build has no dev dependencies, so the package is not in it at all. A build that has it anyway, such as one for internal testing with `APP_ENV=staging` and `APP_DEBUG=false`, ignores the file. Only the plugin's own classes are unserialized from it.
+
+A fake the test adds after the app has its others is added to the app's client, as `Http::fake()` adds to the test's, so a sequence the app has answered from goes on from where it was. As in Laravel, that `Http::fake()` also clears what the app had recorded, so `assertSent()` sees only the requests after it. `preventStrayRequests()` alone keeps the record. A fake that changed, such as a sequence the test pushed onto after the first `screen()`, starts the app's client over. `Http::assertSequencesAreEmpty()` checks the app's copies of the sequences, which are the ones the app answers from.
+
+`Http::assertSent()` and the other asserts are Laravel's own. They read the app's record first. `assertSent()`, `assertSentCount()`, and `assertSentInOrder()` read it again until they pass or the timeout runs out, as `assertSee()` waits. `assertNotSent()` and `assertNothingSent()` check once, after the app has taken every event it was sent when it shows the `nativephp-pending` marker. Without the marker, they check what the app has recorded so far.
+
+A request the app makes that `preventStrayRequests()` does not allow throws in the app. The app logs it, and the test fails with it (see [When the app throws](#when-the-app-throws)).
+
+When the test ends, the plugin deletes both files, and the app puts its real client, clock, and config back before its next tap. A run stopped part way, with Ctrl-C, cannot delete them, so each test's first `screen()` deletes any it finds.
+
+Some things do not cross over:
+
+- A closure passed to a fake runs in the app. It cannot use `$this`, a class that only the tests have, or anything it captured that does not serialize. Pass what it needs with `use ()`.
+- `$this->mock()`, `$this->instance()`, and `swap()` of your own classes stay in the test.
+- The time moves only for PHP. The device's own clock, and the status bar, keep the real time.
+
 ## Screenshots and recordings
 
 These calls go inside a test that is wrapped in `mobile()`.

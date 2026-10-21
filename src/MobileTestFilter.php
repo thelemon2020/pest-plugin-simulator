@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace NativePhp\Simulator;
 
+use NativePhp\Simulator\Fakes\FakeSync;
 use Pest\Contracts\TestCaseMethodFilter;
 use Pest\Factories\TestCaseMethodFactory;
 use PHPUnit\Framework\Assert;
@@ -56,6 +57,7 @@ final class MobileTestFilter implements TestCaseMethodFilter
             VerboseLog::note('test '.Trace::test()." on {$device->platform} {$device->name}");
             TestDatabase::begin();
             AppLog::begin();
+            FakeSync::begin();
             Permissions::beginTest();
             DeviceState::beginTest();
             SystemUi::beginTest();
@@ -85,7 +87,11 @@ final class MobileTestFilter implements TestCaseMethodFilter
                 throw $exception;
             } finally {
                 try {
-                    Recording::finish();
+                    try {
+                        Recording::finish();
+                    } finally {
+                        FakeSync::end(Sessions::get($device));
+                    }
                 } finally {
                     Permissions::forgetRequest();
                     DeviceState::forgetRequest();

@@ -223,7 +223,9 @@ final class Configuration
 
     private static function laravel(string $key): ?string
     {
-        if (! function_exists('config')) {
+        // Laravel's helpers load with Composer, before an app is booted, so config() can
+        // exist with nothing behind it.
+        if (! Laravel::booted()) {
             return null;
         }
 

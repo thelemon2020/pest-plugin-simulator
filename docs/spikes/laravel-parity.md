@@ -99,8 +99,13 @@ point for packages: its `event()` runs before each UI or native event is handled
 `tree()` after each render. The app applies a changed fakes file in `event()`, so a fake a
 test sets after the first screen is in place before the next tap's handler or the next
 screen's `mount()` runs. It writes the record file in `tree()`, after the handler and the
-render. It also applies the fakes file when it boots, which is how fakes set before the
-first `screen()` reach the first screen's `mount()`. A fake stays in place across requests,
+render. It also applies the fakes file when a route is matched (`RouteMatched`), which is
+how fakes set before the first `screen()` reach the first screen's `mount()`.
+
+Not when the app boots: the first launch after an install runs `config:cache` in an app of
+its own, and on the emulator a fake `features.express` applied at that boot was cached, so
+every later launch had it. That showed up as a CheckoutTest whose second test saw the first
+test's config. A route is only matched in the app that serves screens. A fake stays in place across requests,
 since the container is not rebuilt between them, so the app puts the real services back
 when the fakes file goes away. Because the process is long-lived, the app clears PHP's stat
 cache before it looks at the file, as `NativeRouter::takeScreenIntent()` does for its own.

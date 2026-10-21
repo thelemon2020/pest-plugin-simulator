@@ -1,11 +1,14 @@
 <?php
 
 use App\Models\Order;
+use Illuminate\Support\Facades\Http;
 use Native\Mobile\Testing\Native;
 
 beforeEach(function () {
     Order::query()->delete();
     Order::insert([['id' => 1], ['id' => 2], ['id' => 3]]);
+    Http::fake(['api.shipping.test/*' => Http::response(['standard' => 500, 'express' => 1200])]);
+    Http::preventStrayRequests();
 });
 
 /*
@@ -28,6 +31,7 @@ it('renders every screen', function (string $uri, string $text) {
     ['/slow', 'Not started'],
     ['/photos', 'No photo'],
     ['/boom', 'Ready to blow up'],
+    ['/checkout', 'Standard: $5.00'],
 ]);
 
 it('saves the form', function () {

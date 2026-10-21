@@ -1,0 +1,32 @@
+<?php
+
+// What src/Fakes uses of NativePHP, which is not a dependency of the plugin: the app has it.
+
+namespace Native\Mobile\Edge\Contracts;
+
+interface TreeObserver
+{
+    /**
+     * @param  array<mixed>  $tree
+     */
+    public function tree(array $tree, string $uri): void;
+
+    /**
+     * @param  array<mixed>  $event
+     */
+    public function event(array $event, ?string $label): void;
+
+    /**
+     * @param  array<mixed>  $payload
+     */
+    public function nav(array $payload): void;
+}
+
+namespace Native\Mobile\Edge;
+
+use Native\Mobile\Edge\Contracts\TreeObserver;
+
+class TreeObservers
+{
+    public static function register(TreeObserver $observer): void {}
+}

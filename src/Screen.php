@@ -9,6 +9,7 @@ use NativePhp\Simulator\Exceptions\AmbiguousMatch;
 use NativePhp\Simulator\Exceptions\BadDatabaseQuery;
 use NativePhp\Simulator\Exceptions\NoMatch;
 use NativePhp\Simulator\Exceptions\SimulatorException;
+use NativePhp\Simulator\Fakes\FakeSync;
 use PDO;
 use PDOException;
 use PHPUnit\Framework\Assert;
@@ -1668,6 +1669,8 @@ final class Screen
         }
 
         try {
+            // What the test faked since the last step reaches the app before this one acts.
+            FakeSync::sync($this->driver);
             $body();
 
             if ($this->stepNth !== null && ! $this->nthUsed) {
