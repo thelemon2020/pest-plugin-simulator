@@ -28,6 +28,9 @@ final class FakeDriver implements Driver
      */
     public ?Closure $describeError = null;
 
+    /** What removeAppFile() throws, if anything. */
+    public ?SimulatorException $removeError = null;
+
     /** What open() throws, if anything. */
     public ?SimulatorException $openError = null;
 
@@ -369,6 +372,10 @@ final class FakeDriver implements Driver
      */
     public function removeAppFile(string $relative): void
     {
+        if ($this->removeError !== null) {
+            throw $this->removeError;
+        }
+
         if (! array_key_exists($relative, $this->appFiles)) {
             return;
         }

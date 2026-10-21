@@ -99,7 +99,8 @@ it('fails the test on a stray request the app made, as an app error', function (
         }
     });
 
-    expect(fn () => AppLog::check($this->driver))->toThrow(AppError::class, 'The app logged Illuminate\Http\Client\StrayRequestException: Attempted request to [https://api.shipping.test/rates] without a matching fake.');
+    // Laravel 12 throws a StrayRequestException, 11 a RuntimeException.
+    expect(fn () => AppLog::check($this->driver))->toThrow(AppError::class, 'Attempted request to [https://api.shipping.test/rates] without a matching fake.');
 });
 
 it('sends a fake the test adds after the first screen, and clears what the app recorded before it, as Laravel does', function () {
@@ -223,7 +224,7 @@ it('leaves an app without the fakes file as it is', function () {
     $this->device->tap(fn () => null);
 
     expect($this->device->run(fn () => app(Factory::class)))->toBe($real)
-        ->and($this->driver->appFiles)->toBe([])
+        ->and(array_keys($this->driver->appFiles))->toBe(['database/database.sqlite'])
         ->and(is_dir($this->device->root.'/storage/framework/pest-simulator'))->toBeFalse();
 });
 
@@ -242,6 +243,23 @@ it('sends nothing for a test that fakes nothing', function () {
 
     expect(FakeSync::payload())->toBeNull()
         ->and($this->driver->appFiles)->toBe([]);
+});
+
+it('keeps the test\'s own error when the device cannot take the fakes back, and the next test does', function () {
+    Http::fake(['api.stripe.test/*' => Http::response(['status' => 'succeeded'])]);
+    FakeSync::sync($this->driver);
+    $this->driver->removeError = new SimulatorException('device offline');
+
+    FakeSync::end($this->driver);
+
+    expect($this->driver->appFiles)->toHaveKey('storage/'.Payload::FAKES);
+
+    $this->driver->removeError = null;
+    $this->refreshApplication();
+    FakeSync::begin();
+    FakeSync::sync($this->driver);
+
+    expect($this->driver->appFiles)->not->toHaveKey('storage/'.Payload::FAKES);
 });
 
 it('says a closure that uses $this cannot run in the app', function () {

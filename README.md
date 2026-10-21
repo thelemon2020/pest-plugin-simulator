@@ -392,6 +392,7 @@ it('pays at the express rate', function () {
 These reach the app:
 
 - `Http::fake()`, `Http::fakeSequence()`, `Http::response()`, `Http::preventStrayRequests()`, and `Http::allowStrayRequests()`.
+- `Mail::fake()`, `Notification::fake()`, `Event::fake()` and `Event::fakeExcept()`, `Queue::fake()` and `Queue::fakeExcept()`, and `Bus::fake()`, with the lists of what to fake or let through.
 - The time from `$this->travelTo()`, `$this->freezeTime()`, or `Carbon::setTestNow()`. `$this->travelBack()` lets the app's clock go again.
 - `config()` values the test changed, and keys it removed. Values set in `beforeEach()` are part of the starting config the plugin compares against, so set them in the test. Only the keys the test changed are sent, so the app keeps its own database paths and the rest, unless the test changes them too. A value has to be a string, a number, a bool, null, or an array of them: an enum or another object stops the test and names the key.
 
@@ -399,20 +400,42 @@ They need the tests to boot Laravel. The plugin's service provider gives the tes
 
 Before each step, the plugin writes what the test has faked to a file and copies it into the app, when it has changed since the last copy. The file is `storage/framework/pest-simulator/fakes` in the app's storage. Fakes set before the first `screen()` go in while the app is stopped for the database copy, so the app has them when it starts. A fake set later reaches the app before the next step acts.
 
-The app runs Laravel's own fakes. A debug build of the app has this package in its vendor directory, and Laravel boots its service provider there too. When the app opens a screen, and before it handles each tap, it reads the file when it has changed, and calls `Http::fake()` with what the test passed it, `Carbon::setTestNow()`, and `config()`. After each render, it writes what its fakes recorded to `storage/framework/pest-simulator/recorded`. With no file, it does nothing but look for one. It does nothing while it only boots, as it does for its own artisan commands: a fake config value would end up in the config cache NativePHP writes on the first launch.
+The app runs Laravel's own fakes. A debug build of the app has this package in its vendor directory, and Laravel boots its service provider there too. When the app opens a screen, and before it handles each tap, it reads the file when it has changed, and calls `Http::fake()` with what the test passed it, `Mail::fake()` and the other fakes, `Carbon::setTestNow()`, and `config()`. Its `Event::fake()` always lets NativePHP's own `Native\` events through, since its screens listen for them. After each render, it writes what its fakes recorded to `storage/framework/pest-simulator/recorded`. With no file, it does nothing but look for one. It does nothing while it only boots, as it does for its own artisan commands: a fake config value would end up in the config cache NativePHP writes on the first launch.
 
 The app only reads the file inside NativePHP, with `APP_DEBUG=true`, and outside `APP_ENV=production`. A release build has no dev dependencies, so the package is not in it at all. A build that has it anyway, such as one for internal testing with `APP_ENV=staging` and `APP_DEBUG=false`, ignores the file. Only the plugin's own classes are unserialized from it.
 
 A fake the test adds after the app has its others is added to the app's client, as `Http::fake()` adds to the test's, so a sequence the app has answered from goes on from where it was. As in Laravel, that `Http::fake()` also clears what the app had recorded, so `assertSent()` sees only the requests after it. `preventStrayRequests()` alone keeps the record. A fake that changed, such as a sequence the test pushed onto after the first `screen()`, starts the app's client over. `Http::assertSequencesAreEmpty()` checks the app's copies of the sequences, which are the ones the app answers from.
 
-`Http::assertSent()` and the other asserts are Laravel's own. They read the app's record first. `assertSent()`, `assertSentCount()`, and `assertSentInOrder()` read it again until they pass or the timeout runs out, as `assertSee()` waits. `assertNotSent()` and `assertNothingSent()` check once, after the app has taken every event it was sent when it shows the `nativephp-pending` marker. Without the marker, they check what the app has recorded so far.
+`Http::assertSent()`, `Mail::assertSent()`, and the other asserts are Laravel's own. At the first step after `Mail::fake()`, the plugin swaps the test's fake for one that reads the app's record before each assert. The asserts that look for something, such as `assertSent()`, `assertSentCount()`, `assertDispatched()`, and `assertPushed()`, read it again until they pass or the timeout runs out, as `assertSee()` waits. The ones that look for nothing, such as `assertNotSent()`, `assertNothingSent()`, and `assertNotDispatched()`, check once, after the app has taken every event it was sent when it shows the `nativephp-pending` marker. Without the marker, they check what the app has recorded so far. `Mail::sent()`, `Event::dispatched()`, `Bus::hasDispatched()`, `Http::recorded()`, and the fakes' other readers read the record too. A test that keeps the fake `Mail::fake()` returns, as `$mail = Mail::fake()`, can assert through it: it holds the same record. It only sees what the facade last read, though, and does not wait for the app, so assert through the facade after a tap.
 
-A request the app makes that `preventStrayRequests()` does not allow throws in the app. The app logs it, and the test fails with it (see [When the app throws](#when-the-app-throws)).
+```php
+it('mails a receipt', function () {
+    Mail::fake();
+    Event::fake([OrderPaid::class]);
 
-When the test ends, the plugin deletes both files, and the app puts its real client, clock, and config back before its next tap. A run stopped part way, with Ctrl-C, cannot delete them, so each test's first `screen()` deletes any it finds.
+    screen('/orders')->tap('Pay')->assertSee('Paid');
+
+    Mail::assertSent(Receipt::class, fn ($mail) => $mail->order->status === 'paid');
+    Event::assertDispatched(OrderPaid::class);
+});
+```
+
+A mailable, event, job, or notification that uses `SerializesModels` brings its models back by id. They are loaded from the device database (see [Check the app's database](#check-the-apps-database)), so `$mail->order` is the order the app paid, not the test's copy of it. The relations it had loaded come with it. The model belongs to the test's default connection, so `$mail->order->is($order)` matches the test's own copy, and `fresh()` or a relation loaded later, inside the assert's closure, reads the test's database. The device has one database, so a model the app saved on a second connection is loaded from that one too.
+
+Each entry is read on its own, from a fresh copy of the device database. One whose model the app has since deleted stays in the record as an instance of its class with nothing set: `Mail::assertSent(Receipt::class)`, the counts, and `assertNothingSent()` still see it, and only a closure that reads its models cannot.
+
+`Mail::fake()` again part way through a test starts the record again, as it does in Laravel: what the app sent before it is gone. Mail the test sends itself, before or after the first `screen()`, is in the record beside the app's.
+
+A mailable, event, or job that does not serialize, such as one holding a closure, is left out of the record. So are Laravel's own events that hold a request or a connection.
+
+A request the app makes that `preventStrayRequests()` does not allow throws in the app. Unless the app catches it, NativePHP logs it, and the test fails with it (see [When the app throws](#when-the-app-throws)).
+
+When the test ends, the plugin deletes both files, and the app puts its real Http client, mailer, dispatchers, clock, and config back before its next tap. A run stopped part way, with Ctrl-C, cannot delete them, so each test's first `screen()` deletes any it finds.
 
 Some things do not cross over:
 
+- `Storage::fake()` is not passed to the app yet.
+- Batches from `Bus::batch()` stay in the app, so `Bus::assertBatched()` does not see them.
 - A closure passed to a fake runs in the app. It cannot use `$this`, a class that only the tests have, or anything it captured that does not serialize. Pass what it needs with `use ()`.
 - `$this->mock()`, `$this->instance()`, and `swap()` of your own classes stay in the test.
 - The time moves only for PHP. The device's own clock, and the status bar, keep the real time.

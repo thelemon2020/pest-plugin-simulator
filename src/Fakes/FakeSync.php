@@ -6,13 +6,29 @@ namespace NativePhp\Simulator\Fakes;
 
 use Carbon\Carbon;
 use Illuminate\Container\Container;
+use Illuminate\Contracts\Bus\Dispatcher as BusDispatcher;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Client\Factory;
+use Illuminate\Notifications\ChannelManager;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Testing\Fakes\BusFake;
+use Illuminate\Support\Testing\Fakes\EventFake;
+use Illuminate\Support\Testing\Fakes\MailFake;
+use Illuminate\Support\Testing\Fakes\NotificationFake;
+use Illuminate\Support\Testing\Fakes\QueueFake;
 use NativePhp\Simulator\Driver;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 use NativePhp\Simulator\Laravel;
+use ReflectionProperty;
 
 /**
- * Sends the app what the test faked with Laravel's own API: Http::fake(), the time from
+ * Sends the app what the test faked with Laravel's own API: Http::fake(), Mail::fake(),
+ * Notification::fake(), Event::fake(), Queue::fake(), Bus::fake(), the time from
  * travelTo() or Carbon::setTestNow(), and config() values the test changed. It runs before
  * each step, and writes the fakes file and pushes it only when what the test faked has
  * changed since the last push. Fakes set before the first screen() go while the app is
@@ -23,6 +39,20 @@ use NativePhp\Simulator\Laravel;
  */
 final class FakeSync
 {
+    /**
+     * Laravel's fakes that reach the app, by record section: the facade, what it resolves
+     * from the container, Laravel's fake, and the Remote one that reads the app's record.
+     *
+     * @var array<string, array{0: class-string, 1: string, 2: class-string, 3: class-string}>
+     */
+    private const FAKES = [
+        'mail' => [Mail::class, 'mail.manager', MailFake::class, RemoteMailFake::class],
+        'notifications' => [Notification::class, ChannelManager::class, NotificationFake::class, RemoteNotificationFake::class],
+        'events' => [Event::class, 'events', EventFake::class, RemoteEventFake::class],
+        'queue' => [Queue::class, 'queue', QueueFake::class, RemoteQueueFake::class],
+        'bus' => [Bus::class, BusDispatcher::class, BusFake::class, RemoteBusFake::class],
+    ];
+
     /** This test's own id, which the app writes into its record file. Null outside a test. */
     private static ?string $test = null;
 
@@ -34,6 +64,12 @@ final class FakeSync
 
     /** Whether this test has taken away the files a run that stopped part way left. */
     private static bool $cleared = false;
+
+    /**
+     * Whether a test's fakes file may still be in the app: one ended while the device was
+     * not answering, so the file could not be removed.
+     */
+    private static bool $leftover = false;
 
     /**
      * Notes the test's config, to send only what the test changes. Does nothing when the
@@ -85,9 +121,10 @@ final class FakeSync
         }
 
         if ($payload === null) {
-            if (self::$pushed !== null) {
+            if (self::$pushed !== null || self::$leftover) {
                 $driver->removeAppFile('storage/'.Payload::FAKES);
                 self::$pushed = null;
+                self::$leftover = false;
             }
 
             return;
@@ -127,6 +164,10 @@ final class FakeSync
                 $driver->removeAppFile('storage/'.Payload::FAKES);
                 $driver->removeAppFile('storage/'.Payload::RECORDS);
             }
+        } catch (SimulatorException) {
+            // A test that ends because the device stopped answering keeps its own error.
+            // The next test removes the file, or replaces it with its own.
+            self::$leftover = true;
         } finally {
             self::$pushed = null;
             self::$cleared = false;
@@ -146,6 +187,7 @@ final class FakeSync
             'now' => self::now(),
             'config' => self::config(),
             'http' => self::http(),
+            ...array_map(self::fake(...), self::FAKES),
         ], fn (mixed $section): bool => $section !== null && $section !== []);
 
         return $sections === [] ? null : ['test' => self::$test] + $sections;
@@ -182,6 +224,10 @@ final class FakeSync
         $set = [];
 
         foreach ($current as $key => $value) {
+            if (self::internal($key)) {
+                continue;
+            }
+
             if (! array_key_exists($key, self::$config) || self::$config[$key] !== $value) {
                 self::requirePlain($key, $value);
                 $set[$key] = $value;
@@ -191,7 +237,7 @@ final class FakeSync
         $forget = [];
 
         foreach (array_keys(array_diff_key(self::$config, $current)) as $key) {
-            if (self::under(array_keys($current), $key) || self::above(array_keys($set), $key)) {
+            if (self::internal($key) || self::under(array_keys($current), $key) || self::above(array_keys($set), $key)) {
                 continue;
             }
 
@@ -218,6 +264,15 @@ final class FakeSync
         if (is_object($value) && ! $value instanceof \Closure) {
             throw new SimulatorException("config('{$key}') holds a ".get_debug_type($value).', which cannot be sent to the app. Set a string, a number, a bool, null, or an array of them.');
         }
+    }
+
+    /**
+     * Config Laravel sets itself while a test runs: the first deprecation configures the
+     * deprecations log channel. It is not the test's to send.
+     */
+    private static function internal(string $key): bool
+    {
+        return str_starts_with($key, 'logging.deprecations') || str_starts_with($key, 'logging.channels.deprecations');
     }
 
     /**
@@ -270,6 +325,81 @@ final class FakeSync
         $remote = $factory instanceof RemoteHttpFactory ? $factory->remote() : null;
 
         return $remote === null ? null : $remote + ['ids' => array_map(Payload::fingerprint(...), $remote['fakes'])];
+    }
+
+    /**
+     * What the app needs to fake the same way, for a fake the test made with Mail::fake(),
+     * Event::fake() and the rest, or null. The test's fake becomes a Remote one here, so
+     * its asserts read the app's record.
+     *
+     * @param  array{0: class-string, 1: string, 2: class-string, 3: class-string}  $fake
+     * @return array<string, mixed>|null
+     */
+    private static function fake(array $fake): ?array
+    {
+        [$facade, $accessor, $class, $remote] = $fake;
+        $container = self::container();
+
+        if (! $container->resolved($accessor)) {
+            return null;
+        }
+
+        $root = $container->make($accessor);
+
+        if (! $root instanceof $class) {
+            return null;
+        }
+
+        if (! $root instanceof $remote) {
+            $root = $remote::from($root);
+            $facade::swap($root);
+
+            if ($root instanceof EventFake && class_exists(Model::class)) {
+                Model::setEventDispatcher($root);
+            }
+
+            // Event::fake() handed the cache the fake it made, which is no longer the one
+            // asserts read.
+            if ($root instanceof EventFake && $container->bound('cache')) {
+                $cache = $container->make('cache');
+
+                if (is_object($cache) && method_exists($cache, 'refreshEventDispatcher')) {
+                    $cache->refreshEventDispatcher();
+                }
+            }
+        }
+
+        // Faking again in the test is another fake, and the app makes its own again.
+        $generation = ['generation' => $root->generation()];
+
+        return $generation + match ($class) {
+            EventFake::class => ['fake' => self::read($root, $class, 'eventsToFake'), 'dispatch' => self::read($root, $class, 'eventsToDispatch')],
+            QueueFake::class => ['fake' => self::read($root, $class, 'jobsToFake'), 'queue' => self::read($root, $class, 'jobsToBeQueued')],
+            BusFake::class => ['fake' => self::read($root, $class, 'jobsToFake'), 'dispatch' => self::read($root, $class, 'jobsToDispatch')],
+            default => ['fake' => true],
+        };
+    }
+
+    /**
+     * A list a Laravel fake keeps of what to fake or let through.
+     *
+     * @param  class-string  $class
+     * @return array<array-key, mixed>
+     */
+    private static function read(object $fake, string $class, string $property): array
+    {
+        if (! property_exists($class, $property)) {
+            return [];
+        }
+
+        $value = (new ReflectionProperty($class, $property))->getValue($fake);
+
+        // QueueFake keeps its lists as collections.
+        return match (true) {
+            is_array($value) => $value,
+            $value instanceof Collection => $value->all(),
+            default => [],
+        };
     }
 
     /**
