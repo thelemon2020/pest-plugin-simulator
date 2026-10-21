@@ -106,7 +106,8 @@ interface Driver
 
     /**
      * Copies a file out of the app's own storage (see pushAppFile()). False when the app has
-     * no such file, or it could not be read.
+     * no such file. A read that failed, such as one the device did not answer, throws, so it
+     * is not taken for a file the app has not written.
      */
     public function pullAppFile(string $relative, string $local): bool;
 

@@ -166,3 +166,20 @@ function deleteFixture(string $path): void
 
     rmdir($path);
 }
+
+it('saves no empty android php log', function () {
+    Configuration::configure(['bundle_id' => 'com.example.app']);
+    $command = new RecordingCommand;
+    $command->outputs = ['exec-out' => 'Y', 'pidof' => "4321\n", 'logcat' => "process crash\n"];
+    $driver = new AndroidDriver(new Device('android', 'Pixel 8', true), Configuration::resolve(), $command);
+    (new ReflectionProperty(AndroidDriver::class, 'serial'))->setValue($driver, 'emulator-5554');
+    $directory = sys_get_temp_dir().'/simulator-empty-log-'.uniqid('', true);
+    mkdir($directory);
+
+    try {
+        expect($driver->captureLogs($directory))->toBe([$directory.'/logcat.txt'])
+            ->and(is_file($directory.'/laravel.log'))->toBeFalse();
+    } finally {
+        exec('rm -rf '.escapeshellarg($directory));
+    }
+});

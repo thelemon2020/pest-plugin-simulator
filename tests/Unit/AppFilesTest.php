@@ -159,11 +159,40 @@ it('tells a missing android file from an empty one', function () {
         ->and(file_get_contents($this->local))->toBe('');
 });
 
-it('reads nothing from an android app run-as cannot enter', function () {
+it('says so when it cannot read the android app, rather than taking it for a missing file', function () {
     $command = new RecordingCommand;
     $command->failures = ['exec-out' => 'run-as: package not debuggable'];
 
-    expect(androidWith($command)->pullAppFile('storage/logs/laravel.log', $this->local))->toBeFalse();
+    expect(fn () => androidWith($command)->pullAppFile('storage/logs/laravel.log', $this->local))
+        ->toThrow(SimulatorException::class, 'run-as: package not debuggable');
+});
+
+it('says so when the android shell answers with something other than the file', function () {
+    $command = new RecordingCommand;
+    $command->outputs = ['exec-out' => 'sh: syntax error'];
+
+    expect(fn () => androidWith($command)->pullAppFile('storage/logs/laravel.log', $this->local))
+        ->toThrow(SimulatorException::class, 'Could not read [storage/logs/laravel.log]');
+});
+
+it('refuses a path that leaves the app\'s storage', function () {
+    $command = new RecordingCommand;
+    file_put_contents($this->local, 'one');
+
+    expect(fn () => androidWith($command)->pushAppFile($this->local, 'storage/../../x'))->toThrow(SimulatorException::class, 'leaves the app\'s storage')
+        ->and(fn () => androidWith($command)->removeAppFile('../x'))->toThrow(SimulatorException::class, 'leaves the app\'s storage');
+
+    $container = sys_get_temp_dir().'/simulator-ios-'.uniqid('', true);
+    mkdir($container);
+    $driver = new IosDriver(new Device('ios', 'iPhone 17', true), Configuration::resolve(), new RecordingCommand($container));
+    (new ReflectionProperty(IosDriver::class, 'udid'))->setValue($driver, 'UDID');
+
+    try {
+        expect(fn () => $driver->pushAppFile($this->local, '../../../escaped'))->toThrow(SimulatorException::class, 'leaves the app\'s storage')
+            ->and(fn () => $driver->pullAppFile('storage/../../../x', $this->local.'-out'))->toThrow(SimulatorException::class, 'leaves the app\'s storage');
+    } finally {
+        exec('rm -rf '.escapeshellarg($container));
+    }
 });
 
 it('removes a file from the android app', function () {

@@ -179,22 +179,54 @@ final class AndroidDriver implements Driver
         $this->recovering(fn () => $this->sendAppFile($local, $relative));
     }
 
+    public function pullAppFile(string $relative, string $local): bool
+    {
+        $found = false;
+        $this->recovering(function () use ($relative, $local, &$found): void {
+            $found = $this->readAppFile($relative, $local);
+        });
+
+        return $found;
+    }
+
     /**
      * `adb exec-out` hands back the bytes `cat` wrote, unchanged, where `adb shell` can turn
      * a newline into CRLF on an older device. The first byte says whether the file was
-     * there, so an empty file and a missing one read differently.
+     * there, so an empty file and a missing one read differently, and a read that failed
+     * throws rather than passing for a file the app has not written.
      */
-    public function pullAppFile(string $relative, string $local): bool
+    private function readAppFile(string $relative, string $local): bool
     {
-        $path = escapeshellarg(self::APP_STORAGE.'/'.ltrim($relative, '/'));
+        $path = escapeshellarg(self::storagePath($relative));
         $script = 'if [ -f '.$path.' ]; then printf Y; cat '.$path.'; else printf N; fi';
-        $bytes = $this->read(['exec-out', 'run-as '.escapeshellarg($this->configuration->bundleId()).' sh -c '.escapeshellarg($script)]);
+        $bytes = $this->command->run($this->adb(), ['-s', $this->serial(), 'exec-out', 'run-as '.escapeshellarg($this->configuration->bundleId()).' sh -c '.escapeshellarg($script)]);
 
-        if ($bytes === null || ! str_starts_with($bytes, 'Y')) {
+        if (str_starts_with($bytes, 'N')) {
             return false;
         }
 
-        return file_put_contents($local, substr($bytes, 1)) !== false;
+        if (! str_starts_with($bytes, 'Y')) {
+            throw new SimulatorException("Could not read [{$relative}] in the app's storage: ".trim(substr($bytes, 0, 200)));
+        }
+
+        if (file_put_contents($local, substr($bytes, 1)) === false) {
+            throw new SimulatorException("Could not write [{$local}].");
+        }
+
+        return true;
+    }
+
+    /**
+     * A path in the app's storage, as run-as sees it. A `..` would leave the storage it is
+     * meant to stay in, so it is refused.
+     */
+    private static function storagePath(string $relative): string
+    {
+        if (in_array('..', explode('/', $relative), true)) {
+            throw new SimulatorException("[{$relative}] leaves the app's storage.");
+        }
+
+        return self::APP_STORAGE.'/'.ltrim($relative, '/');
     }
 
     public function removeAppFile(string $relative): void
@@ -230,7 +262,7 @@ final class AndroidDriver implements Driver
 
     private function installScript(string $bundle, string $remote, string $relative): string
     {
-        $path = self::APP_STORAGE.'/'.ltrim($relative, '/');
+        $path = self::storagePath($relative);
         $runAs = 'run-as '.escapeshellarg($bundle).' ';
         $quotedRemote = escapeshellarg($remote);
         $temporary = escapeshellarg($path.'.pest-'.bin2hex(random_bytes(4)));
@@ -251,7 +283,7 @@ final class AndroidDriver implements Driver
     {
         // adb joins its arguments with spaces and the device's shell splits them again, so
         // each path is quoted here, the way installScript() quotes its own.
-        $paths = array_map(fn (string $relative): string => escapeshellarg(self::APP_STORAGE.'/'.ltrim($relative, '/')), $relatives);
+        $paths = array_map(fn (string $relative): string => escapeshellarg(self::storagePath($relative)), $relatives);
 
         $this->command->run($this->adb(), [
             '-s', $this->serial(), 'shell', 'run-as '.escapeshellarg($this->configuration->bundleId()).' rm -f '.implode(' ', $paths),
@@ -853,8 +885,17 @@ final class AndroidDriver implements Driver
         $bundle = $this->configuration->bundleId();
         $saved = [];
 
-        if ($this->pullAppFile('storage/logs/laravel.log', $directory.'/laravel.log')) {
+        try {
+            $pulled = $this->readAppFile('storage/logs/laravel.log', $directory.'/laravel.log');
+        } catch (SimulatorException) {
+            $pulled = false;
+        }
+
+        // An empty log says nothing, so it is not saved.
+        if ($pulled && filesize($directory.'/laravel.log') > 0) {
             $saved[] = $directory.'/laravel.log';
+        } elseif ($pulled) {
+            @unlink($directory.'/laravel.log');
         }
 
         if ($this->keep($this->logcat($bundle), $directory.'/logcat.txt')) {

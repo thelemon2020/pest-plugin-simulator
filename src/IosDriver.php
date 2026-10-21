@@ -374,6 +374,9 @@ final class IosDriver implements Driver
 
     public function pullAppFile(string $relative, string $local): bool
     {
+        self::refuseEscape($relative);
+
+        // No container: the app is not installed, so it has no files.
         try {
             $source = $this->appFile($relative);
         } catch (SimulatorException) {
@@ -382,7 +385,15 @@ final class IosDriver implements Driver
 
         clearstatcache(true, $source);
 
-        return is_file($source) && @copy($source, $local);
+        if (! is_file($source)) {
+            return false;
+        }
+
+        if (! @copy($source, $local)) {
+            throw new SimulatorException("Could not copy [{$relative}] out of the app's storage into [{$local}].");
+        }
+
+        return true;
     }
 
     public function removeAppFile(string $relative): void
@@ -430,10 +441,22 @@ final class IosDriver implements Driver
     }
 
     /**
+     * A `..` would leave the container, onto this Mac's own disk.
+     */
+    private static function refuseEscape(string $relative): void
+    {
+        if (in_array('..', explode('/', $relative), true)) {
+            throw new SimulatorException("[{$relative}] leaves the app's storage.");
+        }
+    }
+
+    /**
      * Where a file under the app's `Library/Application Support/` is on this Mac.
      */
     private function appFile(string $relative): string
     {
+        self::refuseEscape($relative);
+
         return $this->dataContainer().'/Library/Application Support/'.ltrim($relative, '/');
     }
 
@@ -1049,7 +1072,11 @@ final class IosDriver implements Driver
 
     public function captureLogs(string $directory): array
     {
-        return $this->pullAppFile('storage/logs/laravel.log', $directory.'/laravel.log') ? [$directory.'/laravel.log'] : [];
+        try {
+            return $this->pullAppFile('storage/logs/laravel.log', $directory.'/laravel.log') ? [$directory.'/laravel.log'] : [];
+        } catch (SimulatorException) {
+            return [];
+        }
     }
 
     public function appearance(?string $mode): void
