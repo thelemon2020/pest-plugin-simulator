@@ -437,3 +437,29 @@ it('allows the stray requests the test let through', function () {
 
     expect(FakeSync::payload()['http']['allow'] ?? null)->toBe(['https://api.maps.test/*']);
 })->skip(! (new ReflectionClass(Factory::class))->hasProperty('allowedStrayRequestUrls'), 'Laravel 11 has no list of stray requests to allow.');
+
+it('keeps the test process\'s own database and log config out of what it sends the app', function () {
+    config([
+        'database.connections.sqlite.database' => ':memory:',
+        'logging.default' => 'stderr',
+        'databases_seen' => 3,
+        'features.express' => true,
+    ]);
+
+    FakeSync::sync($this->driver);
+
+    expect(FakeSync::payload()['config'] ?? null)->toBe(['set' => ['databases_seen' => 3, 'features.express' => true]]);
+});
+
+it('keeps out the config keys a suite names as its own', function () {
+    Configuration::configure(['scheme' => 'myapp', 'timeout' => 0, 'host_config' => ['filesystems.disks.local.root', 'services']]);
+    config([
+        'filesystems.disks.local.root' => '/tmp/test-disk',
+        'filesystems.default' => 's3',
+        'services.stripe.key' => 'pk_test',
+    ]);
+
+    FakeSync::sync($this->driver);
+
+    expect(FakeSync::payload()['config'] ?? null)->toBe(['set' => ['filesystems.default' => 's3']]);
+});
