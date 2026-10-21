@@ -532,6 +532,18 @@ final class ElementFinder
             $photos = $tiles;
         }
 
+        // Android's picker names each tile, as "Photo taken on Oct 20, 2026, 5:03 PM". An
+        // image it leaves unnamed, such as the handle at the top of its sheet, reads as a
+        // plain "Photo" and is above every tile. When any tile is named, only they are photos.
+        $named = array_values(array_filter(
+            $photos,
+            fn (array $photo): bool => str_starts_with($photo['label'], 'Photo taken'),
+        ));
+
+        if ($named !== []) {
+            $photos = $named;
+        }
+
         usort($photos, function (array $left, array $right): int {
             $vertical = $left['center'][1] <=> $right['center'][1];
 

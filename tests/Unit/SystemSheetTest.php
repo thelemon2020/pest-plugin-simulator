@@ -304,6 +304,23 @@ it('finds the photos in android 16 photo picker', function () {
     expect((new ElementFinder)->firstPhoto($elements)['center'] ?? null)->toBe([179.0, 1405.0]);
 });
 
+it('taps a photo in the android picker sheet, not the handle above it', function () {
+    $elements = readSystemAndroid(<<<'XML'
+        <hierarchy rotation="0">
+            <node class="android.widget.LinearLayout" package="com.google.android.providers.media.module" resource-id="com.google.android.providers.media.module:id/bottom_sheet" bounds="[0,128][1080,2337]">
+                <node class="android.widget.ImageView" package="com.google.android.providers.media.module" resource-id="com.google.android.providers.media.module:id/drag_bar" bounds="[498,170][582,181]" />
+                <node text="This app can only access the photos you select" class="android.widget.TextView" package="com.google.android.providers.media.module" bounds="[248,244][832,283]" />
+                <node content-desc="Photo taken on Oct 20, 2026, 5:03:06 PM" class="android.widget.FrameLayout" package="com.google.android.providers.media.module" bounds="[0,640][354,995]">
+                    <node class="android.widget.ImageView" package="com.google.android.providers.media.module" resource-id="com.google.android.providers.media.module:id/icon_thumbnail" bounds="[0,640][354,994]" />
+                </node>
+                <node content-desc="Photo taken on Oct 20, 2026, 3:22:58 PM" class="android.widget.FrameLayout" package="com.google.android.providers.media.module" bounds="[362,640][717,995]" />
+            </node>
+        </hierarchy>
+        XML);
+
+    expect((new ElementFinder)->firstPhoto($elements)['center'] ?? null)->toBe([177.0, 817.5]);
+});
+
 function readSystemAndroid(string $xml): array
 {
     $command = new RecordingCommand;
