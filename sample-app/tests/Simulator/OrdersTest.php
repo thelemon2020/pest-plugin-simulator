@@ -17,6 +17,8 @@ mobile(function () {
             ->nth(2)->tap('Pay')
             ->assertSee('Paid')
             ->assertDatabaseHas('orders', ['id' => 2, 'status' => 'paid'])
+            ->assertDatabaseHas(Order::findOrFail(2), ['status' => 'paid'])
+            ->assertModelExists(Order::findOrFail(3))
             ->assertDatabaseMissing(Order::class, ['id' => 1, 'status' => 'paid'])
             ->assertDatabaseCount('orders', 3);
 

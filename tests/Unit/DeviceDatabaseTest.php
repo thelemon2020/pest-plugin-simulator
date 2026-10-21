@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Contracts\Database\Query\Expression;
+use Illuminate\Database\Eloquent\Model;
 use NativePhp\Simulator\Configuration;
 use NativePhp\Simulator\Device;
 use NativePhp\Simulator\DeviceDatabase;
@@ -16,6 +17,8 @@ use NativePhp\Simulator\Trace;
 use PHPUnit\Framework\AssertionFailedError;
 use Tests\Support\FakeDriver;
 use Tests\Support\RecordingCommand;
+use Tests\Support\Shop\Order;
+use Tests\Support\Shop\Ticket;
 
 beforeEach(function () {
     $this->driver = new FakeDriver([[['label' => 'Paid', 'role' => 'StaticText', 'id' => null, 'center' => [10, 10]]]]);
@@ -497,3 +500,76 @@ it('will not read the database before the test has opened a screen', function ()
 it('only works inside a mobile suite', function () {
     deviceDatabase();
 })->throws(SimulatorException::class, 'deviceDatabase() only works inside a mobile() suite.');
+
+/**
+ * A model of a row the device has, as a test holds one: it exists, with that key.
+ */
+function deviceModel(string $class, int $id): Model
+{
+    $model = (new $class)->newInstance(['id' => $id], true);
+    $model->setAttribute('id', $id);
+
+    return $model;
+}
+
+function tickets(): string
+{
+    return sqliteBytes(function (PDO $pdo): void {
+        $pdo->exec('CREATE TABLE tickets (id INTEGER PRIMARY KEY, seat TEXT, cancelled_at TEXT NULL)');
+        $pdo->exec("INSERT INTO tickets (seat, cancelled_at) VALUES ('1A', NULL), ('1B', '2026-10-21 09:00:00')");
+    })[0];
+}
+
+it('checks a model\'s own row, as Laravel does, not any row in its table', function () {
+    $this->driver->appFiles['database/database.sqlite'] = orders('unpaid', 'paid');
+
+    deviceScreen($this->driver)
+        ->assertModelExists(deviceModel(Order::class, 2))
+        ->assertDatabaseHas(deviceModel(Order::class, 2), ['status' => 'paid'])
+        ->assertModelMissing(deviceModel(Order::class, 9))
+        ->assertDatabaseMissing(deviceModel(Order::class, 1), ['status' => 'paid']);
+
+    expect(fn () => deviceScreen($this->driver, failures: $this->failures)->assertModelExists(deviceModel(Order::class, 9)))
+        ->toThrow(AssertionFailedError::class, "Did not find a row in the device's [orders] table matching {\n    \"id\": 9\n}")
+        ->and(fn () => deviceScreen($this->driver, failures: $this->failures)->assertModelMissing(deviceModel(Order::class, 1)))
+        ->toThrow(AssertionFailedError::class, "Still found a row in the device's [orders] table matching {\n    \"id\": 1\n}");
+});
+
+it('checks each model in a list, and each row in a list of rows', function () {
+    $this->driver->appFiles['database/database.sqlite'] = orders('unpaid', 'paid', 'refunded');
+
+    deviceScreen($this->driver)
+        ->assertModelExists([deviceModel(Order::class, 1), deviceModel(Order::class, 3)])
+        ->assertDatabaseHas('orders', [['id' => 1, 'status' => 'unpaid'], ['id' => 3, 'status' => 'refunded']])
+        ->assertDatabaseMissing('orders', [['status' => 'lost'], ['id' => 4]])
+        // A list of conditions is still one row's conditions.
+        ->assertDatabaseHas('orders', [['id', '>', 2]])
+        ->assertDatabaseCount(['orders' => 3]);
+
+    expect(fn () => deviceScreen($this->driver, failures: $this->failures)->assertDatabaseHas('orders', [['id' => 1], ['id' => 7]]))
+        ->toThrow(AssertionFailedError::class, '"id": 7');
+});
+
+it('checks a soft deleted row by the model\'s own deleted-at column', function () {
+    $this->driver->appFiles['database/database.sqlite'] = tickets();
+
+    expect(deviceScreen($this->driver)
+        ->assertSoftDeleted(deviceModel(Ticket::class, 2))
+        ->assertSoftDeleted(Ticket::class, ['seat' => '1B'])
+        ->assertSoftDeleted('tickets', ['seat' => '1B'], deletedAtColumn: 'cancelled_at')
+        ->assertNotSoftDeleted(deviceModel(Ticket::class, 1))
+        ->assertNotSoftDeleted(Ticket::class, ['seat' => '1A']))->toBeInstanceOf(Screen::class)
+        ->and(fn () => deviceScreen($this->driver, failures: $this->failures)->assertSoftDeleted(deviceModel(Ticket::class, 1)))
+        ->toThrow(AssertionFailedError::class, "Did not find a soft deleted row in the device's [tickets] table matching {\n    \"id\": 1\n}")
+        ->and(fn () => deviceScreen($this->driver, failures: $this->failures)->assertNotSoftDeleted(Ticket::class, ['seat' => '1B']))
+        ->toThrow(AssertionFailedError::class, "Did not find a row that is not soft deleted in the device's [tickets] table");
+});
+
+it('says at once when a table has no deleted-at column', function () {
+    $this->driver->appFiles['database/database.sqlite'] = orders('paid');
+    $started = microtime(true);
+
+    expect(fn () => deviceScreen($this->driver, timeout: 5, failures: $this->failures)->assertSoftDeleted('orders', ['id' => 1]))
+        ->toThrow(AssertionFailedError::class, "The device's [orders] table has no [deleted_at] column.")
+        ->and(microtime(true) - $started)->toBeLessThan(1.0);
+});

@@ -1312,90 +1312,265 @@ final class Screen
      * for the row until the timeout, as assertSee() waits for text. The device has one
      * database, so $connection is taken for Laravel's signature and not used.
      *
-     * @param  string|object  $table  a table, or an Eloquent model or its class
+     * As in Laravel, a model instance is that model's row, a list of models or tables is
+     * checked one by one, and a list of rows in $data is a row each.
+     *
+     * @param  string|object|iterable<mixed>  $table  a table, or an Eloquent model or its class, or a list of them
      * @param  array<array-key, mixed>  $data
      */
-    public function assertDatabaseHas(string|object $table, array $data = [], ?string $connection = null): self
+    public function assertDatabaseHas(string|object|iterable $table, array $data = [], ?string $connection = null): self
     {
-        return $this->step('assertDatabaseHas', self::tableLabel($table), function () use ($table, $data): void {
-            $name = DeviceDatabase::table($table);
-            DeviceDatabase::conditions($data);
-
-            $this->untilDatabase(
-                $name,
-                fn (PDO $database): bool => DeviceDatabase::count($database, $name, $data) > 0,
-                fn (PDO $database): string => "Did not find a row in the device's [{$name}] table matching ".DeviceDatabase::json($data).".\n\n".DeviceDatabase::similar($database, $name, $data),
-            );
-        });
+        return $this->step('assertDatabaseHas', self::tableLabel($table), fn () => $this->eachRow($table, $data, $this->hasRow(...)));
     }
 
     /**
      * No row in the app's own database holds every value in $data. It waits until none
-     * does, as assertDontSee() waits for text to go.
+     * does, as assertDontSee() waits for text to go. It takes what assertDatabaseHas() takes.
      *
-     * @param  string|object  $table  a table, or an Eloquent model or its class
+     * @param  string|object|iterable<mixed>  $table  a table, or an Eloquent model or its class, or a list of them
      * @param  array<array-key, mixed>  $data
      */
-    public function assertDatabaseMissing(string|object $table, array $data = [], ?string $connection = null): self
+    public function assertDatabaseMissing(string|object|iterable $table, array $data = [], ?string $connection = null): self
     {
-        return $this->step('assertDatabaseMissing', self::tableLabel($table), function () use ($table, $data): void {
-            $name = DeviceDatabase::table($table);
-            DeviceDatabase::conditions($data);
-
-            $this->untilDatabase(
-                $name,
-                fn (PDO $database): bool => DeviceDatabase::count($database, $name, $data) === 0,
-                fn (PDO $database): string => "Still found a row in the device's [{$name}] table matching ".DeviceDatabase::json($data).".\n\n".DeviceDatabase::found($database, $name, $data),
-            );
-        });
+        return $this->step('assertDatabaseMissing', self::tableLabel($table), fn () => $this->eachRow($table, $data, $this->missingRow(...)));
     }
 
     /**
-     * The app's own table has $count rows, waited for until the timeout.
+     * The model's row is in the app's own database, as Laravel's assertModelExists() checks.
      *
-     * @param  string|object  $table  a table, or an Eloquent model or its class
+     * @param  object|iterable<mixed>  $model  an Eloquent model, or a list of them
      */
-    public function assertDatabaseCount(string|object $table, int $count, ?string $connection = null): self
+    public function assertModelExists(object|iterable $model): self
+    {
+        return $this->step('assertModelExists', self::tableLabel($model), fn () => $this->eachRow($model, [], $this->hasRow(...)));
+    }
+
+    /**
+     * The model's row is not in the app's own database, as Laravel's assertModelMissing()
+     * checks: the app deleted it.
+     *
+     * @param  object|iterable<mixed>  $model  an Eloquent model, or a list of them
+     */
+    public function assertModelMissing(object|iterable $model): self
+    {
+        return $this->step('assertModelMissing', self::tableLabel($model), fn () => $this->eachRow($model, [], $this->missingRow(...)));
+    }
+
+    /**
+     * A row that holds $data was soft deleted in the app's own database: its deleted-at
+     * column is set, as Laravel's assertSoftDeleted() checks. A model that soft deletes is
+     * its own row, and names its own column.
+     *
+     * @param  string|object|iterable<mixed>  $table  a table, or an Eloquent model or its class, or a list of them
+     * @param  array<array-key, mixed>  $data
+     */
+    public function assertSoftDeleted(string|object|iterable $table, array $data = [], ?string $connection = null, string $deletedAtColumn = 'deleted_at'): self
+    {
+        return $this->step('assertSoftDeleted', self::tableLabel($table), fn () => $this->eachRow(
+            $table,
+            $data,
+            fn (string|object $one, array $row) => $this->softDeletedRow($one, $row, $deletedAtColumn, true),
+            softDeletes: true,
+        ));
+    }
+
+    /**
+     * A row that holds $data is in the app's own database and not soft deleted, as
+     * Laravel's assertNotSoftDeleted() checks.
+     *
+     * @param  string|object|iterable<mixed>  $table  a table, or an Eloquent model or its class, or a list of them
+     * @param  array<array-key, mixed>  $data
+     */
+    public function assertNotSoftDeleted(string|object|iterable $table, array $data = [], ?string $connection = null, string $deletedAtColumn = 'deleted_at'): self
+    {
+        return $this->step('assertNotSoftDeleted', self::tableLabel($table), fn () => $this->eachRow(
+            $table,
+            $data,
+            fn (string|object $one, array $row) => $this->softDeletedRow($one, $row, $deletedAtColumn, false),
+            softDeletes: true,
+        ));
+    }
+
+    /**
+     * The app's own table has $count rows, waited for until the timeout. As in Laravel, a
+     * list of tables and counts checks each.
+     *
+     * @param  string|object|iterable<mixed>  $table  a table, or an Eloquent model or its class, or tables and their counts
+     */
+    public function assertDatabaseCount(string|object|iterable $table, ?int $count = null, ?string $connection = null): self
     {
         return $this->step('assertDatabaseCount', self::tableLabel($table), function () use ($table, $count): void {
-            $name = DeviceDatabase::table($table);
+            $counts = is_iterable($table) ? $table : [[$table, $count]];
 
-            $this->untilDatabase(
-                $name,
-                fn (PDO $database): bool => DeviceDatabase::count($database, $name) === $count,
-                function (PDO $database) use ($name, $count): string {
-                    $actual = DeviceDatabase::count($database, $name);
+            foreach ($counts as $key => $value) {
+                [$one, $expected] = is_iterable($table) ? [$key, $value] : $value;
 
-                    return "The device's [{$name}] table has {$actual} ".($actual === 1 ? 'row' : 'rows').", not {$count}.";
-                },
-            );
+                if (! is_int($expected)) {
+                    throw new SimulatorException('assertDatabaseCount() needs a count for ['.self::tableLabel($one).'].');
+                }
+
+                $name = DeviceDatabase::table($one);
+
+                $this->untilDatabase(
+                    $name,
+                    fn (PDO $database): bool => DeviceDatabase::count($database, $name) === $expected,
+                    function (PDO $database) use ($name, $expected): string {
+                        $actual = DeviceDatabase::count($database, $name);
+
+                        return "The device's [{$name}] table has {$actual} ".($actual === 1 ? 'row' : 'rows').", not {$expected}.";
+                    },
+                );
+            }
         });
     }
 
     /**
-     * The app's own table has no rows, waited for until the timeout.
+     * The app's own table has no rows, waited for until the timeout. As in Laravel, a list
+     * of tables checks each.
      *
-     * @param  string|object  $table  a table, or an Eloquent model or its class
+     * @param  string|object|iterable<mixed>  $table  a table, or an Eloquent model or its class, or a list of them
      */
-    public function assertDatabaseEmpty(string|object $table, ?string $connection = null): self
+    public function assertDatabaseEmpty(string|object|iterable $table, ?string $connection = null): self
     {
         return $this->step('assertDatabaseEmpty', self::tableLabel($table), function () use ($table): void {
-            $name = DeviceDatabase::table($table);
+            foreach (is_iterable($table) ? $table : [$table] as $one) {
+                $name = DeviceDatabase::table($one);
 
-            $this->untilDatabase(
-                $name,
-                fn (PDO $database): bool => DeviceDatabase::count($database, $name) === 0,
-                fn (PDO $database): string => "The device's [{$name}] table is not empty.\n\n".DeviceDatabase::found($database, $name, []),
-            );
+                $this->untilDatabase(
+                    $name,
+                    fn (PDO $database): bool => DeviceDatabase::count($database, $name) === 0,
+                    fn (PDO $database): string => "The device's [{$name}] table is not empty.\n\n".DeviceDatabase::found($database, $name, []),
+                );
+            }
         });
+    }
+
+    /**
+     * Runs $check once for each model or table in a list, and once for each row in a list
+     * of rows, as Laravel's database asserts do. A model instance adds its own key to the
+     * row, so it is that model's row. With $softDeletes, only a model that soft deletes
+     * does, as Laravel's assertSoftDeleted().
+     *
+     * A list of [column, operator, value] conditions is not a list of rows: those have
+     * columns for keys.
+     *
+     * @param  array<array-key, mixed>  $data
+     * @param  Closure(string|object, array<array-key, mixed>): void  $check
+     */
+    private function eachRow(mixed $table, array $data, Closure $check, bool $softDeletes = false): void
+    {
+        if (is_iterable($table)) {
+            foreach ($table as $one) {
+                $this->eachRow($one, $data, $check, $softDeletes);
+            }
+
+            return;
+        }
+
+        if (! is_string($table) && ! is_object($table)) {
+            throw new SimulatorException('Name the table, or pass an Eloquent model or its class.');
+        }
+
+        if ($data !== [] && array_is_list($data) && self::rows($data)) {
+            foreach ($data as $row) {
+                $this->eachRow($table, $row, $check, $softDeletes);
+            }
+
+            return;
+        }
+
+        if (is_object($table) && method_exists($table, 'getKeyName') && method_exists($table, 'getKey')
+            && (! $softDeletes || method_exists($table, 'getDeletedAtColumn'))) {
+            $data = array_merge([$table->getKeyName() => $table->getKey()], $data);
+        }
+
+        $check($table, $data);
+    }
+
+    /**
+     * Whether every entry is a row: an array with columns for keys.
+     *
+     * @param  list<mixed>  $data
+     */
+    private static function rows(array $data): bool
+    {
+        foreach ($data as $row) {
+            if (! is_array($row) || $row === [] || array_is_list($row)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * @param  array<array-key, mixed>  $data
+     */
+    private function hasRow(string|object $table, array $data): void
+    {
+        $name = DeviceDatabase::table($table);
+        DeviceDatabase::conditions($data);
+
+        $this->untilDatabase(
+            $name,
+            fn (PDO $database): bool => DeviceDatabase::count($database, $name, $data) > 0,
+            fn (PDO $database): string => "Did not find a row in the device's [{$name}] table matching ".DeviceDatabase::json($data).".\n\n".DeviceDatabase::similar($database, $name, $data),
+        );
+    }
+
+    /**
+     * @param  array<array-key, mixed>  $data
+     */
+    private function missingRow(string|object $table, array $data): void
+    {
+        $name = DeviceDatabase::table($table);
+        DeviceDatabase::conditions($data);
+
+        $this->untilDatabase(
+            $name,
+            fn (PDO $database): bool => DeviceDatabase::count($database, $name, $data) === 0,
+            fn (PDO $database): string => "Still found a row in the device's [{$name}] table matching ".DeviceDatabase::json($data).".\n\n".DeviceDatabase::found($database, $name, $data),
+        );
+    }
+
+    /**
+     * A row that holds $data with its deleted-at column set, or with it null. A model, or a
+     * model's class, names its own column, as Laravel reads it.
+     *
+     * @param  array<array-key, mixed>  $data
+     */
+    private function softDeletedRow(string|object $table, array $data, string $column, bool $deleted): void
+    {
+        $name = DeviceDatabase::table($table);
+        $model = is_string($table) && class_exists($table) ? new $table : $table;
+
+        if (is_object($model) && method_exists($model, 'getDeletedAtColumn')) {
+            $named = $model->getDeletedAtColumn();
+            $column = is_string($named) ? $named : $column;
+        }
+
+        $conditions = [...$data, [$column, $deleted ? '!=' : '=', null]];
+        DeviceDatabase::conditions($conditions);
+        $what = $deleted ? 'a soft deleted row' : 'a row that is not soft deleted';
+
+        $this->untilDatabase(
+            $name,
+            fn (PDO $database): bool => DeviceDatabase::count($database, $name, $conditions) > 0,
+            fn (PDO $database): string => "Did not find {$what} in the device's [{$name}] table matching ".DeviceDatabase::json($data).".\n\n".DeviceDatabase::similar($database, $name, $data === [] ? [[$column, $deleted ? '!=' : '=', null]] : $data),
+        );
     }
 
     /**
      * The table as the trace names it, before DeviceDatabase::table() has checked it.
      */
-    private static function tableLabel(string|object $table): string
+    private static function tableLabel(mixed $table): string
     {
-        return is_string($table) ? $table : $table::class;
+        return match (true) {
+            is_string($table) => $table,
+            is_array($table) => implode(', ', array_map(self::tableLabel(...), array_is_list($table) ? $table : array_keys($table))),
+            is_object($table) => $table::class,
+            default => get_debug_type($table),
+        };
     }
 
     /**
