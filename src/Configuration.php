@@ -27,8 +27,11 @@ final class Configuration
 
     private static bool $appErrors = true;
 
+    /** @var list<string> */
+    private static array $hostConfig = [];
+
     /**
-     * @param  array{scheme?: string, host?: string, bundle_id?: string, timeout?: float, app_directory?: string, permissions?: list<string>|null, record_failures?: bool, copy_database?: bool, app_errors?: bool}  $values
+     * @param  array{scheme?: string, host?: string, bundle_id?: string, timeout?: float, app_directory?: string, permissions?: list<string>|null, record_failures?: bool, copy_database?: bool, app_errors?: bool, host_config?: list<string>}  $values
      */
     public static function configure(array $values): void
     {
@@ -67,6 +70,10 @@ final class Configuration
         if (isset($values['app_errors'])) {
             self::$appErrors = $values['app_errors'];
         }
+
+        if (isset($values['host_config'])) {
+            self::$hostConfig = $values['host_config'];
+        }
     }
 
     public static function reset(): void
@@ -80,6 +87,7 @@ final class Configuration
         self::$recordFailures = false;
         self::$copyDatabase = true;
         self::$appErrors = true;
+        self::$hostConfig = [];
     }
 
     public static function resolve(): self
@@ -94,11 +102,13 @@ final class Configuration
             resolvedRecordFailures: self::$recordFailures,
             resolvedCopyDatabase: self::$copyDatabase,
             resolvedAppErrors: self::$appErrors,
+            resolvedHostConfig: self::$hostConfig,
         );
     }
 
     /**
      * @param  list<string>|null  $resolvedPermissions
+     * @param  list<string>  $resolvedHostConfig
      */
     private function __construct(
         private readonly ?string $resolvedScheme,
@@ -110,6 +120,7 @@ final class Configuration
         private readonly bool $resolvedRecordFailures,
         private readonly bool $resolvedCopyDatabase = true,
         private readonly bool $resolvedAppErrors = true,
+        private readonly array $resolvedHostConfig = [],
     ) {}
 
     public function scheme(): string
@@ -186,6 +197,18 @@ final class Configuration
     public function checksAppErrors(): bool
     {
         return $this->resolvedAppErrors;
+    }
+
+    /**
+     * Config keys that belong to the test process, which a config() change in a test does
+     * not send to the app, each with every key under it. database and logging are always
+     * among them: the app has its own database, copied in, and its own log, read back.
+     *
+     * @return list<string>
+     */
+    public function hostConfig(): array
+    {
+        return ['database', 'logging', ...$this->resolvedHostConfig];
     }
 
     public function urlFor(string $path): string

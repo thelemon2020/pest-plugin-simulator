@@ -21,6 +21,7 @@ use Illuminate\Support\Testing\Fakes\EventFake;
 use Illuminate\Support\Testing\Fakes\MailFake;
 use Illuminate\Support\Testing\Fakes\NotificationFake;
 use Illuminate\Support\Testing\Fakes\QueueFake;
+use NativePhp\Simulator\Configuration;
 use NativePhp\Simulator\Driver;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 use NativePhp\Simulator\Laravel;
@@ -263,12 +264,20 @@ final class FakeSync
     }
 
     /**
-     * Config Laravel sets itself while a test runs: the first deprecation configures the
-     * deprecations log channel. It is not the test's to send.
+     * Config that is not the app's to be sent: what describes the test process itself,
+     * such as its database connection and its log channels (see
+     * Configuration::hostConfig()). That includes what Laravel sets on its own while a
+     * test runs: the first deprecation configures the deprecations log channel.
      */
     private static function internal(string $key): bool
     {
-        return str_starts_with($key, 'logging.deprecations') || str_starts_with($key, 'logging.channels.deprecations');
+        foreach (Configuration::resolve()->hostConfig() as $prefix) {
+            if ($key === $prefix || str_starts_with($key, rtrim($prefix, '.').'.')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
