@@ -323,7 +323,22 @@ final class AppLog
         $stack = false;
 
         foreach ($lines as $line) {
-            if (preg_match('/^\[\d{4}-\d{2}-\d{2}[ T][^\]]*\] [\w-]+\.([A-Z]+): ?(.*)$/', $line, $match) === 1) {
+            // A channel with Monolog's JsonFormatter writes each entry as one line of JSON.
+            $json = self::json($line);
+
+            if ($json !== null) {
+                if ($current !== null) {
+                    $entries[] = self::complete($current, $body);
+                    $current = null;
+                }
+
+                $entries[] = $json;
+
+                continue;
+            }
+
+            // The environment's name can hold a dot, as `staging.eu` does.
+            if (preg_match('/^\[\d{4}-\d{2}-\d{2}[ T][^\]]*\] [\w.-]+\.([A-Z]+): ?(.*)$/', $line, $match) === 1) {
                 if ($current !== null) {
                     $entries[] = self::complete($current, $body);
                 }
@@ -507,6 +522,50 @@ final class AppLog
      * Paths on the device from the app's own directory, as `app/…` and `vendor/…`. iOS
      * unpacks the app into `Documents/app/`, Android into `app_storage/laravel/`.
      */
+    /**
+     * An entry Monolog's JsonFormatter wrote, or null when the line is not one. The level
+     * is its level_name; an exception is under context.exception, as its class, message,
+     * and file:line, with the trace when the formatter includes it.
+     *
+     * @return Entry|null
+     */
+    private static function json(string $line): ?array
+    {
+        if (! str_starts_with($line, '{') || ! str_contains($line, '"level_name"')) {
+            return null;
+        }
+
+        $entry = json_decode($line, true);
+
+        if (! is_array($entry) || ! is_string($entry['level_name'] ?? null)) {
+            return null;
+        }
+
+        $exception = is_array($entry['context']['exception'] ?? null) ? $entry['context']['exception'] : [];
+        $class = is_string($exception['class'] ?? null) ? ltrim($exception['class'], '\\') : null;
+        $message = is_string($exception['message'] ?? null) ? $exception['message'] : (is_string($entry['message'] ?? null) ? $entry['message'] : '');
+        $frames = [];
+
+        foreach (is_array($exception['trace'] ?? null) ? $exception['trace'] : [] as $index => $frame) {
+            if (count($frames) >= self::FRAMES) {
+                break;
+            }
+
+            if (is_string($frame)) {
+                $frames[] = '#'.$index.' '.self::shorten($frame);
+            }
+        }
+
+        return [
+            'level' => strtoupper($entry['level_name']),
+            'header' => $line,
+            'message' => trim($message),
+            'class' => $class,
+            'where' => is_string($exception['file'] ?? null) ? self::shorten($exception['file']) : null,
+            'frames' => $frames,
+        ];
+    }
+
     private static function shorten(string $text): string
     {
         return (string) preg_replace('#/[^\s()]*?/(?:Documents/app|app_storage/laravel)/#', '', $text);
