@@ -24,6 +24,18 @@ use Throwable;
  */
 final class Records
 {
+    /** When an assert last waited for the app and read its record. */
+    private static float $waitedAt = 0.0;
+
+    /**
+     * Whether an assert read the app's record after $time: it waited for the app then,
+     * so the end of the test has nothing more to wait for.
+     */
+    public static function waitedSince(float $time): bool
+    {
+        return self::$waitedAt >= $time;
+    }
+
     /** The key an entry serialized on its own sits under, in the app's record. */
     public const ENTRY = "\0pest-simulator-entry";
 
@@ -144,6 +156,7 @@ final class Records
 
         while (true) {
             $pull();
+            self::$waitedAt = microtime(true);
 
             try {
                 self::attempt($assert);
@@ -174,6 +187,7 @@ final class Records
         }
 
         $pull();
+        self::$waitedAt = microtime(true);
         self::attempt($assert);
     }
 

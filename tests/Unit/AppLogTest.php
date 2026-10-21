@@ -8,6 +8,7 @@ use NativePhp\Simulator\Configuration;
 use NativePhp\Simulator\Device;
 use NativePhp\Simulator\Exceptions\AppError;
 use NativePhp\Simulator\Exceptions\SimulatorException;
+use NativePhp\Simulator\Fakes\Records;
 use NativePhp\Simulator\IosDriver;
 use NativePhp\Simulator\MobileTestFilter;
 use NativePhp\Simulator\Sessions;
@@ -468,4 +469,58 @@ it('never reads an old entry again when the app writes more than one log', funct
 
     expect(fn () => AppLog::check($this->driver))->toThrow(AppError::class, 'App\Exceptions\AlreadyPaid')
         ->and(AppLog::path())->toBe('storage/logs/laravel-2026-10-20.log');
+});
+
+it('does not wait at the end after an assert has already waited for the app', function () {
+    Configuration::configure(['scheme' => 'myapp', 'timeout' => 5]);
+    $this->driver->appFiles['storage/logs/laravel.log'] = '';
+    $started = microtime(true);
+
+    $error = onDevice(function (): void {
+        screen('/checkout')->tap('Pay');
+        // What Mail::assertSent() and the other fakes' asserts do once they read the app.
+        Records::settled(fn () => null, fn () => null);
+    });
+
+    expect($error)->toBeNull()
+        ->and(microtime(true) - $started)->toBeLessThan(0.8);
+});
+
+it('does not wait at the end of a test that ends on a screenshot', function () {
+    Configuration::configure(['scheme' => 'myapp', 'timeout' => 5]);
+    $this->driver->appFiles['storage/logs/laravel.log'] = '';
+    $path = $this->directory.'/shot.png';
+    $started = microtime(true);
+
+    expect(onDevice(function () use ($path): void {
+        screen('/checkout')->tap('Pay')->screenshot($path);
+    }))->toBeNull()
+        ->and(microtime(true) - $started)->toBeLessThan(0.8);
+});
+
+it('stops waiting at the end once the app says PHP has taken the tap', function () {
+    Configuration::configure(['scheme' => 'myapp', 'timeout' => 5]);
+    $this->driver = new FakeDriver([[
+        ['label' => 'Pay', 'role' => 'Button', 'id' => null, 'center' => [100, 200]],
+        ['label' => '0', 'role' => 'StaticText', 'id' => 'nativephp-pending', 'center' => [1, 1]],
+    ]]);
+    Sessions::fake($this->driver);
+    $this->driver->appFiles['storage/logs/laravel.log'] = '';
+    $started = microtime(true);
+
+    expect(onDevice(function (): void {
+        screen('/checkout')->tap('Pay');
+    }))->toBeNull()
+        ->and(microtime(true) - $started)->toBeLessThan(0.9);
+});
+
+it('still waits the second at the end without the marker, for the tap\'s error', function () {
+    Configuration::configure(['scheme' => 'myapp', 'timeout' => 5]);
+    $this->driver->appFiles['storage/logs/laravel.log'] = '';
+    $started = microtime(true);
+
+    expect(onDevice(function (): void {
+        screen('/checkout')->tap('Pay');
+    }))->toBeNull()
+        ->and(microtime(true) - $started)->toBeGreaterThan(0.95);
 });

@@ -396,6 +396,30 @@ final class IosDriver implements Driver
         return true;
     }
 
+    public function appFilesDigest(array $files): ?string
+    {
+        $hash = hash_init('md5');
+
+        try {
+            foreach ($files as $relative => $bytes) {
+                $path = $this->appFile($relative);
+                clearstatcache(true, $path);
+
+                if (! is_file($path)) {
+                    hash_update($hash, "-\n");
+
+                    continue;
+                }
+
+                hash_update($hash, filesize($path)."\n".(string) file_get_contents($path, length: max(0, $bytes)));
+            }
+        } catch (SimulatorException) {
+            return null;
+        }
+
+        return hash_final($hash);
+    }
+
     public function removeAppFile(string $relative): void
     {
         $this->recovering(fn () => $this->deleteAppFile($relative));

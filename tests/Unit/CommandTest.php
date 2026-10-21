@@ -151,3 +151,27 @@ it('runs a command with a utf-8 locale', function () {
 
     expect($locale)->toMatch('/utf-?8/i');
 });
+
+it('writes a command\'s output straight to a file', function () {
+    $path = sys_get_temp_dir().'/simulator-to-file-'.uniqid('', true);
+
+    try {
+        (new Command)->toFile(PHP_BINARY, ['-r', 'echo str_repeat("x", 300000), "\0end";'], $path, 10);
+
+        expect(filesize($path))->toBe(300004)
+            ->and(substr((string) file_get_contents($path), -4))->toBe("\0end");
+    } finally {
+        @unlink($path);
+    }
+});
+
+it('fails with what the command wrote to stderr when its output goes to a file', function () {
+    $path = sys_get_temp_dir().'/simulator-to-file-'.uniqid('', true);
+
+    try {
+        expect(fn () => (new Command)->toFile(PHP_BINARY, ['-r', 'fwrite(STDERR, "device offline"); exit(1);'], $path, 10))
+            ->toThrow(SimulatorException::class, 'device offline');
+    } finally {
+        @unlink($path);
+    }
+});

@@ -214,10 +214,23 @@ final class AppLog
                 // A suite that waits for nothing, with a timeout of 0, reads it once.
                 $deadline = microtime(true) + min(self::LAST_STEP, Configuration::resolve()->timeout());
 
+                $idle = 0;
+
                 do {
                     self::check($driver);
 
                     if (microtime(true) >= $deadline) {
+                        break;
+                    }
+
+                    // An app that shows the marker says when PHP has taken the tap. Two
+                    // reads of 0 in a row, a quarter of a second apart, and one more look
+                    // at the log, end the wait early.
+                    $idle = self::idle($driver) ? $idle + 1 : 0;
+
+                    if ($idle >= 2) {
+                        self::check($driver);
+
                         break;
                     }
 
@@ -254,6 +267,19 @@ final class AppLog
 
         // An expected error is the test's assertion, as expectException() is.
         Assert::assertEmpty($missing);
+    }
+
+    /**
+     * Whether the app shows the IdleMarker at 0. False when it shows none, or the screen
+     * could not be read.
+     */
+    private static function idle(Driver $driver): bool
+    {
+        try {
+            return IdleMarker::split($driver->describe())[1] === 0;
+        } catch (Throwable) {
+            return false;
+        }
     }
 
     /**

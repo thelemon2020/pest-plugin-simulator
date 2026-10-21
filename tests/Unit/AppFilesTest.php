@@ -236,3 +236,20 @@ it('keeps the fake driver\'s app files in memory', function () {
 
     expect($driver->appFiles)->toBe([]);
 });
+
+it('digests android app files with one run-as shell, and says when it cannot', function () {
+    $command = new RecordingCommand;
+    $command->outputs = ['exec-out' => "0123456789abcdef0123456789abcdef  -\n"];
+
+    expect(androidWith($command)->appFilesDigest(['database/database.sqlite' => 100, 'database/database.sqlite-wal' => 32]))->toBe('0123456789abcdef0123456789abcdef');
+
+    $script = $command->calls[0][1][3];
+
+    expect($script)->toContain('md5sum')
+        ->and($script)->toContain('head -c 100')
+        ->and($script)->toContain('database.sqlite-wal');
+
+    $command->failures = ['exec-out' => 'run-as: package not debuggable'];
+
+    expect(androidWith($command)->appFilesDigest(['database/database.sqlite' => 100]))->toBeNull();
+});

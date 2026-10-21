@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace NativePhp\Simulator;
 
 use NativePhp\Simulator\Fakes\FakeSync;
+use NativePhp\Simulator\Fakes\Records;
 use Pest\Contracts\TestCaseMethodFilter;
 use Pest\Factories\TestCaseMethodFactory;
 use PHPUnit\Framework\Assert;
@@ -72,7 +73,15 @@ final class MobileTestFilter implements TestCaseMethodFilter
                 $steps = Trace::steps();
                 $last = $steps === [] ? null : end($steps);
                 // A tap, a keystroke or a screen() does not wait for the app's PHP to answer.
-                $endedOnInput = $last !== null && ! str_starts_with((string) ($last['action'] ?? ''), 'assert');
+                $action = (string) ($last['action'] ?? '');
+                // A tap, a keystroke or a screen() sends the app something its PHP answers
+                // after the step has ended. An assert waited for the app, a screenshot or a
+                // recording sends it nothing, and an Http, Mail or Event assert after the
+                // step has already waited for it.
+                $endedOnInput = $last !== null
+                    && ! str_starts_with($action, 'assert')
+                    && ! in_array($action, ['screenshot', 'dump', 'record', 'stopRecord'], true)
+                    && ! Records::waitedSince(Trace::lastEnded() ?? 0.0);
 
                 if (AppLog::expecting() || $endedOnInput) {
                     AppLog::finish(Sessions::get($device), $endedOnInput);
