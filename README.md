@@ -643,9 +643,9 @@ Thrown at app/NativeComponents/Checkout.php:31
 
 The step ends `error` in the trace. The failure saves the trace, the tree, the screenshot, and the logs, as any error does, including the `daily` channel's file. Paths start from the app's own directory.
 
-A tap only sends the touch. The app's PHP answers it a moment later, so the error a tap causes usually ends the step after it, such as the `assertSee()` that waited for the answer. A step that fails is read once more before it reports, so an assertion that gave up names the app's error, with its own failure after it. A test whose last step is a tap, a keystroke, or a `screen()` reads the log for one second more as it ends, so that tap's error still fails it.
+A tap only sends the touch. The app's PHP answers it a moment later, so the error a tap causes usually ends the step after it, such as the `assertSee()` that waited for the answer. A step that fails is read once more before it reports, so an assertion that gave up names the app's error, with its own failure after it. It is still a failed assertion, as PHPUnit counts it. A test whose last step is a tap, a keystroke, or a `screen()` reads the log for one second more as it ends, so that tap's error still fails it.
 
-The log is `storage/logs/laravel.log`, or the newest `laravel-*.log` for the `daily` channel. A channel that writes elsewhere is not read. On the Android emulator one read takes about 0.04 seconds.
+The logs read are `storage/logs/laravel.log` and, for the `daily` channel, the newest `laravel-2026-10-20.log`. Each is read on its own from where it ended, so an app that writes both, or keeps other `laravel-*.log` channels beside them, never has an old entry read again. A channel that writes elsewhere is not read. On the Android emulator one read takes about 0.04 seconds.
 
 A test where the app is meant to log errors calls `allowAppErrors()`. A test that expects one exception names it:
 

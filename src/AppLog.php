@@ -27,15 +27,17 @@ use Throwable;
  *     [stacktrace]
  *     #0 /…/vendor/laravel/framework/src/Illuminate/Container/BoundMethod.php(36): App\NativeComponents\Checkout->pay()
  *
- * @phpstan-type Entry array{level: string, header: string, message: string, class: ?string, where: ?string, frames: list<string>}
+ * @phpstan-type Entry array{level: string, header: string, message: string, class: ?string, where: ?string, frames: list<string>, file?: string}
  */
 final class AppLog
 {
     /**
-     * The `single` channel's laravel.log and the `daily` channel's laravel-2026-10-20.log:
-     * whichever the app wrote last.
+     * The logs read: the `single` channel's laravel.log, and the newest of the `daily`
+     * channel's laravel-2026-10-20.log. Each is read on its own from where it ended, so an
+     * app that writes both, or keeps other laravel-*.log channels beside them, never has an
+     * old entry read again as a new one.
      */
-    public const PATTERN = 'storage/logs/laravel*.log';
+    public const SOURCES = ['storage/logs/laravel.log', 'storage/logs/laravel-????-??-??.log'];
 
     /** What counts as an error: Laravel's levels from ERROR up. */
     private const LEVELS = ['ERROR', 'CRITICAL', 'ALERT', 'EMERGENCY'];
@@ -51,15 +53,14 @@ final class AppLog
 
     private static bool $started = false;
 
-    /** The first read failed, so where the log ended is not known yet. */
-    private static bool $unknown = false;
-
-    private static ?string $path = null;
-
-    private static int $offset = 0;
-
-    /** The part of a line the app had not finished writing at the last read. */
-    private static string $partial = '';
+    /**
+     * Each source's file, where it was read to, the part of a line the app had not finished
+     * writing then, and whether where it ended is not known yet because the first read of
+     * it failed.
+     *
+     * @var array<string, array{path: ?string, offset: int, partial: string, unknown: bool}>
+     */
+    private static array $sources = [];
 
     private static float $readAt = 0.0;
 
@@ -74,10 +75,7 @@ final class AppLog
     public static function begin(): void
     {
         self::$started = false;
-        self::$unknown = false;
-        self::$path = null;
-        self::$offset = 0;
-        self::$partial = '';
+        self::$sources = [];
         self::$readAt = 0.0;
         self::$allowed = false;
         self::$expected = [];
@@ -116,34 +114,36 @@ final class AppLog
 
         self::$started = true;
         self::$readAt = microtime(true);
-        self::mark($driver);
+
+        foreach (self::SOURCES as $source) {
+            self::mark($driver, $source);
+        }
     }
 
     /**
-     * Where the log ends now, read without its bytes. A read that fails leaves it unknown,
+     * Where a log ends now, read without its bytes. A read that fails leaves it unknown,
      * and the next check() tries again rather than reading the whole log from 0.
      */
-    private static function mark(Driver $driver): void
+    private static function mark(Driver $driver, string $source): void
     {
         try {
-            $tail = $driver->tailAppFile(self::PATTERN, null);
+            $tail = $driver->tailAppFile($source, null);
         } catch (SimulatorException) {
-            self::$unknown = true;
+            self::$sources[$source] = ['path' => null, 'offset' => 0, 'partial' => '', 'unknown' => true];
 
             return;
         }
 
-        self::$unknown = false;
-        self::$path = $tail['path'] ?? null;
-        self::$offset = $tail['size'] ?? 0;
+        self::$sources[$source] = ['path' => $tail['path'] ?? null, 'offset' => $tail['size'] ?? 0, 'partial' => '', 'unknown' => false];
     }
 
     /**
-     * The file the app's errors were read from, relative to its storage, once it has one.
+     * The daily channel's file the app's errors were read from, relative to its storage,
+     * once it has one: failure capture copies laravel.log already.
      */
     public static function path(): ?string
     {
-        return self::$started ? self::$path : null;
+        return self::$started ? (self::$sources[self::SOURCES[1]]['path'] ?? null) : null;
     }
 
     /**
@@ -157,13 +157,17 @@ final class AppLog
 
         self::$readAt = microtime(true);
 
-        if (self::$unknown) {
-            self::mark($driver);
+        $entries = [];
 
-            return;
+        foreach (self::SOURCES as $source) {
+            if (self::$sources[$source]['unknown'] ?? true) {
+                self::mark($driver, $source);
+
+                continue;
+            }
+
+            array_push($entries, ...self::read($driver, $source));
         }
-
-        $entries = self::read($driver);
 
         foreach ($entries as $entry) {
             if (! in_array($entry['level'], self::LEVELS, true)) {
@@ -266,7 +270,12 @@ final class AppLog
         try {
             self::check($driver);
         } catch (AppError $error) {
-            return new AppError($error->getMessage()."\n\nThe step had failed first: ".$failure->getMessage(), $error->class, $failure);
+            $message = $error->getMessage()."\n\nThe step had failed first: ".$failure->getMessage();
+
+            // A failed assertion stays a failed assertion, so PHPUnit counts it as one.
+            return $failure instanceof AssertionFailedError
+                ? new AssertionFailedError($message, 0, $error)
+                : new AppError($message, $error->class, $failure);
         } catch (Throwable) {
         }
 
@@ -341,10 +350,12 @@ final class AppLog
     /**
      * @return list<Entry>
      */
-    private static function read(Driver $driver): array
+    private static function read(Driver $driver, string $source): array
     {
+        $state = self::$sources[$source];
+
         try {
-            $tail = $driver->tailAppFile(self::PATTERN, self::$path === null ? 0 : self::$offset, self::$path);
+            $tail = $driver->tailAppFile($source, $state['path'] === null ? 0 : $state['offset'], $state['path']);
         } catch (SimulatorException) {
             // The next read picks up from the same place.
             return [];
@@ -355,18 +366,21 @@ final class AppLog
         }
 
         // A new day's file, or one that was started again, is read from its start.
-        $restarted = $tail['path'] !== self::$path || self::$offset > $tail['size'];
-        $start = $restarted ? 0 : self::$offset;
-        $bytes = ($restarted ? '' : self::$partial).$tail['bytes'];
-        self::$path = $tail['path'];
+        $restarted = $tail['path'] !== $state['path'] || $state['offset'] > $tail['size'];
+        $start = $restarted ? 0 : $state['offset'];
+        $bytes = ($restarted ? '' : $state['partial']).$tail['bytes'];
 
         // The last line may still be on its way. It is read again next time, whole.
         $end = strrpos($bytes, "\n");
         $complete = $end === false ? '' : substr($bytes, 0, $end + 1);
-        self::$partial = $end === false ? $bytes : substr($bytes, $end + 1);
-        self::$offset = $start + strlen($tail['bytes']);
+        self::$sources[$source] = [
+            'path' => $tail['path'],
+            'offset' => $start + strlen($tail['bytes']),
+            'partial' => $end === false ? $bytes : substr($bytes, $end + 1),
+            'unknown' => false,
+        ];
 
-        return self::parse($complete);
+        return array_map(fn (array $entry): array => $entry + ['file' => basename($tail['path'])], self::parse($complete));
     }
 
     /**
@@ -419,7 +433,7 @@ final class AppLog
         }
 
         $lines[] = '';
-        $lines[] = (self::$path === null ? 'laravel.log' : basename(self::$path)).' has the whole entry. Call allowAppErrors() in a test where the app is meant to log errors, or expectAppError('.($entry['class'] === null ? 'SomeException' : self::basename($entry['class'])).'::class) for one it is meant to throw.';
+        $lines[] = ($entry['file'] ?? 'laravel.log').' has the whole entry. Call allowAppErrors() in a test where the app is meant to log errors, or expectAppError('.($entry['class'] === null ? 'SomeException' : self::basename($entry['class'])).'::class) for one it is meant to throw.';
 
         return implode("\n", $lines);
     }

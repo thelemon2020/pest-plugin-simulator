@@ -414,10 +414,11 @@ it('names the app\'s error when an assertion gave up before the log was read aga
         screen('/checkout')->assertSee('Done');
     });
 
-    expect($error)->toBeInstanceOf(AppError::class)
-        ->and($error->getMessage())->toContain('The app logged App\Exceptions\AlreadyPaid')
+    // Still a failed assertion, as PHPUnit counts it, with the app's error first.
+    expect($error)->toBeInstanceOf(AssertionFailedError::class)
+        ->and($error->getMessage())->toStartWith('The app logged App\Exceptions\AlreadyPaid')
         ->and($error->getMessage())->toContain('The step had failed first: ')
-        ->and($error->getPrevious())->toBeInstanceOf(AssertionFailedError::class);
+        ->and($error->getPrevious())->toBeInstanceOf(AppError::class);
 });
 
 it('reads the log once more when a test ends on a tap', function () {
@@ -447,4 +448,24 @@ it('says why expectAppError() cannot see anything when the test never read the l
     expect($error)->toBeInstanceOf(AssertionFailedError::class)
         ->and($error->getMessage())->toContain('while app_errors is turned off')
         ->and(microtime(true) - $started)->toBeLessThan(1.0);
+});
+
+it('never reads an old entry again when the app writes more than one log', function () {
+    // An earlier test's error is in laravel.log; the daily file and another channel sit beside it.
+    $this->driver->appFiles['storage/logs/laravel.log'] = IOS_ERROR;
+    $this->driver->appFiles['storage/logs/laravel-2026-10-20.log'] = "[2026-10-20 09:00:00] local.INFO: started\n";
+    $this->driver->appFiles['storage/logs/laravel-queries.log'] = "[2026-10-20 09:00:00] local.INFO: select 1\n";
+    AppLog::start($this->driver);
+
+    $this->driver->appFiles['storage/logs/laravel-queries.log'] .= "[2026-10-20 09:00:01] local.INFO: select 2\n";
+    $this->driver->appFiles['storage/logs/laravel-2026-10-20.log'] .= "[2026-10-20 09:00:01] local.INFO: tapped\n";
+    $this->driver->appFiles['storage/logs/laravel.log'] .= "[2026-10-20 09:00:02] local.INFO: still fine\n";
+
+    AppLog::check($this->driver);
+    AppLog::check($this->driver);
+
+    $this->driver->appFiles['storage/logs/laravel-2026-10-20.log'] .= ANDROID_ERROR;
+
+    expect(fn () => AppLog::check($this->driver))->toThrow(AppError::class, 'App\Exceptions\AlreadyPaid')
+        ->and(AppLog::path())->toBe('storage/logs/laravel-2026-10-20.log');
 });

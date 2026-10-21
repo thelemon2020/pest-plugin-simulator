@@ -240,7 +240,7 @@ final class AndroidDriver implements Driver
      */
     public function tailAppFile(string $pattern, ?int $offset, ?string $from = null): ?array
     {
-        if (preg_match('#^[A-Za-z0-9._/*-]+$#', $pattern) !== 1) {
+        if (preg_match('#^[A-Za-z0-9._/*?-]+$#', $pattern) !== 1) {
             throw new SimulatorException("[{$pattern}] has a character tailAppFile() cannot pass to the device's shell.");
         }
 
