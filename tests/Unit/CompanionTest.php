@@ -7,6 +7,7 @@ use NativePhp\Simulator\Companion;
 function fakeCompanionBinary(string $versionOutput): string
 {
     $path = sys_get_temp_dir().'/fake-idb-companion-'.uniqid('', true);
+    $GLOBALS['fakeCompanionBinaries'][] = $path;
 
     file_put_contents($path, "#!/bin/sh\necho '{$versionOutput}'\n");
     chmod($path, 0755);
@@ -14,10 +15,15 @@ function fakeCompanionBinary(string $versionOutput): string
     return $path;
 }
 
+// Only this test's own binaries: a glob would delete another run's mid-test.
 afterEach(function () {
-    foreach (glob(sys_get_temp_dir().'/fake-idb-companion-*') as $file) {
-        unlink($file);
+    foreach ($GLOBALS['fakeCompanionBinaries'] ?? [] as $file) {
+        if (is_file($file)) {
+            unlink($file);
+        }
     }
+
+    $GLOBALS['fakeCompanionBinaries'] = [];
 });
 
 it('reads the build date from --version', function () {

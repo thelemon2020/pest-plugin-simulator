@@ -65,7 +65,7 @@ it('saves the android php log and a logcat slice for the app', function () {
     Configuration::configure(['bundle_id' => 'com.example.app']);
     $command = new RecordingCommand;
     $command->outputs = [
-        'app_storage/persisted_data/storage/logs/laravel.log' => "SQLSTATE[HY000]\n",
+        'exec-out' => "YSQLSTATE[HY000]\n",
         'pidof' => "4321\n",
         'logcat' => "process crash\n",
     ];
@@ -82,7 +82,7 @@ it('saves the android php log and a logcat slice for the app', function () {
             ->and(file_get_contents($directory.'/laravel.log'))->toBe("SQLSTATE[HY000]\n")
             ->and(file_get_contents($directory.'/logcat.txt'))->toBe("process crash\n")
             ->and($command->calls)->toBe([
-                [$adb, ['-s', 'emulator-5554', 'shell', 'run-as', 'com.example.app', 'cat', 'app_storage/persisted_data/storage/logs/laravel.log']],
+                [$adb, ['-s', 'emulator-5554', 'exec-out', "run-as 'com.example.app' sh -c 'if [ -f '\''app_storage/persisted_data/storage/logs/laravel.log'\'' ]; then printf Y; cat '\''app_storage/persisted_data/storage/logs/laravel.log'\''; else printf N; fi'"]],
                 [$adb, ['-s', 'emulator-5554', 'shell', 'pidof', 'com.example.app']],
                 [$adb, ['-s', 'emulator-5554', 'logcat', '-d', '-t', '400', '--pid=4321']],
             ]);
@@ -166,3 +166,20 @@ function deleteFixture(string $path): void
 
     rmdir($path);
 }
+
+it('saves no empty android php log', function () {
+    Configuration::configure(['bundle_id' => 'com.example.app']);
+    $command = new RecordingCommand;
+    $command->outputs = ['exec-out' => 'Y', 'pidof' => "4321\n", 'logcat' => "process crash\n"];
+    $driver = new AndroidDriver(new Device('android', 'Pixel 8', true), Configuration::resolve(), $command);
+    (new ReflectionProperty(AndroidDriver::class, 'serial'))->setValue($driver, 'emulator-5554');
+    $directory = sys_get_temp_dir().'/simulator-empty-log-'.uniqid('', true);
+    mkdir($directory);
+
+    try {
+        expect($driver->captureLogs($directory))->toBe([$directory.'/logcat.txt'])
+            ->and(is_file($directory.'/laravel.log'))->toBeFalse();
+    } finally {
+        exec('rm -rf '.escapeshellarg($directory));
+    }
+});

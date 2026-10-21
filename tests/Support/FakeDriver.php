@@ -68,6 +68,21 @@ final class FakeDriver implements Driver
 
     public string $databaseContents = '';
 
+    /**
+     * The app's own storage: each file's bytes, by its path under Library/Application
+     * Support/ or app_storage/persisted_data/ (see Driver::pushAppFile()).
+     *
+     * @var array<string, string>
+     */
+    public array $appFiles = [];
+
+    /**
+     * Runs before each pullAppFile(), with the path, for an app that writes while it runs.
+     *
+     * @var (Closure(string): void)|null
+     */
+    public ?Closure $pulling = null;
+
     /** @var list<array{0: string, 1?: string}> */
     public array $events = [];
 
@@ -276,6 +291,41 @@ final class FakeDriver implements Driver
         $this->databaseContents = is_string($contents) ? $contents : '';
         $this->databases[] = $sqlitePath;
         $this->events[] = ['install', $sqlitePath];
+        $this->appFiles['database/database.sqlite'] = $this->databaseContents;
+        unset($this->appFiles['database/database.sqlite-wal'], $this->appFiles['database/database.sqlite-shm']);
+    }
+
+    public function pushAppFile(string $local, string $relative): void
+    {
+        $contents = file_get_contents($local);
+
+        if (! is_string($contents)) {
+            throw new SimulatorException("Could not read [{$local}].");
+        }
+
+        $this->appFiles[$relative] = $contents;
+        $this->events[] = ['pushFile', $relative];
+    }
+
+    public function pullAppFile(string $relative, string $local): bool
+    {
+        $this->events[] = ['pullFile', $relative];
+
+        if ($this->pulling !== null) {
+            ($this->pulling)($relative);
+        }
+
+        if (! array_key_exists($relative, $this->appFiles)) {
+            return false;
+        }
+
+        return file_put_contents($local, $this->appFiles[$relative]) !== false;
+    }
+
+    public function removeAppFile(string $relative): void
+    {
+        unset($this->appFiles[$relative]);
+        $this->events[] = ['removeFile', $relative];
     }
 
     public function appearance(?string $mode): void

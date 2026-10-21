@@ -43,6 +43,12 @@ final class AndroidDriver implements Driver
     /** How many things in front of the app closeSystemUi() closes before it gives up. */
     private const LEFTOVERS = 5;
 
+    /**
+     * Where a NativePHP app keeps what lasts between launches, relative to the directory
+     * run-as starts in: its database and its storage directory.
+     */
+    private const APP_STORAGE = 'app_storage/persisted_data';
+
     /** How long System UI is given to rebuild the status bar (see enterDemoMode()). */
     private static float $redrawSeconds = 2.0;
 
@@ -163,20 +169,87 @@ final class AndroidDriver implements Driver
 
     private function pushDatabase(string $sqlitePath): void
     {
-        $bundle = $this->configuration->bundleId();
+        $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'am', 'force-stop', $this->configuration->bundleId()]);
+        $this->sendAppFile($sqlitePath, 'database/database.sqlite');
+        $this->deleteAppFiles(['database/database.sqlite-wal', 'database/database.sqlite-shm']);
+    }
+
+    public function pushAppFile(string $local, string $relative): void
+    {
+        $this->recovering(fn () => $this->sendAppFile($local, $relative));
+    }
+
+    public function pullAppFile(string $relative, string $local): bool
+    {
+        $found = false;
+        $this->recovering(function () use ($relative, $local, &$found): void {
+            $found = $this->readAppFile($relative, $local);
+        });
+
+        return $found;
+    }
+
+    /**
+     * `adb exec-out` hands back the bytes `cat` wrote, unchanged, where `adb shell` can turn
+     * a newline into CRLF on an older device. The first byte says whether the file was
+     * there, so an empty file and a missing one read differently, and a read that failed
+     * throws rather than passing for a file the app has not written.
+     */
+    private function readAppFile(string $relative, string $local): bool
+    {
+        $path = escapeshellarg(self::storagePath($relative));
+        $script = 'if [ -f '.$path.' ]; then printf Y; cat '.$path.'; else printf N; fi';
+        $bytes = $this->command->run($this->adb(), ['-s', $this->serial(), 'exec-out', 'run-as '.escapeshellarg($this->configuration->bundleId()).' sh -c '.escapeshellarg($script)]);
+
+        if (str_starts_with($bytes, 'N')) {
+            return false;
+        }
+
+        if (! str_starts_with($bytes, 'Y')) {
+            throw new SimulatorException("Could not read [{$relative}] in the app's storage: ".trim(substr($bytes, 0, 200)));
+        }
+
+        if (file_put_contents($local, substr($bytes, 1)) === false) {
+            throw new SimulatorException("Could not write [{$local}].");
+        }
+
+        return true;
+    }
+
+    /**
+     * A path in the app's storage, as run-as sees it. A `..` would leave the storage it is
+     * meant to stay in, so it is refused.
+     */
+    private static function storagePath(string $relative): string
+    {
+        if (in_array('..', explode('/', $relative), true)) {
+            throw new SimulatorException("[{$relative}] leaves the app's storage.");
+        }
+
+        return self::APP_STORAGE.'/'.ltrim($relative, '/');
+    }
+
+    public function removeAppFile(string $relative): void
+    {
+        $this->recovering(fn () => $this->deleteAppFiles([$relative]));
+    }
+
+    /**
+     * Into the app's storage through /data/local/tmp, which adb can write and run-as can
+     * read. The copy lands beside its name and is moved over it, which is atomic, so an app
+     * that reads the file while it runs never reads half of it.
+     */
+    private function sendAppFile(string $local, string $relative): void
+    {
         $serial = $this->serial();
         $adb = $this->adb();
-        $remote = '/data/local/tmp/pest-simulator-'.bin2hex(random_bytes(8)).'.sqlite';
-        $directory = 'app_storage/persisted_data/database';
-        $database = $directory.'/database.sqlite';
-
-        $this->command->run($adb, ['-s', $serial, 'shell', 'am', 'force-stop', $bundle]);
+        $remote = '/data/local/tmp/pest-simulator-'.bin2hex(random_bytes(8));
 
         try {
-            $this->command->run($adb, ['-s', $serial, 'push', $sqlitePath, $remote]);
-            // One shell: chmod, copy into the app, drop the wal sidecars, and
-            // delete the temp file even when the copy fails.
-            $this->command->run($adb, ['-s', $serial, 'shell', $this->installScript($bundle, $remote, $directory, $database)]);
+            $this->command->run($adb, ['-s', $serial, 'push', $local, $remote]);
+            // One shell: chmod, copy into the app, move it into place, and delete the temp
+            // file even when the copy fails.
+            $this->command->run($adb, ['-s', $serial, 'shell', $this->installScript($this->configuration->bundleId(), $remote, $relative)]);
         } catch (SimulatorException $exception) {
             try {
                 $this->command->run($adb, ['-s', $serial, 'shell', 'rm', '-f', $remote]);
@@ -187,20 +260,34 @@ final class AndroidDriver implements Driver
         }
     }
 
-    private function installScript(string $bundle, string $remote, string $directory, string $database): string
+    private function installScript(string $bundle, string $remote, string $relative): string
     {
-        $quotedBundle = escapeshellarg($bundle);
+        $path = self::storagePath($relative);
+        $runAs = 'run-as '.escapeshellarg($bundle).' ';
         $quotedRemote = escapeshellarg($remote);
-        $quotedDirectory = escapeshellarg($directory);
-        $quotedDatabase = escapeshellarg($database);
+        $temporary = escapeshellarg($path.'.pest-'.bin2hex(random_bytes(4)));
         $install = implode(' && ', [
             'chmod 644 '.$quotedRemote,
-            'run-as '.$quotedBundle.' mkdir -p '.$quotedDirectory,
-            'run-as '.$quotedBundle.' cp '.$quotedRemote.' '.$quotedDatabase,
-            'run-as '.$quotedBundle.' rm -f '.escapeshellarg($database.'-wal').' '.escapeshellarg($database.'-shm'),
+            $runAs.'mkdir -p '.escapeshellarg(dirname($path)),
+            $runAs.'cp '.$quotedRemote.' '.$temporary,
+            $runAs.'mv -f '.$temporary.' '.escapeshellarg($path),
         ]);
 
-        return '('.$install.'); status=$?; rm -f '.$quotedRemote.'; exit $status';
+        return '('.$install.'); status=$?; [ $status -eq 0 ] || '.$runAs.'rm -f '.$temporary.'; rm -f '.$quotedRemote.'; exit $status';
+    }
+
+    /**
+     * @param  list<string>  $relatives
+     */
+    private function deleteAppFiles(array $relatives): void
+    {
+        // adb joins its arguments with spaces and the device's shell splits them again, so
+        // each path is quoted here, the way installScript() quotes its own.
+        $paths = array_map(fn (string $relative): string => escapeshellarg(self::storagePath($relative)), $relatives);
+
+        $this->command->run($this->adb(), [
+            '-s', $this->serial(), 'shell', 'run-as '.escapeshellarg($this->configuration->bundleId()).' rm -f '.implode(' ', $paths),
+        ]);
     }
 
     public function open(string $url): void
@@ -797,10 +884,18 @@ final class AndroidDriver implements Driver
     {
         $bundle = $this->configuration->bundleId();
         $saved = [];
-        $php = $this->read(['shell', 'run-as', $bundle, 'cat', 'app_storage/persisted_data/storage/logs/laravel.log']);
 
-        if ($this->keep($php, $directory.'/laravel.log')) {
+        try {
+            $pulled = $this->readAppFile('storage/logs/laravel.log', $directory.'/laravel.log');
+        } catch (SimulatorException) {
+            $pulled = false;
+        }
+
+        // An empty log says nothing, so it is not saved.
+        if ($pulled && filesize($directory.'/laravel.log') > 0) {
             $saved[] = $directory.'/laravel.log';
+        } elseif ($pulled) {
+            @unlink($directory.'/laravel.log');
         }
 
         if ($this->keep($this->logcat($bundle), $directory.'/logcat.txt')) {
