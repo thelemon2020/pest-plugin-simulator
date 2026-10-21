@@ -57,6 +57,21 @@ final class Trace
     }
 
     /**
+     * When the last step ended, as microtime, or null before the first. Steps keep their
+     * start from the test's start, so this adds it back.
+     */
+    public static function lastEnded(): ?float
+    {
+        $last = self::$steps === [] ? null : self::$steps[array_key_last(self::$steps)];
+
+        if ($last === null || self::$began === null) {
+            return null;
+        }
+
+        return self::$began + (float) $last['started'] + (float) $last['seconds'];
+    }
+
+    /**
      * @return list<array<string, mixed>>
      */
     public static function steps(): array

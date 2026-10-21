@@ -44,6 +44,9 @@ final class DeviceDatabase
 
     private static ?string $current = null;
 
+    /** The app's database files as they were when $current was pulled (see digest()). */
+    private static ?string $digest = null;
+
     /** @var list<string> */
     private static array $files = [];
 
@@ -62,6 +65,14 @@ final class DeviceDatabase
     {
         if (self::$open !== null) {
             return self::$open;
+        }
+
+        // A wait pulls again and again. When the app has written nothing since the last
+        // copy, that copy is still the database, so it is opened again without a pull.
+        $digest = self::digest($driver);
+
+        if ($digest !== null && $digest === self::$digest && self::$current !== null && is_file(self::$current)) {
+            return self::$open = self::readOnly(self::$current);
         }
 
         $failure = null;
@@ -90,6 +101,9 @@ final class DeviceDatabase
             }
 
             self::$current = $path;
+            // Taken before the copy: a write during it changes the next digest, and the
+            // next open() pulls again.
+            self::$digest = $digest;
 
             return self::$open = self::readOnly($path);
         }
@@ -130,6 +144,7 @@ final class DeviceDatabase
     {
         self::$open = null;
         self::$current = null;
+        self::$digest = null;
 
         foreach (self::$files as $file) {
             self::delete($file);
@@ -320,6 +335,17 @@ final class DeviceDatabase
         $driver->pullAppFile(self::PATH.'-wal', $path.'-wal');
 
         return $path;
+    }
+
+    /**
+     * The database's files as they stand: the database's header, which SQLite changes on
+     * every commit in rollback-journal mode, the write-ahead log's size and header, which
+     * change on every commit and checkpoint in WAL mode, and the journal's header. One
+     * look, where a pull is four.
+     */
+    private static function digest(Driver $driver): ?string
+    {
+        return $driver->appFilesDigest([self::PATH => 100, self::PATH.'-wal' => 32, self::PATH.'-journal' => 8]);
     }
 
     /**

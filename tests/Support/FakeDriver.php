@@ -80,7 +80,8 @@ final class FakeDriver implements Driver
     public array $appFiles = [];
 
     /**
-     * Runs before each pullAppFile(), with the path, for an app that writes while it runs.
+     * Runs before each pullAppFile(), with the path, and before each appFilesDigest(), with
+     * `digest`, for an app that writes while it runs.
      *
      * @var (Closure(string): void)|null
      */
@@ -192,7 +193,12 @@ final class FakeDriver implements Driver
                 : new SimulatorException('window-server frontmost returned no application object');
         }
 
-        $tree = $this->reading !== null ? ($this->reading)() : $this->trees[min($this->reads, count($this->trees) - 1)];
+        $tree = match (true) {
+            $this->reading !== null => ($this->reading)(),
+            // A driver given no screens reads an empty one.
+            $this->trees === [] => [],
+            default => $this->trees[min($this->reads, count($this->trees) - 1)],
+        };
         $this->reads++;
         $this->descriptions++;
 
@@ -319,6 +325,35 @@ final class FakeDriver implements Driver
 
         $this->appFiles[$relative] = $contents;
         $this->events[] = ['pushFile', $relative];
+    }
+
+    /** Whether appFilesDigest() can tell, as a driver whose shell has no md5sum cannot. */
+    public bool $digests = true;
+
+    public function appFilesDigest(array $files): ?string
+    {
+        $this->events[] = ['digest', implode(',', array_keys($files))];
+
+        // Every look at the database starts here, so an app that writes while it is looked
+        // at writes here too.
+        if ($this->pulling !== null) {
+            ($this->pulling)('digest');
+        }
+
+        if (! $this->digests) {
+            return null;
+        }
+
+        // The whole file, not its first bytes: a test swaps in a whole new database, whose
+        // header can match the old one's. On a device the app commits into the one file,
+        // and its header changes (see IosDriver::appFilesDigest()).
+        $parts = [];
+
+        foreach (array_keys($files) as $relative) {
+            $parts[] = array_key_exists($relative, $this->appFiles) ? md5($this->appFiles[$relative]) : '-';
+        }
+
+        return md5(implode("\n", $parts));
     }
 
     public function pullAppFile(string $relative, string $local): bool

@@ -199,21 +199,67 @@ final class AndroidDriver implements Driver
     {
         $path = escapeshellarg(self::storagePath($relative));
         $script = 'if [ -f '.$path.' ]; then printf Y; cat '.$path.'; else printf N; fi';
-        $bytes = $this->command->run($this->adb(), ['-s', $this->serial(), 'exec-out', 'run-as '.escapeshellarg($this->configuration->bundleId()).' sh -c '.escapeshellarg($script)]);
+        // The bytes go straight to disk: a database can be larger than PHP's memory.
+        $raw = $local.'.pull';
 
-        if (str_starts_with($bytes, 'N')) {
-            return false;
-        }
+        try {
+            $this->command->toFile($this->adb(), ['-s', $this->serial(), 'exec-out', 'run-as '.escapeshellarg($this->configuration->bundleId()).' sh -c '.escapeshellarg($script)], $raw);
+            $in = @fopen($raw, 'rb');
 
-        if (! str_starts_with($bytes, 'Y')) {
-            throw new SimulatorException("Could not read [{$relative}] in the app's storage: ".trim(substr($bytes, 0, 200)));
-        }
+            if ($in === false) {
+                throw new SimulatorException("Could not read [{$raw}].");
+            }
 
-        if (file_put_contents($local, substr($bytes, 1)) === false) {
-            throw new SimulatorException("Could not write [{$local}].");
+            try {
+                $marker = fread($in, 1);
+
+                if ($marker === 'N') {
+                    return false;
+                }
+
+                if ($marker !== 'Y') {
+                    throw new SimulatorException("Could not read [{$relative}] in the app's storage: ".trim((string) $marker.fread($in, 200)));
+                }
+
+                $out = @fopen($local, 'wb');
+
+                if ($out === false || stream_copy_to_stream($in, $out) === false) {
+                    throw new SimulatorException("Could not write [{$local}].");
+                }
+
+                fclose($out);
+            } finally {
+                fclose($in);
+            }
+        } finally {
+            if (is_file($raw)) {
+                @unlink($raw);
+            }
         }
 
         return true;
+    }
+
+    /**
+     * One md5sum over each file's size and first bytes, in one run-as shell. The shell's
+     * own md5sum does the work, so only the hash crosses adb. Null when it cannot run.
+     */
+    public function appFilesDigest(array $files): ?string
+    {
+        $parts = [];
+
+        foreach ($files as $relative => $bytes) {
+            $path = escapeshellarg(self::storagePath($relative));
+            $parts[] = 'if [ -f '.$path.' ]; then wc -c < '.$path.'; head -c '.max(0, $bytes).' '.$path.'; else echo -; fi';
+        }
+
+        try {
+            $output = $this->command->run($this->adb(), ['-s', $this->serial(), 'exec-out', 'run-as '.escapeshellarg($this->configuration->bundleId()).' sh -c '.escapeshellarg('{ '.implode('; ', $parts).'; } | md5sum')]);
+        } catch (SimulatorException) {
+            return null;
+        }
+
+        return preg_match('/^[0-9a-f]{32}/', $output, $match) === 1 ? $match[0] : null;
     }
 
     /**

@@ -43,6 +43,18 @@ class Command
     }
 
     /**
+     * Runs a command with its output written straight to $path rather than held in memory,
+     * for output as large as a database copied off a device. What it writes to stderr is
+     * the failure, as with run().
+     *
+     * @param  list<string>  $arguments
+     */
+    public function toFile(string $binary, array $arguments, string $path, ?float $timeout = null): void
+    {
+        $this->execute(array_merge([$binary], $arguments), null, null, $timeout ?? self::limit($arguments), $path);
+    }
+
+    /**
      * @param  list<string>  $arguments
      */
     public function input(string $binary, array $arguments, string $stdin, ?string $cwd = null, ?float $timeout = null): string
@@ -106,9 +118,9 @@ class Command
     /**
      * @param  list<string>  $command
      */
-    private function execute(array $command, ?string $stdin, ?string $cwd, float $timeout): string
+    private function execute(array $command, ?string $stdin, ?string $cwd, float $timeout, ?string $stdoutPath = null): string
     {
-        $descriptor = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
+        $descriptor = [1 => $stdoutPath === null ? ['pipe', 'w'] : ['file', $stdoutPath, 'w'], 2 => ['pipe', 'w']];
 
         if ($stdin !== null) {
             $descriptor[0] = ['pipe', 'r'];
@@ -168,7 +180,8 @@ class Command
     private function exchange($process, array $pipes, ?string $stdin, float $deadline): ?array
     {
         $output = [1 => '', 2 => ''];
-        $reading = [1 => $pipes[1], 2 => $pipes[2]];
+        // Stdout is not a pipe when it goes straight to a file (see toFile()).
+        $reading = array_intersect_key($pipes, [1 => true, 2 => true]);
         $writing = $pipes[0] ?? null;
         $pending = $stdin ?? '';
 

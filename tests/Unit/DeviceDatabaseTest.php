@@ -3,9 +3,11 @@
 declare(strict_types=1);
 
 use Illuminate\Contracts\Database\Query\Expression;
+use NativePhp\Simulator\Configuration;
 use NativePhp\Simulator\Device;
 use NativePhp\Simulator\DeviceDatabase;
 use NativePhp\Simulator\Exceptions\SimulatorException;
+use NativePhp\Simulator\IosDriver;
 use NativePhp\Simulator\Run;
 use NativePhp\Simulator\Screen;
 use NativePhp\Simulator\Sessions;
@@ -13,6 +15,7 @@ use NativePhp\Simulator\TestDatabase;
 use NativePhp\Simulator\Trace;
 use PHPUnit\Framework\AssertionFailedError;
 use Tests\Support\FakeDriver;
+use Tests\Support\RecordingCommand;
 
 beforeEach(function () {
     $this->driver = new FakeDriver([[['label' => 'Paid', 'role' => 'StaticText', 'id' => null, 'center' => [10, 10]]]]);
@@ -90,7 +93,9 @@ it('finds a row the app wrote', function () {
         ->assertDatabaseMissing('orders', ['id' => 1, 'status' => 'paid'])
         ->assertDatabaseCount('orders', 3);
 
-    expect(array_filter($this->driver->events, fn (array $event): bool => $event === ['pullFile', 'database/database.sqlite']))->toHaveCount(4);
+    // Four looks, one pull: the app wrote nothing after the first.
+    expect(array_filter($this->driver->events, fn (array $event): bool => $event === ['pullFile', 'database/database.sqlite']))->toHaveCount(1)
+        ->and(array_filter($this->driver->events, fn (array $event): bool => $event[0] === 'digest'))->toHaveCount(4);
 });
 
 it('takes the same values Laravel binds', function () {
@@ -115,14 +120,16 @@ it('waits for a row the app has not written yet', function () {
     $this->driver->appFiles['database/database.sqlite'] = orders('unpaid', 'unpaid');
     $pulls = 0;
     $this->driver->pulling = function (string $relative) use (&$pulls): void {
-        if ($relative === 'database/database.sqlite' && ++$pulls === 3) {
+        if ($relative === 'digest' && ++$pulls === 3) {
             $this->driver->appFiles['database/database.sqlite'] = orders('unpaid', 'paid');
         }
     };
 
     deviceScreen($this->driver, timeout: 5)->assertDatabaseHas('orders', ['id' => 2, 'status' => 'paid']);
 
-    expect($pulls)->toBe(3);
+    // Three looks; the database is pulled only on the first and once the app had written.
+    expect($pulls)->toBe(3)
+        ->and(array_filter($this->driver->events, fn (array $event): bool => $event === ['pullFile', 'database/database.sqlite']))->toHaveCount(2);
 });
 
 it('says what the table holds when the row is not there, and saves the pull', function () {
@@ -267,7 +274,7 @@ it('waits for a row to go, and for the count to change', function () {
     $this->driver->appFiles['database/database.sqlite'] = orders('unpaid', 'paid');
     $pulls = 0;
     $this->driver->pulling = function (string $relative) use (&$pulls): void {
-        if ($relative === 'database/database.sqlite' && ++$pulls === 2) {
+        if ($relative === 'digest' && ++$pulls === 2) {
             $this->driver->appFiles['database/database.sqlite'] = orders('unpaid', 'refunded', 'unpaid');
         }
     };
@@ -368,6 +375,46 @@ it('pulls again when a copy is torn', function () {
     expect($pulls)->toBe(2);
 });
 
+it('pulls every time when the device cannot say whether the database changed', function () {
+    $this->driver->appFiles['database/database.sqlite'] = orders('paid');
+    $this->driver->digests = false;
+
+    deviceScreen($this->driver)
+        ->assertDatabaseHas('orders', ['status' => 'paid'])
+        ->assertDatabaseCount('orders', 1);
+
+    expect(array_filter($this->driver->events, fn (array $event): bool => $event === ['pullFile', 'database/database.sqlite']))->toHaveCount(2);
+});
+
+it('sees a commit in the database header, which is what the digest reads', function () {
+    // The digest reads each file's first bytes. In rollback-journal mode SQLite bumps the
+    // change counter in the header on every commit, so a write to one row changes it.
+    $container = sys_get_temp_dir().'/simulator-digest-'.uniqid('', true);
+    $directory = $container.'/Library/Application Support/database';
+    mkdir($directory, 0777, true);
+    $pdo = new PDO('sqlite:'.$directory.'/database.sqlite', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    $pdo->exec('CREATE TABLE orders (id INTEGER PRIMARY KEY, status TEXT)');
+    $pdo->exec("INSERT INTO orders (status) VALUES ('unpaid')");
+    Configuration::configure(['bundle_id' => 'com.example.app']);
+    $driver = new IosDriver(new Device('ios', 'iPhone 17', true), Configuration::resolve(), new RecordingCommand($container));
+    (new ReflectionProperty(IosDriver::class, 'udid'))->setValue($driver, 'UDID');
+    $files = ['database/database.sqlite' => 100, 'database/database.sqlite-wal' => 32, 'database/database.sqlite-journal' => 8];
+
+    try {
+        $before = $driver->appFilesDigest($files);
+        $unchanged = $driver->appFilesDigest($files);
+        $pdo->exec("UPDATE orders SET status = 'paid'");
+
+        expect($before)->not->toBeNull()
+            ->and($unchanged)->toBe($before)
+            ->and($driver->appFilesDigest($files))->not->toBe($before);
+    } finally {
+        $pdo = null;
+        Configuration::reset();
+        exec('rm -rf '.escapeshellarg($container));
+    }
+});
+
 it('reads rows the app has only in its write-ahead log', function () {
     [$database, $log] = sqliteBytes(function (PDO $pdo): void {
         $pdo->exec('CREATE TABLE orders (id INTEGER PRIMARY KEY, status TEXT)');
@@ -424,6 +471,13 @@ it('keeps only its newest pull while it waits, and any it handed out', function 
     $directory = sys_get_temp_dir().'/pest-simulator-'.getmypid();
     openedScreen();
     $handed = deviceDatabase();
+    // The app keeps writing, so every look pulls a new copy.
+    $writes = 0;
+    $this->driver->pulling = function (string $relative) use (&$writes): void {
+        if ($relative === 'digest') {
+            $this->driver->appFiles['database/database.sqlite'] = orders(...array_fill(0, ++$writes, 'unpaid'));
+        }
+    };
 
     expect(fn () => deviceScreen($this->driver, timeout: 1.5, failures: $this->failures)->assertDatabaseHas('orders', ['status' => 'paid']))
         ->toThrow(AssertionFailedError::class);

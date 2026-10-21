@@ -77,6 +77,11 @@ final class RecordingCommand extends Command
         return '';
     }
 
+    public function toFile(string $binary, array $arguments, string $path, ?float $timeout = null): void
+    {
+        file_put_contents($path, $this->run($binary, $arguments, null, $timeout));
+    }
+
     /**
      * What open() hands back. Null, the default, is a command that could not start, so an
      * AndroidDriver reads with `uiautomator dump`.

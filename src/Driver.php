@@ -112,6 +112,15 @@ interface Driver
     public function pullAppFile(string $relative, string $local): bool;
 
     /**
+     * A digest of some files in the app's storage, each by its size and its first bytes,
+     * to tell cheaply whether any has changed since the last look. $files maps a path to
+     * how many of its first bytes count. Null when it cannot tell.
+     *
+     * @param  array<string, int>  $files
+     */
+    public function appFilesDigest(array $files): ?string;
+
+    /**
      * Deletes a file from the app's own storage (see pushAppFile()), if it is there.
      */
     public function removeAppFile(string $relative): void;
