@@ -751,16 +751,20 @@ final class ElementFinder
 
     private const TEXT_ROLES = ['TextField', 'TextView'];
 
+    /** What plain text reads as: iOS's static text, and an Android TextView. */
+    private const LABEL_ROLES = ['StaticText', 'android.widget.TextView'];
+
     /**
-     * Whether $text is only the label of a Button among $matches: not a Button itself, with
-     * the same label, and its center inside that Button's frame.
+     * Whether $text is only the label of a Button among $matches: plain text, with the same
+     * label, and its center inside that Button's frame. A control of its own, such as a
+     * switch or a link on a card that is a Button with the same label, is not.
      *
      * @param  Tappable  $text
      * @param  list<Tappable>  $matches
      */
     private function drawsLabelOf(array $text, array $matches): bool
     {
-        if ($text['role'] === 'Button') {
+        if (! in_array($text['role'], self::LABEL_ROLES, true)) {
             return false;
         }
 
