@@ -8,6 +8,8 @@ use Carbon\Carbon;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Bus\Dispatcher as BusDispatcher;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Filesystem\FilesystemAdapter;
+use Illuminate\Filesystem\FilesystemManager;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Notifications\ChannelManager;
 use Illuminate\Support\Collection;
@@ -29,8 +31,8 @@ use ReflectionProperty;
 
 /**
  * Sends the app what the test faked with Laravel's own API: Http::fake(), Mail::fake(),
- * Notification::fake(), Event::fake(), Queue::fake(), Bus::fake(), the time from
- * travelTo() or Carbon::setTestNow(), and config() values the test changed. It runs before
+ * Notification::fake(), Event::fake(), Queue::fake(), Bus::fake(), Storage::fake(), the
+ * time from travelTo() or Carbon::setTestNow(), and config() values the test changed. It runs before
  * each step, and writes the fakes file and pushes it only when what the test faked has
  * changed since the last push. Fakes set before the first screen() go while the app is
  * stopped for the database copy, so the app has them when it boots.
@@ -185,6 +187,7 @@ final class FakeSync
             'config' => self::config(),
             'http' => self::http(),
             ...array_map(self::fake(...), self::FAKES),
+            'storage' => self::storage(),
         ], fn (mixed $section): bool => $section !== null && $section !== []);
 
         return $sections === [] ? null : ['test' => self::$test] + $sections;
@@ -383,6 +386,52 @@ final class FakeSync
             BusFake::class => ['fake' => self::read($root, $class, 'jobsToFake'), 'dispatch' => self::read($root, $class, 'jobsToDispatch')],
             default => ['fake' => true],
         };
+    }
+
+    /**
+     * The disks the test faked with Storage::fake(), by name, with which of the test's fakes
+     * of each it is, and the config it was given. A disk Storage::fake() made becomes a
+     * Remote one here, so its asserts read the app's files. Laravel knows a fake disk only
+     * by where it keeps its files, and the app keeps its own.
+     *
+     * @return array<string, array{generation: int, config: array<array-key, mixed>}>|null
+     */
+    private static function storage(): ?array
+    {
+        $container = self::container();
+
+        if (! $container->resolved('filesystem') || ! method_exists($container, 'storagePath')) {
+            return null;
+        }
+
+        $manager = $container->make('filesystem');
+
+        if (! $manager instanceof FilesystemManager) {
+            return null;
+        }
+
+        $disks = (new ReflectionProperty(FilesystemManager::class, 'disks'))->getValue($manager);
+        $fakes = rtrim((string) $container->storagePath(), '/').'/'.RemoteFilesystemAdapter::DISKS.'/';
+        $faked = [];
+
+        foreach (is_array($disks) ? $disks : [] as $name => $disk) {
+            if (! $disk instanceof RemoteFilesystemAdapter) {
+                $root = $disk instanceof FilesystemAdapter ? ($disk->getConfig()['root'] ?? null) : null;
+
+                if (! is_string($root) || ! str_starts_with($root, $fakes)) {
+                    continue;
+                }
+
+                $disk = RemoteFilesystemAdapter::from($disk, (string) $name);
+                $manager->set((string) $name, $disk);
+            }
+
+            $config = array_diff_key($disk->getConfig(), ['root' => true]);
+            self::requirePlain("filesystems.disks.{$name}", $config);
+            $faked[(string) $name] = ['generation' => $disk->generation(), 'config' => $config];
+        }
+
+        return $faked === [] ? null : $faked;
     }
 
     /**

@@ -4,6 +4,7 @@
             <native:text>Order {{ $order }}</native:text>
             <native:text>{{ $isPaid ? 'Paid' : 'Unpaid' }}</native:text>
             <native:button label="Pay" @press="pay({{ $order }})" />
+            <native:button label="Ship" @press="ship({{ $order }})" />
         </native:column>
     @endforeach
 </native:column>

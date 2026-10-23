@@ -3,10 +3,13 @@
 namespace App\Models;
 
 use App\Events\OrderPaid;
+use App\Jobs\ShipOrder;
 use App\Mail\Receipt;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * An order the app keeps in its own database. A test creates them on the host, and the
@@ -28,5 +31,11 @@ class Order extends Model
 
         OrderPaid::dispatch($this);
         Mail::to('customer@example.test')->send(new Receipt($this));
+        Storage::disk('local')->put("receipts/{$this->id}.txt", "Order {$this->id}: {$this->total}");
+    }
+
+    public function ship(): void
+    {
+        Bus::batch([new ShipOrder($this)])->name("ship-{$this->id}")->dispatch();
     }
 }

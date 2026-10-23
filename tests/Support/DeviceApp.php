@@ -147,6 +147,21 @@ final class DeviceApp
 
     private function copyOut(): void
     {
+        // The disks the app faked, as files the test can pull one by one.
+        $disks = 'storage/framework/testing/disks/';
+
+        foreach (array_keys($this->driver->appFiles) as $relative) {
+            if (str_starts_with($relative, $disks)) {
+                unset($this->driver->appFiles[$relative]);
+            }
+        }
+
+        if (is_dir($this->root.'/'.$disks)) {
+            foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($this->root.'/'.$disks, \FilesystemIterator::SKIP_DOTS)) as $file) {
+                $this->driver->appFiles[substr($file->getPathname(), strlen($this->root) + 1)] = (string) file_get_contents($file->getPathname());
+            }
+        }
+
         foreach (['storage/framework/pest-simulator/recorded', 'storage/logs/laravel.log', 'database/database.sqlite'] as $relative) {
             $path = $this->root.'/'.$relative;
 

@@ -18,9 +18,7 @@ final class RemoteEventFake extends EventFake
 
     private const SECTION = 'events';
 
-    private const RECORDED = ['events'];
-
-    private const DEPTH = 2;
+    private const RECORDED = ['events' => 2];
 
     /**
      * @param  mixed  ...$arguments
