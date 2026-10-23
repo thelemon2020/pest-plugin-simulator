@@ -446,6 +446,11 @@ final class FakeDriver implements Driver
         $this->setting('statusBar', $fixed);
     }
 
+    public function orientation(?string $orientation): void
+    {
+        $this->setting('orientation', $orientation);
+    }
+
     public function background(float $seconds): void
     {
         $this->backgrounds[] = $seconds;

@@ -85,6 +85,14 @@ function location(float $latitude, float $longitude): void
 }
 
 /**
+ * `portrait` or `landscape` for this test.
+ */
+function rotate(string $orientation): void
+{
+    DeviceState::request('orientation', DeviceState::orientation($orientation));
+}
+
+/**
  * A status bar that reads 9:41 with full signal and battery for this test.
  */
 function fixStatusBar(): void

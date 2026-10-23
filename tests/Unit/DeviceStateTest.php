@@ -8,6 +8,7 @@ use NativePhp\Simulator\Configuration;
 use NativePhp\Simulator\Device;
 use NativePhp\Simulator\DeviceState;
 use NativePhp\Simulator\Exceptions\SimulatorException;
+use NativePhp\Simulator\Grpc\Protobuf;
 use NativePhp\Simulator\Hid;
 use NativePhp\Simulator\IosDriver;
 use NativePhp\Simulator\Run;
@@ -201,6 +202,22 @@ it('puts back a device of the same platform before another one is readied', func
     expect($driver->settings)->toBe([['appearance', 'dark'], ['appearance', null], ['appearance', 'dark']]);
 });
 
+it('rotates the device before the screen opens, and from the screen', function () {
+    $driver = deviceStateScreen();
+    rotate('landscape');
+
+    screen('/lights')->rotate('portrait');
+
+    expect($driver->settings)->toBe([
+        ['orientation', 'landscape'],
+        ['orientation', 'portrait'],
+    ])->and(array_column(Trace::steps(), 'action'))->toBe(['open', 'rotate']);
+});
+
+it('rejects an unknown orientation', function () {
+    rotate('sideways');
+})->throws(SimulatorException::class, 'Unknown orientation [sideways]. Choose portrait or landscape.');
+
 it('rejects an unknown appearance', function () {
     appearance('dim');
 })->throws(SimulatorException::class, 'Unknown appearance [dim]. Choose light or dark.');
@@ -301,6 +318,51 @@ it('fixes and clears the ios status bar', function () {
     ]);
 });
 
+it('rotates the ios simulator, waits for the screen to turn, and puts back what it read', function () {
+    $client = new RecordingClient;
+    $client->answers['get_orientation'] = Protobuf::varintField(1, 1);
+    $client->trees = [orientationTree(402, 874), orientationTree(874, 402), orientationTree(402, 874)];
+    $driver = deviceStateIosDriver(new RecordingCommand);
+    (new ReflectionProperty(IosDriver::class, 'client'))->setValue($driver, $client);
+
+    $driver->orientation('landscape');
+
+    expect(array_column($client->calls, 1))->toBe(['get_orientation', 'set_orientation', 'accessibility_info', 'accessibility_info'])
+        ->and($client->calls[1][2])->toBe([Protobuf::varintField(1, 2)])
+        ->and($driver->viewport())->toBe([874.0, 402.0]);
+
+    $client->calls = [];
+    $driver->orientation(null);
+
+    expect(array_column($client->calls, 1))->toBe(['set_orientation', 'accessibility_info'])
+        ->and($client->calls[0][2])->toBe([Protobuf::varintField(1, 0)]);
+});
+
+it('puts back portrait when the ios simulator cannot say how it was turned', function () {
+    $client = new RecordingClient;
+    $client->trees = [orientationTree(874, 402), orientationTree(402, 874)];
+    $driver = deviceStateIosDriver(new RecordingCommand);
+    (new ReflectionProperty(IosDriver::class, 'client'))->setValue($driver, $client);
+
+    $driver->orientation('landscape');
+    $driver->orientation(null);
+
+    expect($client->calls[3])->toBe(['unary', 'set_orientation', [Protobuf::varintField(1, 0)]]);
+});
+
+it('stops waiting for an ios app that does not turn', function () {
+    $client = new RecordingClient;
+    $client->trees = [orientationTree(402, 874)];
+    $driver = deviceStateIosDriver(new RecordingCommand);
+    (new ReflectionProperty(IosDriver::class, 'client'))->setValue($driver, $client);
+    (new ReflectionProperty(DeviceState::class, 'turnSeconds'))->setValue(null, 0.3);
+
+    $started = microtime(true);
+    $driver->orientation('landscape');
+
+    expect(microtime(true) - $started)->toBeGreaterThan(0.25)->toBeLessThan(2.0);
+})->after(fn () => (new ReflectionProperty(DeviceState::class, 'turnSeconds'))->setValue(null, 5.0));
+
 it('presses home on ios and launches the running app again', function () {
     $command = new RecordingCommand;
     $client = new RecordingClient;
@@ -393,6 +455,36 @@ it('puts back where the emulator starts when the device has no gps fix', functio
 
     expect($command->calls[1])->toBe([$adb, ['-s', 'emulator-5554', 'emu', 'geo', 'fix', '-0.1276', '51.5072']])
         ->and($command->calls[2])->toBe([$adb, ['-s', 'emulator-5554', 'emu', 'geo', 'fix', '-122.084', '37.4219983']]);
+});
+
+it('turns the android emulator with its accelerometer and puts back what it read', function () {
+    $command = new RecordingCommand;
+    $command->outputs = [
+        'accelerometer_rotation' => "0\n",
+        'acceleration' => "acceleration = 0:9.77631:0.812349\nOK\n",
+        'uiautomator' => '<hierarchy rotation="1" width="2400" height="1080"><node text="Home" class="android.widget.TextView" bounds="[0,0][200,80]" /></hierarchy>',
+    ];
+    $driver = deviceStateAndroidDriver($command);
+    $adb = AndroidSdk::binary('platform-tools/adb', 'adb');
+    $turns = fn (): array => array_values(array_filter($command->calls, fn (array $call): bool => str_contains(implode(' ', $call[1]), 'rotation') || in_array('sensor', $call[1], true)));
+
+    $driver->orientation('landscape');
+
+    expect($turns())->toBe([
+        [$adb, ['-s', 'emulator-5554', 'emu', 'sensor', 'get', 'acceleration']],
+        [$adb, ['-s', 'emulator-5554', 'shell', 'settings', 'get', 'system', 'accelerometer_rotation']],
+        [$adb, ['-s', 'emulator-5554', 'shell', "settings put system accelerometer_rotation '1' >/dev/null"]],
+        [$adb, ['-s', 'emulator-5554', 'emu', 'sensor', 'set', 'acceleration', '9.77631:0:0.812349']],
+    ])->and($driver->viewport())->toBe([2400.0, 1080.0]);
+
+    $command->calls = [];
+    $command->outputs['uiautomator'] = '<hierarchy rotation="0" width="1080" height="2400"><node text="Home" class="android.widget.TextView" bounds="[0,0][200,80]" /></hierarchy>';
+    $driver->orientation(null);
+
+    expect($turns())->toBe([
+        [$adb, ['-s', 'emulator-5554', 'shell', "settings put system accelerometer_rotation '0' >/dev/null"]],
+        [$adb, ['-s', 'emulator-5554', 'emu', 'sensor', 'set', 'acceleration', '0:9.77631:0.812349']],
+    ]);
 });
 
 it('fixes the android status bar in demo mode and leaves it as it was', function () {
@@ -553,4 +645,9 @@ function deviceStateAndroidDriver(RecordingCommand $command): AndroidDriver
     (new ReflectionProperty(AndroidDriver::class, 'serial'))->setValue($driver, 'emulator-5554');
 
     return $driver;
+}
+
+function orientationTree(int $width, int $height): string
+{
+    return (string) json_encode([['frame' => ['x' => 0, 'y' => 0, 'width' => $width, 'height' => $height], 'children' => []]]);
 }

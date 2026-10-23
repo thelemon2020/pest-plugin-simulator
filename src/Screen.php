@@ -1794,6 +1794,14 @@ final class Screen
     }
 
     /**
+     * `portrait` or `landscape` until the test ends. The next test starts from the device's own.
+     */
+    public function rotate(string $orientation): self
+    {
+        return $this->deviceSetting('rotate', $orientation, fn (): string => DeviceState::orientation($orientation), 'orientation');
+    }
+
+    /**
      * A status bar that reads 9:41 with full signal and battery, for screenshots that match.
      */
     public function fixStatusBar(): self

@@ -29,6 +29,13 @@ final class RecordingClient extends Client
      */
     public array $failing = [];
 
+    /**
+     * What other unary methods answer with, such as `get_orientation`.
+     *
+     * @var array<string, string>
+     */
+    public array $answers = [];
+
     private int $reads = 0;
 
     public function __construct()
@@ -45,7 +52,7 @@ final class RecordingClient extends Client
         }
 
         if ($method !== 'accessibility_info') {
-            return '';
+            return $this->answers[$method] ?? '';
         }
 
         if ($this->trees === []) {
