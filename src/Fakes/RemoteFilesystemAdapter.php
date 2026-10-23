@@ -132,135 +132,190 @@ final class RemoteFilesystemAdapter extends FilesystemAdapter
     }
 
     /**
-     * @param  string|array<int, string>  $path
+     * @param  mixed  ...$arguments
      */
-    public function assertExists($path, $content = null)
+    public function assertExists(...$arguments)
     {
-        $this->eventually(fn () => parent::assertExists($path, $content));
-
-        return $this;
-    }
-
-    public function assertCount($path, $count, $recursive = false)
-    {
-        $this->eventually(fn () => parent::assertCount($path, $count, $recursive));
+        $this->eventually(fn () => parent::assertExists(...$arguments));
 
         return $this;
     }
 
     /**
-     * @param  string|array<int, string>  $path
+     * @param  mixed  ...$arguments
      */
-    public function assertMissing($path)
+    public function assertCount(...$arguments)
     {
-        $this->settled(fn () => parent::assertMissing($path));
+        $this->eventually(fn () => parent::assertCount(...$arguments));
 
         return $this;
-    }
-
-    public function assertDirectoryEmpty($path)
-    {
-        $this->settled(fn () => parent::assertDirectoryEmpty($path));
-
-        return $this;
-    }
-
-    public function assertEmpty()
-    {
-        $this->settled(fn () => parent::assertEmpty());
-
-        return $this;
-    }
-
-    public function exists($path)
-    {
-        return $this->reading(fn () => parent::exists($path));
-    }
-
-    public function missing($path)
-    {
-        return $this->reading(fn () => parent::missing($path));
-    }
-
-    public function fileExists($path)
-    {
-        return $this->reading(fn () => parent::fileExists($path));
-    }
-
-    public function fileMissing($path)
-    {
-        return $this->reading(fn () => parent::fileMissing($path));
-    }
-
-    public function directoryExists($path)
-    {
-        return $this->reading(fn () => parent::directoryExists($path));
-    }
-
-    public function directoryMissing($path)
-    {
-        return $this->reading(fn () => parent::directoryMissing($path));
-    }
-
-    public function get($path)
-    {
-        return $this->reading(fn () => parent::get($path));
     }
 
     /**
+     * @param  mixed  ...$arguments
+     */
+    public function assertMissing(...$arguments)
+    {
+        $this->settled(fn () => parent::assertMissing(...$arguments));
+
+        return $this;
+    }
+
+    /**
+     * @param  mixed  ...$arguments
+     */
+    public function assertDirectoryEmpty(...$arguments)
+    {
+        $this->settled(fn () => parent::assertDirectoryEmpty(...$arguments));
+
+        return $this;
+    }
+
+    /**
+     * @param  mixed  ...$arguments
+     */
+    public function assertEmpty(...$arguments)
+    {
+        $this->settled(fn () => parent::assertEmpty(...$arguments));
+
+        return $this;
+    }
+
+    /**
+     * @param  mixed  ...$arguments
+     */
+    public function exists(...$arguments)
+    {
+        return $this->reading(fn () => parent::exists(...$arguments));
+    }
+
+    /**
+     * @param  mixed  ...$arguments
+     */
+    public function missing(...$arguments)
+    {
+        return $this->reading(fn () => parent::missing(...$arguments));
+    }
+
+    /**
+     * @param  mixed  ...$arguments
+     */
+    public function fileExists(...$arguments)
+    {
+        return $this->reading(fn () => parent::fileExists(...$arguments));
+    }
+
+    /**
+     * @param  mixed  ...$arguments
+     */
+    public function fileMissing(...$arguments)
+    {
+        return $this->reading(fn () => parent::fileMissing(...$arguments));
+    }
+
+    /**
+     * @param  mixed  ...$arguments
+     */
+    public function directoryExists(...$arguments)
+    {
+        return $this->reading(fn () => parent::directoryExists(...$arguments));
+    }
+
+    /**
+     * @param  mixed  ...$arguments
+     */
+    public function directoryMissing(...$arguments)
+    {
+        return $this->reading(fn () => parent::directoryMissing(...$arguments));
+    }
+
+    /**
+     * @param  mixed  ...$arguments
+     */
+    public function get(...$arguments)
+    {
+        return $this->reading(fn () => parent::get(...$arguments));
+    }
+
+    /**
+     * @param  mixed  ...$arguments
      * @return array<array-key, mixed>|null
      */
-    public function json($path, $flags = 0)
+    public function json(...$arguments)
     {
-        return $this->reading(fn () => parent::json($path, $flags));
-    }
-
-    public function readStream($path)
-    {
-        return $this->reading(fn () => parent::readStream($path));
-    }
-
-    public function size($path)
-    {
-        return $this->reading(fn () => parent::size($path));
+        return $this->reading(fn () => parent::json(...$arguments));
     }
 
     /**
-     * @param  array<string, mixed>  $options
+     * @param  mixed  ...$arguments
      */
-    public function checksum(string $path, array $options = [])
+    public function readStream(...$arguments)
     {
-        return $this->reading(fn () => parent::checksum($path, $options));
+        return $this->reading(fn () => parent::readStream(...$arguments));
     }
 
-    public function mimeType($path)
+    /**
+     * @param  mixed  ...$arguments
+     */
+    public function size(...$arguments)
     {
-        return $this->reading(fn () => parent::mimeType($path));
+        return $this->reading(fn () => parent::size(...$arguments));
     }
 
-    public function lastModified($path)
+    /**
+     * @param  mixed  ...$arguments
+     */
+    public function checksum(...$arguments)
     {
-        return $this->reading(fn () => parent::lastModified($path));
+        return $this->reading(fn () => parent::checksum(...$arguments));
     }
 
-    public function files($directory = null, $recursive = false)
+    /**
+     * @param  mixed  ...$arguments
+     */
+    public function mimeType(...$arguments)
     {
-        return $this->reading(fn () => parent::files($directory, $recursive));
+        return $this->reading(fn () => parent::mimeType(...$arguments));
     }
 
-    public function allFiles($directory = null)
+    /**
+     * @param  mixed  ...$arguments
+     */
+    public function lastModified(...$arguments)
     {
-        return $this->reading(fn () => parent::allFiles($directory));
+        return $this->reading(fn () => parent::lastModified(...$arguments));
     }
 
-    public function directories($directory = null, $recursive = false)
+    /**
+     * @param  mixed  ...$arguments
+     */
+    public function files(...$arguments)
     {
-        return $this->reading(fn () => parent::directories($directory, $recursive));
+        return $this->reading(fn () => parent::files(...$arguments));
     }
 
-    public function allDirectories($directory = null)
+    /**
+     * @param  mixed  ...$arguments
+     */
+    public function allFiles(...$arguments)
     {
-        return $this->reading(fn () => parent::allDirectories($directory));
+        return $this->reading(fn () => parent::allFiles(...$arguments));
+    }
+
+    /**
+     * @param  mixed  ...$arguments
+     */
+    public function directories(...$arguments)
+    {
+        return $this->reading(fn () => parent::directories(...$arguments));
+    }
+
+    /**
+     * @param  mixed  ...$arguments
+     */
+    public function allDirectories(...$arguments)
+    {
+        return $this->reading(fn () => parent::allDirectories(...$arguments));
     }
 
     /**

@@ -393,7 +393,7 @@ These reach the app:
 
 - `Http::fake()`, `Http::fakeSequence()`, `Http::response()`, `Http::preventStrayRequests()`, and `Http::allowStrayRequests()`.
 - `Mail::fake()`, `Notification::fake()`, `Event::fake()` and `Event::fakeExcept()`, `Queue::fake()` and `Queue::fakeExcept()`, and `Bus::fake()`, with the lists of what to fake or let through.
-- `Storage::fake()` and `Storage::persistentFake()`, for each disk the test fakes.
+- `Storage::fake()` and `Storage::persistentFake()`, for each disk the test fakes, with the config passed as the second argument.
 - The time from `$this->travelTo()`, `$this->freezeTime()`, or `Carbon::setTestNow()`. `$this->travelBack()` lets the app's clock go again.
 - `config()` values the test changed, and keys it removed. Values set in `beforeEach()` are part of the starting config the plugin compares against, so set them in the test. Only the keys the test changed are sent. Keys under `database` and `logging` are never sent: they describe the test process, and the app has its own database, copied in, and its own log, read back. A suite names more of its own with `Configuration::configure(['host_config' => ['filesystems.disks.local.root', 'services']])`, each with every key under it. A value has to be a string, a number, a bool, null, or an array of them: an enum or another object stops the test and names the key.
 
@@ -437,6 +437,8 @@ it('saves the avatar', function () {
 
 Assert through `Storage::disk()`. The disk `Storage::fake()` returns, kept as `$disk = Storage::fake('photos')`, has the files the last read copied, but does not read the app's itself.
 
+As in Laravel, a fake disk keeps none of the real disk's config but `throw`. On NativePHP's `mobile_public` disk, that means `url()` no longer points at the files the web view serves, so a screen that shows a file it saved there shows nothing while the disk is faked. Pass the config the screen needs as the second argument, as in `Storage::fake('mobile_public', ['url' => '...'])`, or assert on the file rather than on the screen.
+
 A mailable, event, job, or notification that uses `SerializesModels` brings its models back by id. They are loaded from the device database (see [Check the app's database](#check-the-apps-database)), so `$mail->order` is the order the app paid, not the test's copy of it. The relations it had loaded come with it. The model belongs to the test's default connection, so `$mail->order->is($order)` matches the test's own copy, and `fresh()` or a relation loaded later, inside the assert's closure, reads the test's database. The device has one database, so a model the app saved on a second connection is loaded from that one too.
 
 Each entry is read on its own, from a fresh copy of the device database. One whose model the app has since deleted stays in the record as an instance of its class with nothing set: `Mail::assertSent(Receipt::class)`, the counts, and `assertNothingSent()` still see it, and only a closure that reads its models cannot.
@@ -453,6 +455,7 @@ Some things do not cross over:
 
 - A batch's `then()`, `catch()`, and `finally()` closures stay in the app. `Bus::assertBatched()` sees the batch, its name, its jobs, and its other options, but not those callbacks.
 - Files the test writes to a fake disk stay in the test. The app starts with its fake disk empty.
+- Jobs that NativePHP's background queue worker runs do not get the fakes. The worker is a PHP runtime of its own, on its own thread, and it runs `queue:work` without opening a screen. A job the test did not fake with `Queue::fake()` or `Bus::fake()` sends real mail, makes real requests, and writes to the real disks, and its asserts do not see it. Fake the job and assert it was pushed, or test what it does in a test of its own.
 - A closure passed to a fake runs in the app. It cannot use `$this`, a class that only the tests have, or anything it captured that does not serialize. Pass what it needs with `use ()`.
 - `$this->mock()`, `$this->instance()`, and `swap()` of your own classes stay in the test.
 - The time moves only for PHP. The device's own clock, and the status bar, keep the real time.

@@ -57,6 +57,17 @@ it('asserts on the files the app wrote to a disk the test faked', function () {
         ->and(fn () => Storage::disk('photos')->assertDirectoryEmpty('avatars'))->toThrow(AssertionFailedError::class);
 });
 
+it('fakes the app\'s disk with the config the test gave Storage::fake()', function () {
+    Storage::fake('photos', ['url' => 'https://cdn.example.test/photos', 'visibility' => 'public']);
+    FakeSync::sync($this->driver);
+    $this->device->boot();
+
+    [$url, $root] = $this->device->tap(fn (): array => [Storage::disk('photos')->url('a.jpg'), Storage::disk('photos')->path('')]);
+
+    expect($url)->toBe('https://cdn.example.test/photos/a.jpg')
+        ->and($root)->toStartWith($this->device->root.'/storage/framework/testing/disks/photos');
+});
+
 it('pulls a file again only when the app changed it', function () {
     Storage::fake('photos');
     FakeSync::sync($this->driver);

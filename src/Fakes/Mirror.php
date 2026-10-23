@@ -507,7 +507,8 @@ final class Mirror
     }
 
     /**
-     * Fakes the disks the test faked, each with Storage::fake(), which empties it. A disk
+     * Fakes the disks the test faked, each with Storage::fake() and the config the test gave
+     * it, which empties the disk. A disk
      * the test faked again is faked again, and one it no longer fakes is the app's own.
      *
      * @param  array<array-key, mixed>  $disks
@@ -523,7 +524,9 @@ final class Mirror
             $generation = is_array($settings) ? (int) ($settings['generation'] ?? 0) : 0;
 
             if (($this->disks[$disk] ?? null) !== $generation) {
-                Storage::fake((string) $disk);
+                $config = is_array($settings) ? Payload::unpack($settings['config'] ?? []) : [];
+                $config = is_array($config) ? $config : [];
+                Storage::fake((string) $disk, $config);
                 $this->disks[(string) $disk] = $generation;
             }
         }

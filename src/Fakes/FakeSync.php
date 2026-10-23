@@ -390,10 +390,11 @@ final class FakeSync
 
     /**
      * The disks the test faked with Storage::fake(), by name, with which of the test's fakes
-     * of each it is. A disk Storage::fake() made becomes a Remote one here, so its asserts
-     * read the app's files. Laravel knows a fake disk only by where it keeps its files.
+     * of each it is, and the config it was given. A disk Storage::fake() made becomes a
+     * Remote one here, so its asserts read the app's files. Laravel knows a fake disk only
+     * by where it keeps its files, and the app keeps its own.
      *
-     * @return array<string, array{generation: int}>|null
+     * @return array<string, array{generation: int, config: array<array-key, mixed>}>|null
      */
     private static function storage(): ?array
     {
@@ -425,7 +426,9 @@ final class FakeSync
                 $manager->set((string) $name, $disk);
             }
 
-            $faked[(string) $name] = ['generation' => $disk->generation()];
+            $config = array_diff_key($disk->getConfig(), ['root' => true]);
+            self::requirePlain("filesystems.disks.{$name}", $config);
+            $faked[(string) $name] = ['generation' => $disk->generation(), 'config' => $config];
         }
 
         return $faked === [] ? null : $faked;
