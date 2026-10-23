@@ -19,6 +19,9 @@ final class AndroidDriver implements Driver
     /** The emulator's accelerometer when it stands upright, from `adb emu sensor get acceleration`. */
     private const UPRIGHT = '0:9.77631:0.812349';
 
+    /** The same gravity along its side, turned counter-clockwise. */
+    private const ON_ITS_SIDE = '9.77631:0:0.812349';
+
     /**
      * Google's Mountain View campus, the emulator's usual starting point, for a device that
      * has no GPS fix to put back.
@@ -1140,7 +1143,7 @@ final class AndroidDriver implements Driver
         $turn = match ($orientation === null ? null : DeviceState::orientation($orientation)) {
             null => null,
             'portrait' => '1;'.self::UPRIGHT,
-            'landscape' => '1;9.77631:0:0.812349',
+            'landscape' => '1;'.self::ON_ITS_SIDE,
         };
 
         $this->recovering(fn () => $this->setting(
@@ -1158,8 +1161,6 @@ final class AndroidDriver implements Driver
                     ? 'settings delete system accelerometer_rotation'
                     : 'settings put system accelerometer_rotation '.escapeshellarg($autoRotate)]);
                 $this->command->run($this->adb(), ['-s', $this->serial(), 'emu', 'sensor', 'set', 'acceleration', $gravity]);
-                [$x, $y] = array_map(floatval(...), explode(':', $gravity));
-                DeviceState::awaitTurn($this, abs($x) > abs($y));
             },
         ));
     }

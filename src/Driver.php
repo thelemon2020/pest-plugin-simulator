@@ -173,8 +173,7 @@ interface Driver
     public function statusBar(bool $fixed): void;
 
     /**
-     * `portrait` or `landscape`, once the app is drawn that way round. Null puts back what
-     * the device had before the first change.
+     * `portrait` or `landscape`. Null puts back what the device had before the first change.
      */
     public function orientation(?string $orientation): void;
 

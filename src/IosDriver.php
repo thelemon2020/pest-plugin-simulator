@@ -1190,7 +1190,6 @@ final class IosDriver implements Driver
             },
             function (string $turn): void {
                 $this->client()->unary('set_orientation', Protobuf::varintField(1, (int) $turn));
-                DeviceState::awaitTurn($this, in_array($turn, ['2', '3'], true));
             },
         ));
     }

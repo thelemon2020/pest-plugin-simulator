@@ -12,6 +12,7 @@ mobile(function () {
 
     it('taps the app turned to landscape', function () {
         screen('/')
+            ->assertSee('Controls')
             ->rotate('landscape')
             ->tap('Controls')
             ->toggle('Notifications', true)

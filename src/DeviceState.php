@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace NativePhp\Simulator;
 
+use NativePhp\Simulator\Exceptions\CompanionUnresponsive;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 use Throwable;
 
@@ -106,9 +107,10 @@ final class DeviceState
     /**
      * Reads the screen until it is drawn the way the device was turned. Straight after a
      * turn, a read can still show the old shape, and on iOS it can fail with "Simulator
-     * display changed during the operation".
+     * display changed during the operation". A companion that has stopped answering is not
+     * waited out.
      */
-    public static function awaitTurn(Driver $driver, bool $landscape): void
+    private static function awaitTurn(Driver $driver, bool $landscape): void
     {
         $deadline = microtime(true) + self::$turnSeconds;
 
@@ -120,6 +122,8 @@ final class DeviceState
                 if (($width > $height) === $landscape) {
                     return;
                 }
+            } catch (CompanionUnresponsive $unresponsive) {
+                throw $unresponsive;
             } catch (SimulatorException) {
             }
 
@@ -169,7 +173,7 @@ final class DeviceState
         $device = Run::device();
 
         if (isset(self::$applied[$device->key()])) {
-            self::sync(Sessions::get($device), $device->key());
+            self::sync(Sessions::get($device), $device->key(), onScreen: true);
         }
     }
 
@@ -180,7 +184,7 @@ final class DeviceState
     {
         self::$wanted[$setting] = $value;
         self::$applied[$deviceKey] = true;
-        self::sync($driver, $deviceKey);
+        self::sync($driver, $deviceKey, onScreen: true);
     }
 
     public static function apply(Driver $driver, string $deviceKey): void
@@ -226,7 +230,12 @@ final class DeviceState
         self::$applied = [];
     }
 
-    private static function sync(Driver $driver, string $deviceKey): void
+    /**
+     * A turn is waited for only on a screen that is already open. Before screen(), the
+     * screen read is the one the app left, or the home screen, which does not turn on a
+     * phone; screen() waits for the route anyway.
+     */
+    private static function sync(Driver $driver, string $deviceKey, bool $onScreen = false): void
     {
         foreach (self::backFirst(self::$held[$deviceKey] ?? []) as $setting) {
             if (! array_key_exists($setting, self::$wanted)) {
@@ -248,6 +257,10 @@ final class DeviceState
 
             self::send($driver, $setting, $value);
             self::$held[$deviceKey][$setting] = $value;
+
+            if ($setting === 'orientation' && $onScreen) {
+                self::awaitTurn($driver, $value === 'landscape');
+            }
         }
     }
 
