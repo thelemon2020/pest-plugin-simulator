@@ -1169,6 +1169,32 @@ final class IosDriver implements Driver
     }
 
     /**
+     * idb reads an orientation back counting from UNKNOWN (1 is portrait), and sets one
+     * counting from PORTRAIT (0). What is held is the number set_orientation takes.
+     */
+    public function orientation(?string $orientation): void
+    {
+        $turn = match ($orientation === null ? null : DeviceState::orientation($orientation)) {
+            null => null,
+            'portrait' => '0',
+            'landscape' => '2',
+        };
+
+        $this->recovering(fn () => $this->setting(
+            'orientation',
+            $turn,
+            function (): string {
+                $current = Protobuf::intField($this->client()->unary('get_orientation', ''), 1);
+
+                return (string) ($current >= 1 && $current <= 4 ? $current - 1 : 0);
+            },
+            function (string $turn): void {
+                $this->client()->unary('set_orientation', Protobuf::varintField(1, (int) $turn));
+            },
+        ));
+    }
+
+    /**
      * One `simctl ui` option. Read back, it can say `unknown` or `unsupported`, which
      * cannot be written back, so the platform default stands in for those.
      */

@@ -173,6 +173,11 @@ interface Driver
     public function statusBar(bool $fixed): void;
 
     /**
+     * `portrait` or `landscape`. Null puts back what the device had before the first change.
+     */
+    public function orientation(?string $orientation): void;
+
+    /**
      * Goes to the home screen, waits, and brings the app back.
      */
     public function background(float $seconds): void;

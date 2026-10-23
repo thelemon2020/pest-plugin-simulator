@@ -16,6 +16,12 @@ final class AndroidDriver implements Driver
 
     private const RECORDING = '/sdcard/pest-simulator-recording.mp4';
 
+    /** The emulator's accelerometer when it stands upright, from `adb emu sensor get acceleration`. */
+    private const UPRIGHT = '0:9.77631:0.812349';
+
+    /** The same gravity along its side, turned counter-clockwise. */
+    private const ON_ITS_SIDE = '9.77631:0:0.812349';
+
     /**
      * Google's Mountain View campus, the emulator's usual starting point, for a device that
      * has no GPS fix to put back.
@@ -1122,6 +1128,39 @@ final class AndroidDriver implements Driver
             function (string $point): void {
                 [$latitude, $longitude] = explode(',', $point);
                 $this->command->run($this->adb(), ['-s', $this->serial(), 'emu', 'geo', 'fix', $longitude, $latitude]);
+            },
+        ));
+    }
+
+    /**
+     * Turns the emulator the way a hand turns a phone: auto-rotate on, and gravity along
+     * the side that is now down. A rotation lock would not do: NativePHP gives an app that
+     * allows portrait and landscape `fullSensor`, which follows the sensor and ignores the
+     * lock. Held as `accelerometer_rotation;x:y:z`.
+     */
+    public function orientation(?string $orientation): void
+    {
+        $turn = match ($orientation === null ? null : DeviceState::orientation($orientation)) {
+            null => null,
+            'portrait' => '1;'.self::UPRIGHT,
+            'landscape' => '1;'.self::ON_ITS_SIDE,
+        };
+
+        $this->recovering(fn () => $this->setting(
+            'rotation',
+            $turn,
+            function (): string {
+                $sensor = $this->command->run($this->adb(), ['-s', $this->serial(), 'emu', 'sensor', 'get', 'acceleration']);
+                $gravity = preg_match('/acceleration = (-?[\d.]+:-?[\d.]+:-?[\d.]+)/', $sensor, $matches) === 1 ? $matches[1] : self::UPRIGHT;
+
+                return $this->settingValue('system', 'accelerometer_rotation').';'.$gravity;
+            },
+            function (string $turn): void {
+                [$autoRotate, $gravity] = explode(';', $turn);
+                $this->shellScript([$autoRotate === 'null'
+                    ? 'settings delete system accelerometer_rotation'
+                    : 'settings put system accelerometer_rotation '.escapeshellarg($autoRotate)]);
+                $this->command->run($this->adb(), ['-s', $this->serial(), 'emu', 'sensor', 'set', 'acceleration', $gravity]);
             },
         ));
     }

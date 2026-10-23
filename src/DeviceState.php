@@ -4,11 +4,12 @@ declare(strict_types=1);
 
 namespace NativePhp\Simulator;
 
+use NativePhp\Simulator\Exceptions\CompanionUnresponsive;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 use Throwable;
 
 /**
- * The appearance, text size, location, and status bar a test asks the device for. Like
+ * The appearance, text size, location, status bar, and orientation a test asks the device for. Like
  * Permissions, each test is compared with what the device holds: a setting an earlier test
  * changed and this one does not ask for is put back, and one both ask for is left alone.
  */
@@ -28,6 +29,13 @@ final class DeviceState
         'larger' => ['ios' => 'extra-extra-extra-large', 'android' => '1.3'],
         'largest' => ['ios' => 'accessibility-large', 'android' => '2.0'],
     ];
+
+    /**
+     * How long a rotated device is given to draw the app the other way round. An Android
+     * emulator took 2.5 seconds: the sensor has to settle before the screen turns. An app
+     * that only runs in portrait never does.
+     */
+    private static float $turnSeconds = 5.0;
 
     /**
      * What this run set on each device, by device key and setting.
@@ -85,6 +93,49 @@ final class DeviceState
     }
 
     /**
+     * @return 'portrait'|'landscape'
+     */
+    public static function orientation(string $orientation): string
+    {
+        if (! in_array($orientation, ['portrait', 'landscape'], true)) {
+            throw new SimulatorException("Unknown orientation [{$orientation}]. Choose portrait or landscape.");
+        }
+
+        return $orientation;
+    }
+
+    /**
+     * Reads the screen until it is drawn the way the device was turned. Straight after a
+     * turn, a read can still show the old shape, and on iOS it can fail with "Simulator
+     * display changed during the operation". A companion that has stopped answering is not
+     * waited out.
+     */
+    private static function awaitTurn(Driver $driver, bool $landscape): void
+    {
+        $deadline = microtime(true) + self::$turnSeconds;
+
+        while (true) {
+            try {
+                $driver->describe();
+                [$width, $height] = $driver->viewport();
+
+                if (($width > $height) === $landscape) {
+                    return;
+                }
+            } catch (CompanionUnresponsive $unresponsive) {
+                throw $unresponsive;
+            } catch (SimulatorException) {
+            }
+
+            if (microtime(true) >= $deadline) {
+                return;
+            }
+
+            usleep(100_000);
+        }
+    }
+
+    /**
      * @return array{0: float, 1: float}
      */
     public static function coordinates(float $latitude, float $longitude): array
@@ -122,7 +173,7 @@ final class DeviceState
         $device = Run::device();
 
         if (isset(self::$applied[$device->key()])) {
-            self::sync(Sessions::get($device), $device->key());
+            self::sync(Sessions::get($device), $device->key(), onScreen: true);
         }
     }
 
@@ -133,7 +184,7 @@ final class DeviceState
     {
         self::$wanted[$setting] = $value;
         self::$applied[$deviceKey] = true;
-        self::sync($driver, $deviceKey);
+        self::sync($driver, $deviceKey, onScreen: true);
     }
 
     public static function apply(Driver $driver, string $deviceKey): void
@@ -179,7 +230,12 @@ final class DeviceState
         self::$applied = [];
     }
 
-    private static function sync(Driver $driver, string $deviceKey): void
+    /**
+     * A turn is waited for only on a screen that is already open. Before screen(), the
+     * screen read is the one the app left, or the home screen, which does not turn on a
+     * phone; screen() waits for the route anyway.
+     */
+    private static function sync(Driver $driver, string $deviceKey, bool $onScreen = false): void
     {
         foreach (self::backFirst(self::$held[$deviceKey] ?? []) as $setting) {
             if (! array_key_exists($setting, self::$wanted)) {
@@ -201,6 +257,10 @@ final class DeviceState
 
             self::send($driver, $setting, $value);
             self::$held[$deviceKey][$setting] = $value;
+
+            if ($setting === 'orientation' && $onScreen) {
+                self::awaitTurn($driver, $value === 'landscape');
+            }
         }
     }
 
@@ -254,6 +314,7 @@ final class DeviceState
             'textSize' => $driver->textSize(is_string($value) ? $value : null),
             'location' => $driver->location(is_array($value) ? [(float) $value[0], (float) $value[1]] : null),
             'statusBar' => $driver->statusBar($value === true),
+            'orientation' => $driver->orientation(is_string($value) ? $value : null),
             default => throw new SimulatorException("Unknown device setting [{$setting}]."),
         };
     }

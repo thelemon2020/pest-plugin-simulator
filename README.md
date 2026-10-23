@@ -565,6 +565,7 @@ These calls go inside a test that is wrapped in `mobile()`.
 appearance('dark');
 textSize('large');
 location(51.5072, -0.1276);
+rotate('landscape');
 fixStatusBar();
 
 screen('/settings')->screenshot('build/settings-dark.png');
@@ -577,6 +578,7 @@ screen('/settings')
     ->appearance('dark')
     ->textSize('largest')
     ->location(48.8566, 2.3522)
+    ->rotate('landscape')
     ->fixStatusBar()
     ->screenshot('build/settings-large.png');
 ```
@@ -599,9 +601,13 @@ iOS runs `xcrun simctl ui <udid> content_size`. Android runs `adb shell settings
 
 `location(51.5072, -0.1276)` takes a latitude, then a longitude. iOS runs `xcrun simctl location <udid> set 51.5072,-0.1276`. Android runs `adb emu geo fix -0.1276 51.5072`, longitude first. iOS cannot read a location back, so putting it back clears the simulated location. On Android, putting it back moves the emulator to the device's last GPS fix, from `adb shell dumpsys location`. A device has a fix only once an app has asked for one. With none, it moves to Google's Mountain View campus, the emulator's usual starting point.
 
+`rotate()` takes `portrait` or `landscape`, and turns the device as a hand would, counter-clockwise for landscape. iOS calls `idb_companion`'s `set_orientation`. Android turns auto-rotate on with `adb shell settings put system accelerometer_rotation 1`, and points the emulator's gravity along its side with `adb emu sensor set acceleration`. A rotation lock would not turn a NativePHP app on Android: one that allows portrait and landscape follows the sensor and ignores the lock. Called on an open screen, the step waits until the app is drawn the other way round, for about 5 seconds at most. Called before `screen()`, it does not wait: the screen showing then may be the home screen, which does not turn on a phone, and `screen()` waits for the route anyway.
+
+On Android, NativePHP 4.6 can crash when it is turned while it is still starting: it tells PHP about the new orientation before it has loaded the library that carries the message (`UnsatisfiedLinkError` in `NativeElementBridge.nativeElementWriteEvent`). Wait for the screen before turning it, as `screen('/')->assertSee('Home')->rotate('landscape')` does. That took about 2.5 seconds on an Android emulator, whose sensor settles before the screen turns, and half a second on an iOS Simulator. The app only turns to orientations it allows, set under `orientation` in `config/nativephp.php`; NativePHP allows only portrait on a phone by default. Putting it back puts back the device's own orientation, and on Android, its auto-rotate setting and gravity.
+
 `fixStatusBar()` shows 9:41, full Wi-Fi, and a full battery, so screenshots match from run to run. iOS runs `xcrun simctl status_bar <udid> override`, which also shows full cellular bars. Android uses System UI's demo mode, with no cellular icon and no notification icons. On Android, an appearance or text size change redraws the status bar, and the redraw drops demo mode. So a fixed status bar is fixed again 2 seconds after that change, and each such change takes those 2 seconds longer.
 
-Appearance and text size are put back to what the device had before the run changed them, so a Simulator you keep in dark mode stays dark.
+Appearance, text size, and orientation are put back to what the device had before the run changed them, so a Simulator you keep in dark mode stays dark.
 
 ## Restart the app
 
@@ -950,7 +956,7 @@ A test limited to a platform the suite does not run is skipped. A machine withou
 
 ## Cleanup
 
-When Pest finishes, it puts back the appearance, text size, location, and status bar the tests changed. Then it shuts down the Simulator, Emulator, and `idb_companion` that this run started. A device that was already booted stays up. An `idb_companion` already listening for this simulator is reused. One listening for a different simulator is left alone, and the plugin starts its own on the next port.
+When Pest finishes, it puts back the appearance, text size, location, orientation, and status bar the tests changed. Then it shuts down the Simulator, Emulator, and `idb_companion` that this run started. A device that was already booted stays up. An `idb_companion` already listening for this simulator is reused. One listening for a different simulator is left alone, and the plugin starts its own on the next port.
 
 A run stopped with Ctrl+C or `SIGTERM`, or one that dies of a fatal error, shuts them down too. Catching the signal needs PHP's `pcntl` extension.
 

@@ -7,7 +7,9 @@ use NativePhp\Simulator\AndroidSdk;
 use NativePhp\Simulator\Configuration;
 use NativePhp\Simulator\Device;
 use NativePhp\Simulator\DeviceState;
+use NativePhp\Simulator\Exceptions\CompanionUnresponsive;
 use NativePhp\Simulator\Exceptions\SimulatorException;
+use NativePhp\Simulator\Grpc\Protobuf;
 use NativePhp\Simulator\Hid;
 use NativePhp\Simulator\IosDriver;
 use NativePhp\Simulator\Run;
@@ -201,6 +203,70 @@ it('puts back a device of the same platform before another one is readied', func
     expect($driver->settings)->toBe([['appearance', 'dark'], ['appearance', null], ['appearance', 'dark']]);
 });
 
+it('rotates the device before the screen opens, and from the screen', function () {
+    $driver = deviceStateScreen();
+    rotate('landscape');
+
+    screen('/lights')->rotate('portrait');
+
+    expect($driver->settings)->toBe([
+        ['orientation', 'landscape'],
+        ['orientation', 'portrait'],
+    ])->and(array_column(Trace::steps(), 'action'))->toBe(['open', 'rotate']);
+});
+
+it('rejects an unknown orientation', function () {
+    rotate('sideways');
+})->throws(SimulatorException::class, 'Unknown orientation [sideways]. Choose portrait or landscape.');
+
+it('waits for an open screen to be drawn turned', function () {
+    $driver = deviceStateScreen();
+    $screen = screen('/lights');
+    $before = $driver->descriptions;
+    $driver->reading = function () use ($driver): array {
+        if ($driver->descriptions >= 2) {
+            $driver->viewport = [844.0, 390.0];
+        }
+
+        return [];
+    };
+
+    $screen->rotate('landscape');
+
+    expect($driver->descriptions - $before)->toBe(3);
+});
+
+it('does not wait for a turn asked for before the screen opens', function () {
+    $driver = deviceStateScreen();
+    rotate('landscape');
+
+    $started = microtime(true);
+    screen('/lights');
+
+    expect(microtime(true) - $started)->toBeLessThan(1.0)
+        ->and($driver->settings)->toBe([['orientation', 'landscape']]);
+});
+
+it('stops waiting for an app that does not turn', function () {
+    $driver = deviceStateScreen();
+    $screen = screen('/lights');
+    (new ReflectionProperty(DeviceState::class, 'turnSeconds'))->setValue(null, 0.3);
+
+    $started = microtime(true);
+    $screen->rotate('landscape');
+
+    expect(microtime(true) - $started)->toBeGreaterThan(0.25)->toBeLessThan(2.0);
+})->after(fn () => (new ReflectionProperty(DeviceState::class, 'turnSeconds'))->setValue(null, 5.0));
+
+it('does not wait out a companion that stopped answering', function () {
+    $driver = deviceStateScreen();
+    $screen = screen('/lights');
+    $driver->describeFailures = 1;
+    $driver->describeError = fn (): SimulatorException => new CompanionUnresponsive('Companion [accessibility_info] timed out');
+
+    $screen->rotate('landscape');
+})->throws(CompanionUnresponsive::class);
+
 it('rejects an unknown appearance', function () {
     appearance('dim');
 })->throws(SimulatorException::class, 'Unknown appearance [dim]. Choose light or dark.');
@@ -301,6 +367,35 @@ it('fixes and clears the ios status bar', function () {
     ]);
 });
 
+it('turns the ios simulator and puts back what it read', function () {
+    $client = new RecordingClient;
+    $client->answers['get_orientation'] = Protobuf::varintField(1, 4);
+    $driver = deviceStateIosDriver(new RecordingCommand);
+    (new ReflectionProperty(IosDriver::class, 'client'))->setValue($driver, $client);
+
+    $driver->orientation('landscape');
+    $driver->orientation('portrait');
+    $driver->orientation(null);
+
+    expect($client->calls)->toBe([
+        ['unary', 'get_orientation', ['']],
+        ['unary', 'set_orientation', [Protobuf::varintField(1, 2)]],
+        ['unary', 'set_orientation', [Protobuf::varintField(1, 0)]],
+        ['unary', 'set_orientation', [Protobuf::varintField(1, 3)]],
+    ]);
+});
+
+it('puts back portrait when the ios simulator cannot say how it was turned', function () {
+    $client = new RecordingClient;
+    $driver = deviceStateIosDriver(new RecordingCommand);
+    (new ReflectionProperty(IosDriver::class, 'client'))->setValue($driver, $client);
+
+    $driver->orientation('landscape');
+    $driver->orientation(null);
+
+    expect($client->calls[2])->toBe(['unary', 'set_orientation', [Protobuf::varintField(1, 0)]]);
+});
+
 it('presses home on ios and launches the running app again', function () {
     $command = new RecordingCommand;
     $client = new RecordingClient;
@@ -393,6 +488,28 @@ it('puts back where the emulator starts when the device has no gps fix', functio
 
     expect($command->calls[1])->toBe([$adb, ['-s', 'emulator-5554', 'emu', 'geo', 'fix', '-0.1276', '51.5072']])
         ->and($command->calls[2])->toBe([$adb, ['-s', 'emulator-5554', 'emu', 'geo', 'fix', '-122.084', '37.4219983']]);
+});
+
+it('turns the android emulator with its accelerometer and puts back what it read', function () {
+    $command = new RecordingCommand;
+    $command->outputs = [
+        'accelerometer_rotation' => "0\n",
+        'acceleration' => "acceleration = 0:9.77631:0.812349\nOK\n",
+    ];
+    $driver = deviceStateAndroidDriver($command);
+    $adb = AndroidSdk::binary('platform-tools/adb', 'adb');
+
+    $driver->orientation('landscape');
+    $driver->orientation(null);
+
+    expect($command->calls)->toBe([
+        [$adb, ['-s', 'emulator-5554', 'emu', 'sensor', 'get', 'acceleration']],
+        [$adb, ['-s', 'emulator-5554', 'shell', 'settings', 'get', 'system', 'accelerometer_rotation']],
+        [$adb, ['-s', 'emulator-5554', 'shell', "settings put system accelerometer_rotation '1' >/dev/null"]],
+        [$adb, ['-s', 'emulator-5554', 'emu', 'sensor', 'set', 'acceleration', '9.77631:0:0.812349']],
+        [$adb, ['-s', 'emulator-5554', 'shell', "settings put system accelerometer_rotation '0' >/dev/null"]],
+        [$adb, ['-s', 'emulator-5554', 'emu', 'sensor', 'set', 'acceleration', '0:9.77631:0.812349']],
+    ]);
 });
 
 it('fixes the android status bar in demo mode and leaves it as it was', function () {

@@ -53,6 +53,23 @@ final class Protobuf
 
     public static function stringField(string $message, int $number): string
     {
+        $value = self::find($message, $number);
+
+        return is_string($value) ? $value : '';
+    }
+
+    /**
+     * A varint field, such as an enum. One left out is 0, as proto3 leaves out a default.
+     */
+    public static function intField(string $message, int $number): int
+    {
+        $value = self::find($message, $number);
+
+        return is_int($value) ? $value : 0;
+    }
+
+    private static function find(string $message, int $number): string|int|null
+    {
         $offset = 0;
         $length = strlen($message);
 
@@ -74,7 +91,11 @@ final class Protobuf
             }
 
             if ($wire === 0) {
-                self::readVarint($message, $offset);
+                $value = self::readVarint($message, $offset);
+
+                if ($field === $number) {
+                    return $value;
+                }
 
                 continue;
             }
@@ -94,7 +115,7 @@ final class Protobuf
             throw new SimulatorException('Could not read the companion response.');
         }
 
-        return '';
+        return null;
     }
 
     private static function readVarint(string $message, int &$offset): int
