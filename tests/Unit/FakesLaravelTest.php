@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Bus\PendingBatch;
 use Illuminate\Cache\Events\KeyWritten;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Bus;
@@ -154,6 +155,42 @@ it('asserts on what the app dispatched on the bus', function () {
 
     Bus::assertDispatched(ShipOrder::class, fn (ShipOrder $job): bool => $job->order->id === 1);
     Bus::assertNotDispatched(ShipOrder::class, fn (ShipOrder $job): bool => $job->order->id === 2);
+});
+
+it('asserts on the batches the app dispatched', function () {
+    Bus::fake();
+    FakeSync::sync($this->driver);
+    $this->device->boot();
+
+    Bus::assertNothingBatched();
+
+    $this->device->tap(fn () => Bus::batch([new ShipOrder(Order::query()->findOrFail(1)), new ShipOrder(Order::query()->findOrFail(2))])
+        ->name('ship')
+        ->allowFailures()
+        ->then(fn () => null)
+        ->dispatch());
+
+    Bus::assertBatched(fn (PendingBatch $batch): bool => $batch->name === 'ship' && $batch->allowsFailures() && $batch->jobs->last()->order->status === 'paid');
+    Bus::assertBatched([ShipOrder::class, ShipOrder::class]);
+    Bus::assertBatchCount(1);
+
+    expect(Bus::batched(fn (PendingBatch $batch): bool => $batch->name === 'ship'))->toHaveCount(1)
+        ->and(fn () => Bus::assertNothingBatched())->toThrow(AssertionFailedError::class)
+        ->and(fn () => Bus::assertBatched(fn (PendingBatch $batch): bool => $batch->name === 'refund'))->toThrow(AssertionFailedError::class);
+});
+
+it('keeps a batch the test dispatched itself beside the app\'s', function () {
+    Bus::fake();
+    FakeSync::sync($this->driver);
+    $this->device->boot();
+    $this->device->tap(fn () => Bus::batch([new ShipOrder(Order::query()->findOrFail(2))])->name('app')->dispatch());
+
+    Bus::assertBatchCount(1);
+    Bus::batch([new ShipOrder(new Order)])->name('test')->dispatch();
+
+    Bus::assertBatchCount(2);
+    Bus::assertBatched(fn (PendingBatch $batch): bool => $batch->name === 'test');
+    Bus::assertBatched(fn (PendingBatch $batch): bool => $batch->name === 'app');
 });
 
 it('puts the app\'s real mailer and dispatcher back when the test ends', function () {

@@ -17,9 +17,7 @@ final class RemoteMailFake extends MailFake
 
     private const SECTION = 'mail';
 
-    private const RECORDED = ['mailables', 'queuedMailables'];
-
-    private const DEPTH = 1;
+    private const RECORDED = ['mailables' => 1, 'queuedMailables' => 1];
 
     /**
      * @param  mixed  ...$arguments

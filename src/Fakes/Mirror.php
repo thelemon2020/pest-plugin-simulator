@@ -20,11 +20,14 @@ use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Testing\Fakes\BusFake;
 use Illuminate\Support\Testing\Fakes\EventFake;
 use Illuminate\Support\Testing\Fakes\MailFake;
 use Illuminate\Support\Testing\Fakes\NotificationFake;
+use Illuminate\Support\Testing\Fakes\PendingBatchFake;
 use Illuminate\Support\Testing\Fakes\QueueFake;
+use Laravel\SerializableClosure\SerializableClosure;
 use Native\Mobile\Edge\Contracts\TreeObserver;
 use Native\Mobile\Edge\TreeObservers;
 use ReflectionMethod;
@@ -40,9 +43,9 @@ use Throwable;
  * the plugin is not in it at all; the checks keep it inert in a build that has it anyway,
  * such as one for internal testing with APP_ENV=staging. Then it calls Laravel's own fakes,
  * as the test did: fake() on the Http client, Mail::fake(), Notification::fake(),
- * Event::fake(), Queue::fake(), Bus::fake(), Carbon::setTestNow(), config(). After each
- * render it writes what the fakes recorded to the record file, which the test's asserts
- * read (see Records).
+ * Event::fake(), Queue::fake(), Bus::fake(), Storage::fake(), Carbon::setTestNow(),
+ * config(). After each render it writes what the fakes recorded, and the files on each
+ * fake disk, to the record file, which the test's asserts read (see Records).
  *
  * A NativePHP screen is one request that does not end while the screen is up, so nothing
  * that runs after a request runs between two taps. The file is checked when a route is
@@ -94,7 +97,7 @@ final class Mirror
         'notifications' => [Notification::class, NotificationFake::class, ['notifications' => 4]],
         'events' => [Event::class, EventFake::class, ['events' => 2]],
         'queue' => [Queue::class, QueueFake::class, ['jobs' => 2]],
-        'bus' => [Bus::class, BusFake::class, ['commands' => 2, 'commandsSync' => 2, 'commandsAfterResponse' => 2]],
+        'bus' => [Bus::class, BusFake::class, ['commands' => 2, 'commandsSync' => 2, 'commandsAfterResponse' => 2, 'batches' => 1]],
     ];
 
     /** @var array<string, object> the app's own services the fakes stand in for */
@@ -102,6 +105,9 @@ final class Mirror
 
     /** @var array<string, int> which of the test's fakes each section's fake stands for */
     private array $generations = [];
+
+    /** @var array<string, int> the disks faked, by name, with which of the test's fakes each stands for */
+    private array $disks = [];
 
     private function __construct(private readonly Container $app) {}
 
@@ -242,6 +248,10 @@ final class Mirror
                 }
             }
 
+            foreach ($this->disks as $disk => $generation) {
+                $records['storage'][$disk] = ['generation' => $generation] + self::listing(Storage::disk($disk)->path(''));
+            }
+
             $bytes = serialize($records);
             $hash = sha1($bytes);
 
@@ -269,7 +279,7 @@ final class Mirror
     {
         $hashes = is_array($payload['hashes'] ?? null) ? $payload['hashes'] : [];
 
-        foreach (['now', 'config', 'http', ...array_keys(self::FAKES)] as $section) {
+        foreach (['now', 'config', 'http', ...array_keys(self::FAKES), 'storage'] as $section) {
             $value = $payload[$section] ?? null;
             $hash = is_string($hashes[$section] ?? null) ? $hashes[$section] : '';
 
@@ -281,6 +291,7 @@ final class Mirror
                 'now' => $this->now(is_array($value) ? $value : null),
                 'config' => $this->config(is_array($value) ? $value : []),
                 'http' => $this->http(is_array($value) ? $value : null),
+                'storage' => $this->storage(is_array($value) ? $value : []),
                 default => $this->fake($section, is_array($value) ? $value : null),
             };
 
@@ -495,6 +506,61 @@ final class Mirror
         }
     }
 
+    /**
+     * Fakes the disks the test faked, each with Storage::fake(), which empties it. A disk
+     * the test faked again is faked again, and one it no longer fakes is the app's own.
+     *
+     * @param  array<array-key, mixed>  $disks
+     */
+    private function storage(array $disks): void
+    {
+        foreach (array_diff_key($this->disks, $disks) as $disk => $generation) {
+            Storage::forgetDisk($disk);
+            unset($this->disks[$disk]);
+        }
+
+        foreach ($disks as $disk => $settings) {
+            $generation = is_array($settings) ? (int) ($settings['generation'] ?? 0) : 0;
+
+            if (($this->disks[$disk] ?? null) !== $generation) {
+                Storage::fake((string) $disk);
+                $this->disks[(string) $disk] = $generation;
+            }
+        }
+    }
+
+    /**
+     * The files on a fake disk, each with a hash of what it holds, so the test copies only
+     * the ones that changed, and its directories.
+     *
+     * @return array{files: array<string, string>, directories: list<string>}
+     */
+    private static function listing(string $root): array
+    {
+        $root = rtrim($root, '/');
+        $files = [];
+        $directories = [];
+
+        if (is_dir($root)) {
+            $entries = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS), \RecursiveIteratorIterator::SELF_FIRST);
+
+            foreach ($entries as $entry) {
+                $path = substr($entry->getPathname(), strlen($root) + 1);
+
+                if ($entry->isDir()) {
+                    $directories[] = $path;
+                } elseif ($entry->isFile()) {
+                    $files[$path] = (string) md5_file($entry->getPathname());
+                }
+            }
+        }
+
+        ksort($files);
+        sort($directories);
+
+        return ['files' => $files, 'directories' => $directories];
+    }
+
     private function put(string $section, object $service): void
     {
         $facade = self::FAKES[$section][0];
@@ -548,12 +614,30 @@ final class Mirror
             }
 
             try {
-                $kept[$key] = [Records::ENTRY => serialize($value)];
+                $kept[$key] = [Records::ENTRY => serialize($value instanceof PendingBatchFake ? self::batch($value) : $value)];
             } catch (Throwable) {
             }
         }
 
         return array_is_list($values) ? array_values($kept) : $kept;
+    }
+
+    /**
+     * A batch as the test reads it. It holds the app's bus, which does not serialize, so
+     * the copy leaves it out. Its then(), catch(), and finally() closures are signed with
+     * the app's own key, which the test cannot read, so they are left out too.
+     */
+    private static function batch(PendingBatchFake $batch): PendingBatchFake
+    {
+        $copy = clone $batch;
+        (new ReflectionProperty(PendingBatchFake::class, 'bus'))->setValue($copy, null);
+
+        $copy->options = array_map(
+            fn (mixed $option): mixed => is_array($option) ? array_values(array_filter($option, fn (mixed $callback): bool => ! $callback instanceof SerializableClosure)) : $option,
+            $copy->options,
+        );
+
+        return $copy;
     }
 
     private function bind(Factory $client): void
@@ -583,6 +667,8 @@ final class Mirror
         foreach (array_keys(self::FAKES) as $section) {
             $this->fake($section, null);
         }
+
+        $this->storage([]);
 
         $this->test = null;
         $this->applied = [];

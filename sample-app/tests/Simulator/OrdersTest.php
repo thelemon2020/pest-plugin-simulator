@@ -3,8 +3,11 @@
 use App\Events\OrderPaid;
 use App\Mail\Receipt;
 use App\Models\Order;
+use Illuminate\Bus\PendingBatch;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 
 beforeEach(function () {
     Order::query()->delete();
@@ -40,5 +43,25 @@ mobile(function () {
             && $mail->hasTo('customer@example.test'));
         Mail::assertSentCount(1);
         Event::assertDispatched(OrderPaid::class, fn (OrderPaid $event): bool => $event->order->id === 2);
+    });
+
+    it('saves the receipt to the disk the test faked', function () {
+        Storage::fake('local');
+
+        screen('/orders')
+            ->nth(2)->tap('Pay')
+            ->assertSee('Paid');
+
+        Storage::disk('local')->assertExists('receipts/2.txt', 'Order 2: 4200');
+        Storage::disk('local')->assertMissing('receipts/1.txt');
+    });
+
+    it('ships an order in a batch', function () {
+        Bus::fake();
+
+        screen('/orders')->nth(3)->tap('Ship');
+
+        Bus::assertBatched(fn (PendingBatch $batch): bool => $batch->name === 'ship-3' && $batch->jobs->first()->order->id === 3);
+        Bus::assertBatchCount(1);
     });
 });

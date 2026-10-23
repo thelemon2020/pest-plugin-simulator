@@ -17,9 +17,7 @@ final class RemoteQueueFake extends QueueFake
 
     private const SECTION = 'queue';
 
-    private const RECORDED = ['jobs'];
-
-    private const DEPTH = 2;
+    private const RECORDED = ['jobs' => 2];
 
     /**
      * @param  mixed  ...$arguments

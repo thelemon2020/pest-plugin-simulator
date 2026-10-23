@@ -4,12 +4,13 @@ declare(strict_types=1);
 
 namespace NativePhp\Simulator\Fakes;
 
+use Illuminate\Bus\PendingBatch;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Testing\Fakes\BusFake;
 
 /**
- * Laravel's BusFake, whose asserts check the jobs the app dispatched too (see
- * PullsFromTheApp). Batches stay in the app.
+ * Laravel's BusFake, whose asserts check the jobs and batches the app dispatched too (see
+ * PullsFromTheApp).
  */
 final class RemoteBusFake extends BusFake
 {
@@ -17,9 +18,7 @@ final class RemoteBusFake extends BusFake
 
     private const SECTION = 'bus';
 
-    private const RECORDED = ['commands', 'commandsSync', 'commandsAfterResponse'];
-
-    private const DEPTH = 2;
+    private const RECORDED = ['commands' => 2, 'commandsSync' => 2, 'commandsAfterResponse' => 2, 'batches' => 1];
 
     /**
      * @param  mixed  ...$arguments
@@ -188,6 +187,37 @@ final class RemoteBusFake extends BusFake
         $this->pullOutsideAnAssert();
 
         return parent::hasDispatchedAfterResponse(...$arguments);
+    }
+
+    /**
+     * @param  callable|array<mixed>  $callback
+     */
+    public function assertBatched(callable|array $callback)
+    {
+        $this->eventually(fn () => parent::assertBatched($callback));
+    }
+
+    /**
+     * @param  int  $count
+     */
+    public function assertBatchCount($count)
+    {
+        $this->eventually(fn () => parent::assertBatchCount($count));
+    }
+
+    public function assertNothingBatched()
+    {
+        $this->settled(fn () => parent::assertNothingBatched());
+    }
+
+    /**
+     * @return Collection<int, PendingBatch>
+     */
+    public function batched(callable $callback)
+    {
+        $this->pullOutsideAnAssert();
+
+        return parent::batched($callback);
     }
 
     public function assertNothingPlaced()

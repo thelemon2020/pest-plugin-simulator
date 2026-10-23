@@ -17,9 +17,7 @@ final class RemoteNotificationFake extends NotificationFake
 
     private const SECTION = 'notifications';
 
-    private const RECORDED = ['notifications'];
-
-    private const DEPTH = 4;
+    private const RECORDED = ['notifications' => 4];
 
     /**
      * @param  mixed  ...$arguments

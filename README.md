@@ -393,6 +393,7 @@ These reach the app:
 
 - `Http::fake()`, `Http::fakeSequence()`, `Http::response()`, `Http::preventStrayRequests()`, and `Http::allowStrayRequests()`.
 - `Mail::fake()`, `Notification::fake()`, `Event::fake()` and `Event::fakeExcept()`, `Queue::fake()` and `Queue::fakeExcept()`, and `Bus::fake()`, with the lists of what to fake or let through.
+- `Storage::fake()` and `Storage::persistentFake()`, for each disk the test fakes.
 - The time from `$this->travelTo()`, `$this->freezeTime()`, or `Carbon::setTestNow()`. `$this->travelBack()` lets the app's clock go again.
 - `config()` values the test changed, and keys it removed. Values set in `beforeEach()` are part of the starting config the plugin compares against, so set them in the test. Only the keys the test changed are sent. Keys under `database` and `logging` are never sent: they describe the test process, and the app has its own database, copied in, and its own log, read back. A suite names more of its own with `Configuration::configure(['host_config' => ['filesystems.disks.local.root', 'services']])`, each with every key under it. A value has to be a string, a number, a bool, null, or an array of them: an enum or another object stops the test and names the key.
 
@@ -420,6 +421,22 @@ it('mails a receipt', function () {
 });
 ```
 
+`Bus::assertBatched()`, `Bus::assertBatchCount()`, `Bus::assertNothingBatched()`, and `Bus::batched()` see the batches the app dispatched with `Bus::batch()`, beside the test's own.
+
+A disk the test fakes with `Storage::fake('photos')` is faked in the app too, so the app writes to an empty disk of its own, in `storage/framework/testing/disks/photos`. After each render, the app lists that disk's files, with a hash of each, in its record. Before an assert or a read through `Storage::disk('photos')`, the plugin copies into the test's fake disk the files the app wrote or changed since the last look, and takes away the ones it deleted. A file is copied again only when it changed. `assertExists()` and `assertCount()` wait for the app, as `assertSent()` does. `assertMissing()`, `assertDirectoryEmpty()`, and `assertEmpty()` check once, after the app is idle. `get()`, `exists()`, `files()`, `allFiles()`, `directories()`, `size()`, and the disk's other readers read the app's files first. Files the test wrote to the disk itself stay beside them.
+
+```php
+it('saves the avatar', function () {
+    Storage::fake('photos');
+
+    screen('/profile')->tap('Choose photo')->tap('Save');
+
+    Storage::disk('photos')->assertExists('avatars/1.jpg');
+});
+```
+
+Assert through `Storage::disk()`. The disk `Storage::fake()` returns, kept as `$disk = Storage::fake('photos')`, has the files the last read copied, but does not read the app's itself.
+
 A mailable, event, job, or notification that uses `SerializesModels` brings its models back by id. They are loaded from the device database (see [Check the app's database](#check-the-apps-database)), so `$mail->order` is the order the app paid, not the test's copy of it. The relations it had loaded come with it. The model belongs to the test's default connection, so `$mail->order->is($order)` matches the test's own copy, and `fresh()` or a relation loaded later, inside the assert's closure, reads the test's database. The device has one database, so a model the app saved on a second connection is loaded from that one too.
 
 Each entry is read on its own, from a fresh copy of the device database. One whose model the app has since deleted stays in the record as an instance of its class with nothing set: `Mail::assertSent(Receipt::class)`, the counts, and `assertNothingSent()` still see it, and only a closure that reads its models cannot.
@@ -434,8 +451,8 @@ When the test ends, the plugin deletes both files, and the app puts its real Htt
 
 Some things do not cross over:
 
-- `Storage::fake()` is not passed to the app yet.
-- Batches from `Bus::batch()` stay in the app, so `Bus::assertBatched()` does not see them.
+- A batch's `then()`, `catch()`, and `finally()` closures stay in the app. `Bus::assertBatched()` sees the batch, its name, its jobs, and its other options, but not those callbacks.
+- Files the test writes to a fake disk stay in the test. The app starts with its fake disk empty.
 - A closure passed to a fake runs in the app. It cannot use `$this`, a class that only the tests have, or anything it captured that does not serialize. Pass what it needs with `use ()`.
 - `$this->mock()`, `$this->instance()`, and `swap()` of your own classes stay in the test.
 - The time moves only for PHP. The device's own clock, and the status bar, keep the real time.

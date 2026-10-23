@@ -25,6 +25,11 @@ class Orders extends Screen
         $this->load();
     }
 
+    public function ship(int $order): void
+    {
+        Order::findOrFail($order)->ship();
+    }
+
     private function load(): void
     {
         $this->paid = Order::query()->orderBy('id')->get()

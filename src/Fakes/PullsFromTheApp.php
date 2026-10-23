@@ -13,8 +13,8 @@ use ReflectionProperty;
  * What a Remote fake adds to the Laravel fake it extends: the app's record goes into the
  * arrays Laravel's own asserts read, before each assert.
  *
- * A class that uses it names its record section in SECTION, the arrays in RECORDED, and in
- * DEPTH how deep in them the lists of entries are, as Mirror writes them. Its
+ * A class that uses it names its record section in SECTION, and in RECORDED the arrays, each
+ * with how deep in it the lists of entries are, as Mirror writes them. Its
  * positive asserts call eventually(), which reads the record again until the assert passes
  * or the timeout runs out. Its negative asserts call settled(), which reads it once, after
  * the app has taken every event it was sent.
@@ -60,7 +60,7 @@ trait PullsFromTheApp
             $from->{$name} = &$to->{$name};
         };
 
-        foreach (self::RECORDED as $name) {
+        foreach (array_keys(self::RECORDED) as $name) {
             if (property_exists(parent::class, $name)) {
                 Closure::bind($share, null, parent::class)($fake, $remote, $name);
             }
@@ -90,16 +90,16 @@ trait PullsFromTheApp
             $section = [];
         }
 
-        foreach (self::RECORDED as $name) {
+        foreach (self::RECORDED as $name => $depth) {
             if (! property_exists(parent::class, $name)) {
                 continue;
             }
 
             $value = self::recorded($name)->getValue($this);
-            $local = self::without(is_array($value) ? $value : [], $this->pulled[$name] ?? [], self::DEPTH);
+            $local = self::without(is_array($value) ? $value : [], $this->pulled[$name] ?? [], $depth);
             $remote = is_array($section[$name] ?? null) ? Models::reading(fn (): array => Records::entries($section[$name])) : [];
             $this->pulled[$name] = $remote;
-            self::recorded($name)->setValue($this, self::merge($local, $remote, self::DEPTH));
+            self::recorded($name)->setValue($this, self::merge($local, $remote, $depth));
         }
     }
 
