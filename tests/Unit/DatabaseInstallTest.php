@@ -141,7 +141,7 @@ it('pushes a sqlite file onto the android emulator', function () {
         expect($first)->not->toBe($second)
             ->and($first)->toStartWith('/data/local/tmp/pest-simulator-')
             ->and($command->calls)->toHaveCount(3)
-            ->and($command->calls[0])->toBe([$adb, ['-s', 'emulator-5554', 'shell', 'am', 'force-stop', 'com.example.app']])
+            ->and($command->calls[0])->toBe([$adb, ['-s', 'emulator-5554', 'shell', 'am', 'force-stop', 'com.example.app', '&&', 'run-as', 'com.example.app', 'sh', '-c', "'[ -d app_storage/laravel/storage/framework ] || [ ! -d app_storage/laravel ] || rm -rf app_storage/laravel'"]])
             ->and($command->calls[1])->toBe([$adb, ['-s', 'emulator-5554', 'push', $source, $second]])
             ->and($shell)->toContain('chmod 644')
             ->and($shell)->toContain($second)

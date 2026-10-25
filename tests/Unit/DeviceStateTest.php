@@ -597,7 +597,7 @@ it('force-stops the android app before starting it again', function () {
 
     $driver->relaunch();
 
-    expect($command->calls[0])->toBe([$adb, ['-s', 'emulator-5554', 'shell', 'am', 'force-stop', 'com.example.app']])
+    expect($command->calls[0])->toBe([$adb, ['-s', 'emulator-5554', 'shell', 'am', 'force-stop', 'com.example.app', '&&', 'run-as', 'com.example.app', 'sh', '-c', "'[ -d app_storage/laravel/storage/framework ] || [ ! -d app_storage/laravel ] || rm -rf app_storage/laravel'"]])
         ->and($command->calls[1][1][3])->toStartWith('am start');
 });
 
@@ -671,3 +671,20 @@ function deviceStateAndroidDriver(RecordingCommand $command): AndroidDriver
 
     return $driver;
 }
+
+it('drops an unpack the android app did not finish when it stops the app', function () {
+    // NativePHP unpacks its Laravel bundle on the first launch after an install and writes
+    // the bundle's .version near the start. An app stopped part-way would take the cut-off
+    // tree as current on every later launch. storage/framework is made only once the
+    // unpack ends, so a tree without it is removed and the next launch unpacks again.
+    $command = new RecordingCommand;
+    $driver = deviceStateAndroidDriver($command);
+
+    $driver->relaunch();
+
+    $script = $command->calls[0][1][11] ?? '';
+
+    expect(array_slice($command->calls[0][1], 3, 8))->toBe(['am', 'force-stop', 'com.example.app', '&&', 'run-as', 'com.example.app', 'sh', '-c'])
+        ->and($script)->toContain('[ -d app_storage/laravel/storage/framework ]')
+        ->and($script)->toContain('rm -rf app_storage/laravel');
+});
