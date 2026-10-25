@@ -1278,6 +1278,22 @@ final class Screen
     }
 
     /**
+     * Every button, field, and switch on the screen has a label a screen reader can say. It
+     * waits until the timeout, as assertSee() does, for a label the app fills in late.
+     */
+    public function assertAccessible(): self
+    {
+        return $this->step('assertAccessible', null, function (): void {
+            $elements = $this->until(
+                fn (array $elements): bool => $elements !== [] && $this->finder->unlabeled($elements) === [],
+                fn (array $elements): string => $this->unlabeledControls($this->finder->unlabeled($elements)),
+            );
+
+            Assert::assertSame([], $this->finder->unlabeled($elements));
+        });
+    }
+
+    /**
      * One read checks every label. A later call reads the device again.
      */
     public function assertSee(string $text, string ...$others): self
@@ -2081,6 +2097,34 @@ final class Screen
         }
 
         $this->fail($message, $last, $unread);
+    }
+
+    /**
+     * @param  list<Element>  $controls
+     */
+    private function unlabeledControls(array $controls): string
+    {
+        if ($controls === []) {
+            return 'Found no controls on the screen to check.';
+        }
+
+        $lines = array_map(function (array $control): string {
+            $line = $control['role'] ?? 'Element';
+
+            if ($control['id'] !== null && $control['id'] !== '') {
+                $line .= " [{$control['id']}]";
+            }
+
+            if ($control['center'] !== null) {
+                $line .= ' at ('.round($control['center'][0]).', '.round($control['center'][1]).')';
+            }
+
+            return "- {$line}";
+        }, $controls);
+
+        $count = count($controls) === 1 ? '1 control has' : count($controls).' controls have';
+
+        return "{$count} no accessibility label, so a screen reader cannot name them:\n".implode("\n", $lines);
     }
 
     /**

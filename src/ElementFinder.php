@@ -571,6 +571,56 @@ final class ElementFinder
     }
 
     /**
+     * The buttons, fields, and switches a screen reader has no name for. An id does not count:
+     * VoiceOver and TalkBack do not read it. An unlabeled image is often decoration, so it is
+     * left out, and so are the system's photo picker and share sheet, which the app does not draw.
+     *
+     * Android reports a control and its text as separate nodes, like a checkbox and the text
+     * inside it, or a button and the a11y-label on a node with its frame. TalkBack reads that
+     * text as the control's name, so a label inside the control's frame names it.
+     *
+     * @param  list<Element>  $elements
+     * @return list<Element>
+     */
+    public function unlabeled(array $elements): array
+    {
+        return array_values(array_filter(
+            $elements,
+            fn (array $element): bool => $element['label'] === ''
+                && in_array($element['role'], ['Button', 'TextField', 'Switch'], true)
+                && ! in_array($element['chrome'] ?? null, ['photos', 'share'], true)
+                && ! $this->labeledInside($elements, $element['frame'] ?? null),
+        ));
+    }
+
+    /**
+     * @param  list<Element>  $elements
+     * @param  array{0: float, 1: float, 2: float, 3: float}|null  $frame
+     */
+    private function labeledInside(array $elements, ?array $frame): bool
+    {
+        if ($frame === null) {
+            return false;
+        }
+
+        [$x, $y, $width, $height] = $frame;
+
+        foreach ($elements as $element) {
+            $inner = $element['frame'] ?? null;
+
+            if ($element['label'] === '' || $inner === null) {
+                continue;
+            }
+
+            if ($inner[0] >= $x && $inner[1] >= $y && $x + $width >= $inner[0] + $inner[2] && $y + $height >= $inner[1] + $inner[3]) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * @param  list<Element>  $elements
      */
     public function hasWebView(array $elements): bool
