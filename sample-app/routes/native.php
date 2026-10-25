@@ -6,7 +6,6 @@ use App\NativeComponents\Checkout;
 use App\NativeComponents\Controls;
 use App\NativeComponents\Form;
 use App\NativeComponents\Home;
-use App\NativeComponents\Unlabeled;
 use App\NativeComponents\Items;
 use App\NativeComponents\Layouts\StackLayout;
 use App\NativeComponents\Orders;
@@ -14,6 +13,7 @@ use App\NativeComponents\Photos;
 use App\NativeComponents\Sheet;
 use App\NativeComponents\Slow;
 use App\NativeComponents\Tabs;
+use App\NativeComponents\Unlabeled;
 use Illuminate\Support\Facades\Route;
 
 Route::native('/', Home::class)->layout(StackLayout::class);

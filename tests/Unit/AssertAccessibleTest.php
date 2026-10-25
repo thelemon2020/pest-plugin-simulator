@@ -94,3 +94,40 @@ it('names an Android icon button by the a11y-label laid over it', function () {
 
     expect(array_column((new ElementFinder)->unlabeled($elements), 'role'))->toBe(['TextField']);
 });
+
+it('checks an Android select, which reads as a Spinner', function () {
+    $elements = [
+        ['label' => '', 'role' => 'android.widget.Spinner', 'id' => null, 'center' => [400, 1125], 'frame' => [42.0, 1052.0, 735.0, 147.0]],
+    ];
+
+    expect(array_column((new ElementFinder)->unlabeled($elements), 'role'))->toBe(['android.widget.Spinner']);
+});
+
+it('does not take another control inside a control as its name', function () {
+    // TalkBack does not fold a control that takes focus of its own into its parent's name.
+    $elements = [
+        ['label' => '', 'role' => 'Button', 'id' => null, 'center' => [540, 400], 'frame' => [0.0, 350.0, 1080.0, 100.0]],
+        ['label' => 'Dark mode', 'role' => 'Switch', 'id' => null, 'center' => [960, 400], 'frame' => [900.0, 360.0, 120.0, 80.0]],
+    ];
+
+    expect(array_column((new ElementFinder)->unlabeled($elements), 'role'))->toBe(['Button']);
+});
+
+it('takes a label that overhangs the control by under a point as its name', function () {
+    $elements = [
+        ['label' => '', 'role' => 'Switch', 'id' => null, 'center' => [183, 628], 'frame' => [42.0, 597.0, 282.0, 63.0]],
+        ['label' => 'Subscribe', 'role' => 'StaticText', 'id' => null, 'center' => [225, 628], 'frame' => [126.0, 596.67, 198.5, 63.0]],
+    ];
+
+    expect((new ElementFinder)->unlabeled($elements))->toBe([]);
+});
+
+it('leaves a control named by a label inside it out of the listing\'s unlabeled controls', function () {
+    $description = (new ElementFinder)->describe([
+        ['label' => 'Add', 'role' => 'android.view.View', 'id' => null, 'center' => [118, 492], 'frame' => [42.0, 445.0, 152.0, 95.0]],
+        ['label' => '', 'role' => 'Button', 'id' => null, 'center' => [118, 492], 'frame' => [42.0, 445.0, 152.0, 95.0]],
+        ['label' => '', 'role' => 'TextField', 'id' => null, 'center' => [540, 670], 'frame' => [42.0, 597.0, 996.0, 147.0]],
+    ]);
+
+    expect($description)->toContain('These controls have no accessibility label: TextField.');
+});

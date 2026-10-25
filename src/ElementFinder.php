@@ -571,7 +571,7 @@ final class ElementFinder
     }
 
     /**
-     * The buttons, fields, and switches a screen reader has no name for. An id does not count:
+     * The buttons, fields, switches, and Android selects a screen reader has no name for. An id does not count:
      * VoiceOver and TalkBack do not read it. An unlabeled image is often decoration, so it is
      * left out, and so are the system's photo picker and share sheet, which the app does not draw.
      *
@@ -587,7 +587,7 @@ final class ElementFinder
         return array_values(array_filter(
             $elements,
             fn (array $element): bool => $element['label'] === ''
-                && in_array($element['role'], ['Button', 'TextField', 'Switch'], true)
+                && $this->isControl($element['role'])
                 && ! in_array($element['chrome'] ?? null, ['photos', 'share'], true)
                 && ! $this->labeledInside($elements, $element['frame'] ?? null),
         ));
@@ -603,21 +603,28 @@ final class ElementFinder
             return false;
         }
 
-        [$x, $y, $width, $height] = $frame;
-
         foreach ($elements as $element) {
             $inner = $element['frame'] ?? null;
 
-            if ($element['label'] === '' || $inner === null) {
+            // A control inside takes focus on its own, so its label is not this one's name.
+            if ($element['label'] === '' || $inner === null || $this->isControl($element['role'])) {
                 continue;
             }
 
-            if ($inner[0] >= $x && $inner[1] >= $y && $x + $width >= $inner[0] + $inner[2] && $y + $height >= $inner[1] + $inner[3]) {
+            if (AccessibilityTree::frameInside($inner, $frame)) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    /**
+     * Android keeps a select's own class, android.widget.Spinner, as its role.
+     */
+    private function isControl(?string $role): bool
+    {
+        return in_array($role, ['Button', 'TextField', 'Switch'], true) || str_contains($role ?? '', 'Spinner');
     }
 
     /**
@@ -709,7 +716,11 @@ final class ElementFinder
 
             if ($element['label'] === '') {
                 $line = $id !== null ? "{$role}: [{$id}]" : "{$role}: (no label)";
-                $unlabeled[] = $id !== null ? "{$role} [{$id}]" : $role;
+
+                // A label inside the control names it, as unlabeled() reads it.
+                if (! $this->labeledInside($elements, $element['frame'] ?? null)) {
+                    $unlabeled[] = $id !== null ? "{$role} [{$id}]" : $role;
+                }
             } else {
                 $line = "{$role}: {$element['label']}";
             }

@@ -1278,7 +1278,7 @@ final class Screen
     }
 
     /**
-     * Every button, field, and switch on the screen has a label a screen reader can say. It
+     * Every button, field, switch, and select on the screen has a label a screen reader can say. It
      * waits until the timeout, as assertSee() does, for a label the app fills in late.
      */
     public function assertAccessible(): self
