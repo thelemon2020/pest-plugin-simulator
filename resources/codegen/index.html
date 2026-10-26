@@ -87,7 +87,7 @@
       <button id="copy">Copy</button>
     </div>
     <h2>Database</h2>
-    <p class="hint">Rows the last step added or changed on the device. Click one to check it in the test.</p>
+    <p class="hint">Rows the last action added or changed on the device. Checks change nothing, so the list stays until the next action.</p>
     <div class="changes" id="changes"></div>
   </div>
 </main>
@@ -141,7 +141,7 @@
       return;
     }
     if (!database.changes.length) {
-      list.append(Object.assign(document.createElement('p'), { className: 'hint', textContent: 'No rows changed since the last step.' }));
+      list.append(Object.assign(document.createElement('p'), { className: 'hint', textContent: 'No rows changed since the last action.' }));
       return;
     }
     for (const change of database.changes) {

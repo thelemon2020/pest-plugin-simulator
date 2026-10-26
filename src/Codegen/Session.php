@@ -207,8 +207,9 @@ final class Session
      */
     private function run(Step $step): array
     {
-        // A database check leaves the list as it is, so several rows can be checked in turn.
-        if (! str_starts_with($step->verb, 'assertDatabase')) {
+        // A check changes nothing, so the list stays on what the last action wrote, and
+        // its rows can be checked after an assertSee() or one after another.
+        if (! str_starts_with($step->verb, 'assert')) {
             try {
                 $this->before = $this->snapshot();
             } catch (Throwable) {
