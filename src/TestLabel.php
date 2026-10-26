@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace NativePhp\Simulator;
 
+use Pest\Exceptions\InvalidPestCommand;
 use Pest\TestSuite;
 use PHPUnit\Framework\TestCase;
 
@@ -15,7 +16,13 @@ final class TestLabel
 {
     public static function current(string $fallback): string
     {
-        $current = TestSuite::getInstance()->test;
+        // Outside a Pest run, as in codegen, there is no suite to ask, and asking throws.
+        try {
+            $current = TestSuite::getInstance()->test;
+        } catch (InvalidPestCommand) {
+            $current = null;
+        }
+
         $name = $current instanceof TestCase ? $current->name() : $fallback;
         $name = preg_replace('/^__pest_evaluable_/', '', $name) ?? $name;
         $name = preg_replace('/^it_/', '', $name) ?? $name;
