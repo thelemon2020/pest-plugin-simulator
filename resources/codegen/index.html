@@ -132,9 +132,19 @@
     return data;
   }
 
+  // Reads that failed in a row. While the app relaunches or starts, the device does not
+  // answer for a few seconds, and the next read usually does, so a short gap says nothing.
+  let failedReads = 0;
+  let waiting = false;
+
   async function refresh() {
     try {
       state = await call('GET', '/state');
+      failedReads = 0;
+      if (waiting) {
+        waiting = false;
+        say('Ready. Click the screen to record a step.');
+      }
       code.textContent = state.code;
       changes(state.database);
       tables(state.seed);
@@ -147,7 +157,13 @@
         img.src = next.src;
       });
     } catch (error) {
-      say(error.message, true);
+      failedReads++;
+      if (failedReads >= 8) {
+        say(error.message, true);
+      } else if (failedReads >= 3) {
+        say('Waiting for the device to answer…');
+      }
+      waiting = failedReads >= 3;
     }
   }
 
