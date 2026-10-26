@@ -82,6 +82,8 @@ final class Server
                     ($input['assert'] ?? 'has') === 'count',
                     self::columns($input['columns'] ?? null),
                 ) + ['code' => $this->session->script->chain()]),
+                'POST /open' => self::json($this->session->open((string) ($input['path'] ?? '')) + ['code' => $this->session->script->chain()]),
+                'POST /seed' => self::json(['code' => $this->session->seed(self::columns($input['tables'] ?? null) ?? [])]),
                 'POST /undo' => self::json(['code' => $this->undo()]),
                 default => [404, 'text/plain', 'Not found'],
             };
@@ -127,7 +129,7 @@ final class Server
     }
 
     /**
-     * The columns a request picked: a list of names, or null to take the suggested ones.
+     * The names a request picked, columns or tables: a list of names, or null for none given.
      *
      * @return list<string>|null
      */

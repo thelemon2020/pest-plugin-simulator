@@ -189,15 +189,18 @@ php artisan nativephp:simulator codegen /controls --android --device="Pixel"
 
 - **Tap mode** runs each click on the device, then adds the line. A field asks for the text to type. A switch or checkbox records `toggle()`. A tab records `changeTab()`, an alert button `alert()`, and Back `goBack()`.
 - **Assert mode** records a check for what you click: `assertSee()` for text, `assertValue()` for a field, `assertChecked()` for a switch, `assertNavTitle()` for the title. Press A to switch modes.
-- The buttons beside the screen scroll, go back, and close a sheet.
+- The buttons beside the screen scroll, go back, close a sheet, and relaunch the app (`relaunch()`). **Open a route** records `openUrl('/settings')`, which opens another route in the running app by its deep link.
+- A tap that opens another screen keeps the same chain, so one recording can go through a whole flow. Each time the nav bar's title changes, the chain gets a comment with it, such as `// Orders`. A screen with no nav bar, as on Android, keeps the last one.
 
 Each control is named the way a test would find it: its accessibility id, then its label, then `within()` a container with an id, then `nth()`. A name is only kept when it finds that same control again. A step that fails is not recorded, and the page says why.
 
 The **Database** panel lists the rows the last action added or changed in the app's database, read from the device after it, so a write that lands late shows up too. A check, such as `assertSee()`, changes nothing, so the list stays. Each row has a checkbox per column. The ones the action wrote start ticked, except an id, a column ending in `_at`, and a null, since a test run gets other ones. Tick or untick columns, then click **assertDatabaseHas** to check those columns with the values the row has now. A null checks that the column is null. Click **assertDatabaseCount** on an added row to check how many rows its table has. Both run once on the device before they are kept. The panel skips Laravel's own tables, such as `migrations`, `cache`, and `jobs`, and any table with more than 5,000 rows.
 
+The **Starting data** panel lists every table as the app had it when the recording started, with its row count. Tables the recording wrote to or checked start ticked. Tick any it only read, such as the one a list screen shows. **Copy beforeEach()** copies a `beforeEach()` that empties those tables and inserts their starting rows, every column, ids included. Paste it above `mobile()`, so the test starts from the rows it was recorded against, and recorded ids and counts hold. A table another one points to with a foreign key is filled first and emptied last.
+
 **Copy** puts the test so far on the clipboard, to paste into a test inside `mobile()`. Ctrl+C stops the recording and prints it too.
 
-The recording runs against the app as it is: its own database, with no fakes. A test's `screen()` copies in the test database first, so a screen that shows rows needs the same rows in the test. A count recorded this way counts the app's rows, so change it when the test starts with other ones. `--port` serves the page on another port than 8899.
+The recording runs against the app as it is: its own database, with no fakes. A test's `screen()` copies in the test database first, so a screen that shows rows needs the same rows in the test. A count recorded this way counts the app's rows, so seed the test with **Copy beforeEach()**, or change the count. `--port` serves the page on another port than 8899.
 
 `select()`, `slide()`, `swipe()`, and long presses are not recorded yet. Write those lines by hand.
 

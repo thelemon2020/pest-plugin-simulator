@@ -46,9 +46,11 @@ final class Step
     }
 
     /**
+     * A value written as PHP.
+     *
      * @param  string|bool|int|float|array<array-key, mixed>|null  $value
      */
-    private static function literal(string|bool|int|float|array|null $value): string
+    public static function literal(string|bool|int|float|array|null $value): string
     {
         if (is_array($value)) {
             return '['.implode(', ', array_map(

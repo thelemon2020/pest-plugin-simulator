@@ -45,6 +45,11 @@
   .change .kind { font-size: 12px; font-weight: 500; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
   .change .kind.added { color: var(--assert); border-color: var(--assert); }
   .change .kind.changed { color: var(--accent); border-color: var(--accent); }
+  .tables { display: grid; grid-template-columns: max-content max-content 1fr; gap: 4px 10px; align-items: center; font: 12px/1.5 ui-monospace, Menlo, monospace; }
+  .tables label { display: contents; color: var(--muted); font-size: 12px; cursor: pointer; }
+  .tables input { margin: 0; accent-color: var(--accent); }
+  .tables .wrote { color: var(--ink); font-weight: 600; }
+  .tables .value { color: var(--muted); }
   .change .columns { display: grid; grid-template-columns: max-content max-content 1fr; gap: 2px 10px; align-items: center; font: 12px/1.5 ui-monospace, Menlo, monospace; }
   .change .columns label { display: contents; color: var(--muted); font-size: 12px; cursor: pointer; }
   .change .columns input { margin: 0; accent-color: var(--accent); }
@@ -76,8 +81,14 @@
       <button data-press="scroll-up">Scroll up</button>
       <button data-press="back">Back</button>
       <button data-press="dismiss">Close sheet</button>
+      <button data-press="relaunch">Relaunch</button>
     </div>
     <p class="hint">Tap mode runs what you click on the device and records it. Assert mode records a check for what you click. Press A to switch.</p>
+    <form class="row" id="open">
+      <label for="route">Open a route</label>
+      <input id="route" placeholder="/settings" autocomplete="off">
+      <button type="submit">Open</button>
+    </form>
     <div class="row">
       <label for="text">Text for the next field</label>
       <input id="text" placeholder="Ada Lovelace" autocomplete="off">
@@ -91,6 +102,12 @@
     <h2>Database</h2>
     <p class="hint">Rows the last action added or changed on the device. Tick the columns to check. Checks change nothing, so the list stays until the next action.</p>
     <div class="changes" id="changes"></div>
+    <h2>Starting data</h2>
+    <p class="hint">Tables as the app had them when the recording started. The ones the recording wrote or checked start ticked. Copy a beforeEach() that puts them back, so the test starts from the same rows.</p>
+    <div class="tables" id="tables"></div>
+    <div class="row">
+      <button id="copy-seed">Copy beforeEach()</button>
+    </div>
   </div>
 </main>
 <script>
@@ -118,6 +135,7 @@
       state = await call('GET', '/state');
       code.textContent = state.code;
       changes(state.database);
+      tables(state.seed);
       // The screen may have changed under a cursor that has not moved.
       outline();
       await new Promise((resolve) => {
@@ -189,6 +207,35 @@
       }
       card.append(head, fields, buttons);
       list.append(card);
+    }
+  }
+
+  // A table the viewer ticked or unticked keeps that. One they left alone follows whether
+  // the recording has touched it yet.
+  const seedPicks = new Map();
+  const seeded = (table) => seedPicks.has(table.name) ? seedPicks.get(table.name) : table.touched;
+
+  function tables(list) {
+    const box = $('tables');
+    const key = JSON.stringify(list) + JSON.stringify([...seedPicks]);
+    if (box.dataset.key === key) return;
+    box.dataset.key = key;
+    box.replaceChildren();
+    if (!list || !list.length) {
+      box.append(Object.assign(document.createElement('p'), { className: 'hint', textContent: "The app's database has not been read yet." }));
+      return;
+    }
+    for (const table of list) {
+      const row = document.createElement('label');
+      const tick = Object.assign(document.createElement('input'), { type: 'checkbox', checked: seeded(table) });
+      tick.setAttribute('aria-label', 'Seed ' + table.name);
+      tick.addEventListener('change', () => { seedPicks.set(table.name, tick.checked); tables(state.seed); });
+      row.append(
+        tick,
+        Object.assign(document.createElement('span'), { className: table.touched ? 'wrote' : '', textContent: table.name }),
+        Object.assign(document.createElement('span'), { className: 'value', textContent: `${table.rows} ${table.rows === 1 ? 'row' : 'rows'}` }),
+      );
+      box.append(row);
     }
   }
 
@@ -264,8 +311,10 @@
       const result = await call('POST', path, body);
       code.textContent = result.code;
       say(result.line ? 'Recorded ' + result.line : 'Done.');
+      return true;
     } catch (error) {
       say(error.message, true);
+      return false;
     } finally {
       busy = false;
       refresh();
@@ -314,19 +363,43 @@
     code.textContent = result.code;
     say('Removed the last line. The device stays as it is.');
   });
-  $('copy').addEventListener('click', async () => {
+  async function copy(text) {
     try {
-      await navigator.clipboard.writeText(code.textContent);
+      await navigator.clipboard.writeText(text);
     } catch {
       // A browser that keeps the clipboard API from this page still copies a selection.
-      const area = Object.assign(document.createElement('textarea'), { value: code.textContent });
+      const area = Object.assign(document.createElement('textarea'), { value: text });
       document.body.appendChild(area);
       area.select();
       const copied = document.execCommand('copy');
       area.remove();
-      if (!copied) return say('The browser did not allow copying. Select the code and copy it.', true);
+      if (!copied) return false;
     }
+    return true;
+  }
+
+  $('copy').addEventListener('click', async () => {
+    if (!await copy(code.textContent)) return say('The browser did not allow copying. Select the code and copy it.', true);
     say('Copied. Paste it into a test inside mobile().');
+  });
+
+  $('copy-seed').addEventListener('click', async () => {
+    const chosen = (state.seed || []).filter(seeded).map((table) => table.name);
+    if (!chosen.length) return say('Tick a table to seed first.', true);
+    try {
+      const result = await call('POST', '/seed', { tables: chosen });
+      if (!await copy(result.code)) return say('The browser did not allow copying.', true);
+      say(`Copied a beforeEach() for ${chosen.join(', ')}. Paste it above mobile().`);
+    } catch (error) {
+      say(error.message, true);
+    }
+  });
+
+  $('open').addEventListener('submit', (event) => {
+    event.preventDefault();
+    const path = $('route').value.trim();
+    if (!path) return;
+    act('/open', { path }, 'Opening it on the device…').then((opened) => { if (opened) $('route').value = ''; });
   });
 
   // The app changes on its own too, so the picture follows it between clicks.

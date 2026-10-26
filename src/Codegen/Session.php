@@ -46,6 +46,28 @@ final class Session
      */
     private ?array $before = null;
 
+    /**
+     * The app's database when the recording first read it, for the beforeEach() that puts
+     * it back, and which tables point to which.
+     *
+     * @var Snapshot|null
+     */
+    private ?array $start = null;
+
+    /** @var array<string, list<string>> */
+    private array $references = [];
+
+    /**
+     * Tables a recorded database check names, which the seed needs even when the
+     * recording never wrote to them.
+     *
+     * @var array<string, true>
+     */
+    private array $checked = [];
+
+    /** The title of the screen the recording is on, as the nav bar shows it. */
+    private ?string $title = null;
+
     public function __construct(
         private readonly Driver $driver,
         private readonly Screen $screen,
@@ -80,18 +102,81 @@ final class Session
      * What the page draws: the screen's size in the driver's own units, its controls, and the
      * test so far.
      *
-     * @return array{viewport: array{0: float, 1: float}, elements: list<Element>, code: string, database: array{changes: list<Change>, error: string|null}}
+     * @return array{viewport: array{0: float, 1: float}, elements: list<Element>, code: string, database: array{changes: list<Change>, error: string|null}, seed: list<array{name: string, rows: int, touched: bool}>}
      */
     public function state(): array
     {
         $this->seen = $this->elements();
+        $this->notice($this->seen);
 
         return [
             'viewport' => $this->driver->viewport(),
             'elements' => $this->seen,
             'code' => $this->script->chain(),
             'database' => $this->database(),
+            'seed' => $this->tables(),
         ];
+    }
+
+    /**
+     * The beforeEach() that puts $tables back as the recording found them.
+     *
+     * @param  list<string>  $tables
+     */
+    public function seed(array $tables): string
+    {
+        if ($this->start === null) {
+            throw new SimulatorException("The app's database has not been read yet.");
+        }
+
+        return Seed::code($this->start, $tables, $this->references);
+    }
+
+    /**
+     * Every table the recording found, with its rows then, and whether the recording wrote
+     * to it or checked it.
+     *
+     * @return list<array{name: string, rows: int, touched: bool}>
+     */
+    private function tables(): array
+    {
+        if ($this->start === null) {
+            return [];
+        }
+
+        try {
+            $written = array_column(Changes::between($this->start, $this->snapshot()), 'table');
+        } catch (Throwable) {
+            $written = [];
+        }
+
+        $tables = [];
+
+        foreach ($this->start as $name => $rows) {
+            $tables[] = ['name' => $name, 'rows' => count($rows), 'touched' => in_array($name, $written, true) || isset($this->checked[$name])];
+        }
+
+        return $tables;
+    }
+
+    /**
+     * Notes a screen with another title in the test, so a long recording reads screen by
+     * screen. Only a nav bar's title counts: a screen with none keeps the last one.
+     *
+     * @param  list<Element>  $elements
+     */
+    private function notice(array $elements): void
+    {
+        foreach ($elements as $element) {
+            if (($element['chrome'] ?? null) === 'navigation' && $element['role'] !== 'Button' && ! in_array($element['label'], ['', 'Back'], true)) {
+                if ($element['label'] !== $this->title) {
+                    $this->title = $element['label'];
+                    $this->script->screen($element['label']);
+                }
+
+                return;
+            }
+        }
     }
 
     /**
@@ -112,7 +197,10 @@ final class Session
                 ? 'That row only changed its id or timestamps, which a test cannot know ahead of time. Pick the columns to check.'
                 : 'Pick at least one column to check.'));
 
-        return $this->run($step);
+        $line = $this->run($step);
+        $this->checked[$table] = true;
+
+        return $line;
     }
 
     /**
@@ -130,6 +218,7 @@ final class Session
         }
 
         $this->before ??= $now;
+        $this->start ??= $now;
 
         return ['changes' => Changes::between($this->before, $now), 'error' => null];
     }
@@ -142,8 +231,13 @@ final class Session
         // One pull serves a Screen step. Here each read is a new look, and the digest keeps
         // it from pulling a database the app has not written to.
         DeviceDatabase::forget();
+        $database = DeviceDatabase::open($this->driver);
 
-        return Changes::snapshot(DeviceDatabase::open($this->driver));
+        if ($this->start === null) {
+            $this->references = Seed::references($database);
+        }
+
+        return Changes::snapshot($database);
     }
 
     public function screenshot(): string
@@ -168,6 +262,7 @@ final class Session
     public function click(float $x, float $y, bool $check = false, ?string $text = null): array
     {
         $elements = $this->elements();
+        $this->notice($elements);
         $element = $this->selector->at($elements, $x, $y, touch: ! $check)
             ?? throw new SimulatorException('Nothing the plugin can read is there.');
         // Only a step that names its control needs a name: assertSee() takes the text.
@@ -201,8 +296,23 @@ final class Session
             'scroll-up' => new Step('scroll', ['up']),
             'back' => new Step('goBack'),
             'dismiss' => new Step('dismissSheet'),
+            'relaunch' => new Step('relaunch'),
             default => throw new SimulatorException("Unknown button [{$button}]."),
         });
+    }
+
+    /**
+     * Records opening another route in the app that is running, by its deep link.
+     *
+     * @return array{line: string}
+     */
+    public function open(string $path): array
+    {
+        if (! str_starts_with($path, '/')) {
+            throw new SimulatorException("Open a route by its path, starting with /: not [{$path}].");
+        }
+
+        return $this->run(new Step('openUrl', [$path]));
     }
 
     /**

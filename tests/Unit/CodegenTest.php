@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use NativePhp\Simulator\Codegen\Changes;
 use NativePhp\Simulator\Codegen\Script;
+use NativePhp\Simulator\Codegen\Seed;
 use NativePhp\Simulator\Codegen\Selector;
 use NativePhp\Simulator\Codegen\Server;
 use NativePhp\Simulator\Codegen\Session;
@@ -175,7 +176,7 @@ it('runs a click on the device and records it', function () use ($orders) {
     expect($status)->toBe(200)
         ->and(json_decode($body, true))->toBe([
             'line' => "->nth(2)->tap('Pay')",
-            'code' => "screen('/orders')\n    ->nth(2)->tap('Pay');",
+            'code' => "screen('/orders')\n    // Orders\n    ->nth(2)->tap('Pay');",
         ])
         ->and($driver->taps)->toBe([[330.0, 175.0]]);
 });
@@ -331,3 +332,88 @@ it('refuses a column the row does not have', function () use ($ordersTable) {
 
     Changes::has(Changes::between($before, Changes::snapshot($database))[0], ['nope']);
 })->throws(SimulatorException::class, '[orders] has no [nope] column.');
+
+it('writes a comment where a step led to another screen', function () {
+    $script = new Script('/');
+    $script->screen('Home');
+    $script->add(new Step('tap', ['Orders']));
+    $script->screen('Orders');
+    $script->add(new Step('tap', ['Pay'], nth: 2));
+
+    expect($script->chain())->toBe(<<<'PHP'
+        screen('/')
+            // Home
+            ->tap('Orders')
+            // Orders
+            ->nth(2)->tap('Pay');
+        PHP);
+});
+
+it('never ends the chain on a comment, and undoes a step with its screen', function () {
+    $script = new Script('/');
+    $script->add(new Step('tap', ['Orders']));
+    $script->screen('Orders');
+
+    expect($script->chain())->toBe("screen('/')\n    ->tap('Orders');");
+
+    $script->undo();
+
+    expect($script->chain())->toBe("screen('/');");
+});
+
+it('notes the screen from the nav bar title', function () use ($element) {
+    $home = [$element('Home', [150, 70, 100, 20], 'StaticText', ['chrome' => 'navigation']), $element('Orders', [0, 120, 390, 44])];
+    $orders = [$element('Back', [20, 66, 36, 36], extra: ['chrome' => 'navigation']), $element('Orders', [150, 70, 100, 20], 'StaticText', ['chrome' => 'navigation'])];
+    $driver = new FakeDriver([$home, $home, $home, $orders]);
+    $session = new Session($driver, new Screen($driver, timeoutSeconds: 0.5), '/');
+
+    $session->click(195, 142);
+    $session->state();
+
+    expect($session->script->chain())->toBe("screen('/')\n    // Home\n    ->tap('Orders');");
+});
+
+it('opens a route by its path, and refuses anything else', function () {
+    $driver = new FakeDriver([[]]);
+    Configuration::configure(['scheme' => 'sample']);
+
+    try {
+        $session = new Session($driver, new Screen($driver, timeoutSeconds: 0.5), '/');
+
+        expect($session->open('/settings'))->toBe(['line' => "->openUrl('/settings')"])
+            ->and($driver->opened)->toBe(['sample://settings'])
+            ->and(fn () => $session->open('settings'))->toThrow(SimulatorException::class, 'starting with /');
+    } finally {
+        Configuration::reset();
+    }
+});
+
+it('writes a beforeEach that puts the starting rows back, parents first', function () {
+    $database = new PDO('sqlite::memory:');
+    $database->exec('CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)');
+    $database->exec('CREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER REFERENCES users(id), total INTEGER, note TEXT)');
+    $database->exec('CREATE TABLE tags (id INTEGER PRIMARY KEY, name TEXT)');
+    $database->exec("INSERT INTO users (name) VALUES ('Ada')");
+    $database->exec('INSERT INTO orders (user_id, total) VALUES (1, 1200), (1, 4200)');
+
+    $code = Seed::code(Changes::snapshot($database), ['orders', 'users', 'tags', 'missing'], Seed::references($database));
+
+    expect($code)->toBe(<<<'PHP'
+        use Illuminate\Support\Facades\DB;
+
+        beforeEach(function () {
+            DB::table('tags')->delete();
+            DB::table('orders')->delete();
+            DB::table('users')->delete();
+            DB::table('users')->insert([
+                ['id' => 1, 'name' => 'Ada'],
+            ]);
+            DB::table('orders')->insert([
+                ['id' => 1, 'user_id' => 1, 'total' => 1200, 'note' => null],
+                ['id' => 2, 'user_id' => 1, 'total' => 4200, 'note' => null],
+            ]);
+        });
+
+        PHP)
+        ->and(Seed::code(Changes::snapshot($database), []))->toBe('');
+});
