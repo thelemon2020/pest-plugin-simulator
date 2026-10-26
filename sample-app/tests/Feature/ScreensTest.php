@@ -32,6 +32,7 @@ it('renders every screen', function (string $uri, string $text) {
     ['/photos', 'No photo'],
     ['/boom', 'Ready to blow up'],
     ['/checkout', 'Standard: $5.00'],
+    ['/unlabeled', 'Nothing added'],
 ]);
 
 it('saves the form', function () {

@@ -678,7 +678,7 @@ final class AccessibilityTree
      * @param  array{0: float, 1: float, 2: float, 3: float}  $inner
      * @param  array{0: float, 1: float, 2: float, 3: float}  $outer
      */
-    private static function frameInside(array $inner, array $outer): bool
+    public static function frameInside(array $inner, array $outer): bool
     {
         return $inner[0] >= $outer[0] - 1
             && $inner[1] >= $outer[1] - 1

@@ -55,6 +55,8 @@ final class AndroidDriver implements Driver
      */
     private const APP_STORAGE = 'app_storage/persisted_data';
 
+    private const UNFINISHED_UNPACK = "'[ -d app_storage/laravel/storage/framework ] || [ ! -d app_storage/laravel ] || rm -rf app_storage/laravel'";
+
     /** How long System UI is given to rebuild the status bar (see enterDemoMode()). */
     private static float $redrawSeconds = 2.0;
 
@@ -175,7 +177,7 @@ final class AndroidDriver implements Driver
 
     private function pushDatabase(string $sqlitePath): void
     {
-        $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'am', 'force-stop', $this->configuration->bundleId()]);
+        $this->stopApp();
         // The old database's write-ahead log and shared memory go in the same shell.
         $this->sendAppFile($sqlitePath, 'database/database.sqlite', ['database/database.sqlite-wal', 'database/database.sqlite-shm']);
     }
@@ -1258,8 +1260,22 @@ final class AndroidDriver implements Driver
 
     public function relaunch(): void
     {
-        $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'am', 'force-stop', $this->configuration->bundleId()]);
+        $this->stopApp();
         $this->launchApp();
+    }
+
+    /**
+     * NativePHP unpacks its Laravel bundle on the first launch after an install, and the
+     * bundle's own .version is one of the first files out. An app stopped part-way would take
+     * the cut-off tree as current on every later launch. native:run starts the app as it
+     * installs it, so the first test's stop can land in that unpack. storage/framework is
+     * made once the unpack ends, so a tree without it goes, and the next launch unpacks again.
+     */
+    private function stopApp(): void
+    {
+        $bundle = $this->configuration->bundleId();
+
+        $this->command->run($this->adb(), ['-s', $this->serial(), 'shell', 'am', 'force-stop', $bundle, '&&', 'run-as', $bundle, 'sh', '-c', self::UNFINISHED_UNPACK]);
     }
 
     /**
