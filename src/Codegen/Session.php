@@ -6,6 +6,7 @@ namespace NativePhp\Simulator\Codegen;
 
 use NativePhp\Simulator\Configuration;
 use NativePhp\Simulator\Device;
+use NativePhp\Simulator\DeviceDatabase;
 use NativePhp\Simulator\Driver;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 use NativePhp\Simulator\Fakes\FakeSync;
@@ -23,6 +24,8 @@ use Throwable;
  * the fakes; a recording runs against what the app already has.
  *
  * @phpstan-import-type Element from Driver
+ * @phpstan-import-type Snapshot from Changes
+ * @phpstan-import-type Change from Changes
  */
 final class Session
 {
@@ -34,6 +37,14 @@ final class Session
      * @var list<Element>
      */
     private array $seen = [];
+
+    /**
+     * The app's database as it was before the last step that was not a database check, so
+     * the page lists what that step wrote. Null until it was first read.
+     *
+     * @var Snapshot|null
+     */
+    private ?array $before = null;
 
     public function __construct(
         private readonly Driver $driver,
@@ -69,7 +80,7 @@ final class Session
      * What the page draws: the screen's size in the driver's own units, its controls, and the
      * test so far.
      *
-     * @return array{viewport: array{0: float, 1: float}, elements: list<Element>, code: string}
+     * @return array{viewport: array{0: float, 1: float}, elements: list<Element>, code: string, database: array{changes: list<Change>, error: string|null}}
      */
     public function state(): array
     {
@@ -79,7 +90,57 @@ final class Session
             'viewport' => $this->driver->viewport(),
             'elements' => $this->seen,
             'code' => $this->script->chain(),
+            'database' => $this->database(),
         ];
+    }
+
+    /**
+     * Records a check on a row the last step wrote: assertDatabaseHas() with the columns it
+     * wrote, or with $count, assertDatabaseCount() for its table.
+     *
+     * @return array{line: string}
+     */
+    public function checkRow(string $table, int $rowid, bool $count = false): array
+    {
+        $changes = $this->database()['changes'];
+        $change = array_values(array_filter($changes, fn (array $change): bool => $change['table'] === $table && $change['rowid'] === $rowid))[0]
+            ?? throw new SimulatorException("The last step did not write that row of [{$table}].");
+
+        $step = $count ? Changes::count($change) : (Changes::has($change)
+            ?? throw new SimulatorException('That row only changed its id or timestamps, which a test cannot know ahead of time.'));
+
+        return $this->run($step);
+    }
+
+    /**
+     * The rows the last step added or changed, read from the device now, so a write that
+     * lands after the step shows up too.
+     *
+     * @return array{changes: list<Change>, error: string|null}
+     */
+    private function database(): array
+    {
+        try {
+            $now = $this->snapshot();
+        } catch (Throwable $exception) {
+            return ['changes' => [], 'error' => strtok($exception->getMessage(), "\n") ?: $exception::class];
+        }
+
+        $this->before ??= $now;
+
+        return ['changes' => Changes::between($this->before, $now), 'error' => null];
+    }
+
+    /**
+     * @return Snapshot
+     */
+    private function snapshot(): array
+    {
+        // One pull serves a Screen step. Here each read is a new look, and the digest keeps
+        // it from pulling a database the app has not written to.
+        DeviceDatabase::forget();
+
+        return Changes::snapshot(DeviceDatabase::open($this->driver));
     }
 
     public function screenshot(): string
@@ -146,6 +207,15 @@ final class Session
      */
     private function run(Step $step): array
     {
+        // A database check leaves the list as it is, so several rows can be checked in turn.
+        if (! str_starts_with($step->verb, 'assertDatabase')) {
+            try {
+                $this->before = $this->snapshot();
+            } catch (Throwable) {
+                $this->before = null;
+            }
+        }
+
         try {
             $step->perform($this->screen);
         } catch (Throwable $exception) {

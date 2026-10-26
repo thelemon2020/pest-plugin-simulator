@@ -76,6 +76,11 @@ final class Server
                     is_string($input['text'] ?? null) ? $input['text'] : null,
                 ) + ['code' => $this->session->script->chain()]),
                 'POST /press' => self::json($this->session->press((string) ($input['button'] ?? '')) + ['code' => $this->session->script->chain()]),
+                'POST /database' => self::json($this->session->checkRow(
+                    (string) ($input['table'] ?? ''),
+                    (int) ($input['rowid'] ?? 0),
+                    ($input['assert'] ?? 'has') === 'count',
+                ) + ['code' => $this->session->script->chain()]),
                 'POST /undo' => self::json(['code' => $this->undo()]),
                 default => [404, 'text/plain', 'Not found'],
             };

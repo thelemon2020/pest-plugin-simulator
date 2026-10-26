@@ -13,7 +13,7 @@ use NativePhp\Simulator\Screen;
 final class Step
 {
     /**
-     * @param  list<string|bool|int|float>  $arguments
+     * @param  list<string|bool|int|float|array<string, int|float|string|null>>  $arguments
      */
     public function __construct(
         public readonly string $verb,
@@ -45,8 +45,23 @@ final class Step
         $this->within === null ? $call($screen) : $screen->within($this->within, $call);
     }
 
-    private static function literal(string|bool|int|float $value): string
+    /**
+     * @param  string|bool|int|float|array<array-key, mixed>|null  $value
+     */
+    private static function literal(string|bool|int|float|array|null $value): string
     {
-        return is_bool($value) ? ($value ? 'true' : 'false') : var_export($value, true);
+        if (is_array($value)) {
+            return '['.implode(', ', array_map(
+                fn (int|string $key, mixed $item): string => self::literal($key).' => '.self::literal(is_scalar($item) || is_array($item) ? $item : null),
+                array_keys($value),
+                $value,
+            )).']';
+        }
+
+        return match (true) {
+            $value === null => 'null',
+            is_bool($value) => $value ? 'true' : 'false',
+            default => var_export($value, true),
+        };
     }
 }

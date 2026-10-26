@@ -193,9 +193,11 @@ php artisan nativephp:simulator codegen /controls --android --device="Pixel"
 
 Each control is named the way a test would find it: its accessibility id, then its label, then `within()` a container with an id, then `nth()`. A name is only kept when it finds that same control again. A step that fails is not recorded, and the page says why.
 
+The **Database** panel lists the rows the last step added or changed in the app's database, read from the device after the step, so a write that lands late shows up too. Click **assertDatabaseHas** on a row to check the columns the step wrote. An id, a column ending in `_at`, and a null are left out, since a test run gets other ones. Click **assertDatabaseCount** on an added row to check how many rows its table has. Both run once on the device before they are kept. The panel skips Laravel's own tables, such as `migrations`, `cache`, and `jobs`, and any table with more than 5,000 rows.
+
 **Copy** puts the test so far on the clipboard, to paste into a test inside `mobile()`. Ctrl+C stops the recording and prints it too.
 
-The recording runs against the app as it is: its own database, with no fakes. A test's `screen()` copies in the test database first, so a screen that shows rows needs the same rows in the test. `--port` serves the page on another port than 8899.
+The recording runs against the app as it is: its own database, with no fakes. A test's `screen()` copies in the test database first, so a screen that shows rows needs the same rows in the test. A count recorded this way counts the app's rows, so change it when the test starts with other ones. `--port` serves the page on another port than 8899.
 
 `select()`, `slide()`, `swipe()`, and long presses are not recorded yet. Write those lines by hand.
 

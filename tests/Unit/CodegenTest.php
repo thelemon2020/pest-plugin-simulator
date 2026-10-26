@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use NativePhp\Simulator\Codegen\Changes;
 use NativePhp\Simulator\Codegen\Script;
 use NativePhp\Simulator\Codegen\Selector;
 use NativePhp\Simulator\Codegen\Server;
@@ -261,4 +262,53 @@ it('takes away the fakes an interrupted run left in the app', function () {
 
     expect($driver->appFiles)->toBe([])
         ->and($driver->opened)->toHaveCount(1);
+});
+
+$ordersTable = function (): PDO {
+    $database = new PDO('sqlite::memory:');
+    $database->exec('CREATE TABLE orders (id INTEGER PRIMARY KEY, total INTEGER, status TEXT, paid_at TEXT, note TEXT)');
+    $database->exec('CREATE TABLE migrations (id INTEGER PRIMARY KEY, migration TEXT)');
+    $database->exec("INSERT INTO orders (total, status) VALUES (1200, 'open'), (4200, 'open')");
+    $database->exec("INSERT INTO migrations (migration) VALUES ('create_orders')");
+
+    return $database;
+};
+
+it('finds the rows a step added and changed', function () use ($ordersTable) {
+    $database = $ordersTable();
+    $before = Changes::snapshot($database);
+    $database->exec("UPDATE orders SET status = 'paid', paid_at = '2026-10-26 09:00:00' WHERE id = 2");
+    $database->exec("INSERT INTO orders (total, status) VALUES (900, 'open')");
+    $database->exec("INSERT INTO migrations (migration) VALUES ('another')");
+
+    $changes = Changes::between($before, Changes::snapshot($database));
+
+    expect($changes)->toHaveCount(2)
+        ->and($changes[0])->toMatchArray(['table' => 'orders', 'rowid' => 2, 'kind' => 'changed', 'changed' => ['status', 'paid_at'], 'count' => 3])
+        ->and($changes[1])->toMatchArray(['table' => 'orders', 'rowid' => 3, 'kind' => 'added', 'count' => 3]);
+});
+
+it('checks only what a test can know ahead of time', function () use ($ordersTable) {
+    $database = $ordersTable();
+    $before = Changes::snapshot($database);
+    $database->exec("UPDATE orders SET status = 'paid', paid_at = '2026-10-26 09:00:00' WHERE id = 2");
+    $database->exec("INSERT INTO orders (total, status) VALUES (900, 'open')");
+    [$paid, $added] = Changes::between($before, Changes::snapshot($database));
+
+    expect(Changes::has($paid)?->code())->toBe("->assertDatabaseHas('orders', ['status' => 'paid'])")
+        ->and(Changes::has($added)?->code())->toBe("->assertDatabaseHas('orders', ['total' => 900, 'status' => 'open'])")
+        ->and(Changes::count($added)->code())->toBe("->assertDatabaseCount('orders', 3)");
+});
+
+it('has nothing to check when only a timestamp changed', function () use ($ordersTable) {
+    $database = $ordersTable();
+    $before = Changes::snapshot($database);
+    $database->exec("UPDATE orders SET paid_at = '2026-10-26 09:00:00' WHERE id = 1");
+
+    expect(Changes::has(Changes::between($before, Changes::snapshot($database))[0]))->toBeNull();
+});
+
+it('writes arrays and null as PHP', function () {
+    expect((new Step('assertDatabaseHas', ['orders', ['status' => "it's paid", 'note' => null, 'total' => 1.5]]))->code())
+        ->toBe("->assertDatabaseHas('orders', ['status' => 'it\\'s paid', 'note' => null, 'total' => 1.5])");
 });

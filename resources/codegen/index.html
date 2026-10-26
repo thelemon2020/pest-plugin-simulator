@@ -38,6 +38,18 @@
   .status { min-height: 1.45em; color: var(--muted); }
   .status.error { color: var(--error); }
   .hint { color: var(--muted); font-size: 13px; margin: 0; }
+  h2 { margin: 6px 0 0; font-size: 15px; font-weight: 600; }
+  .changes { display: flex; flex-direction: column; gap: 8px; }
+  .change { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--panel); display: flex; flex-direction: column; gap: 8px; }
+  .change .head { display: flex; gap: 8px; align-items: center; font-weight: 600; }
+  .change .kind { font-size: 12px; font-weight: 500; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+  .change .kind.added { color: var(--assert); border-color: var(--assert); }
+  .change .kind.changed { color: var(--accent); border-color: var(--accent); }
+  .change dl { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; font: 12px/1.5 ui-monospace, Menlo, monospace; }
+  .change dt { color: var(--muted); }
+  .change dd { margin: 0; word-break: break-word; }
+  .change .wrote { color: var(--ink); font-weight: 600; }
+  .change .row button { font-size: 13px; padding: 4px 10px; }
   @media (max-width: 720px) {
     main { flex-direction: column; padding: 16px; }
     .device img { max-width: 100%; max-height: 70vh; }
@@ -74,6 +86,9 @@
       <button id="undo">Undo last line</button>
       <button id="copy">Copy</button>
     </div>
+    <h2>Database</h2>
+    <p class="hint">Rows the last step added or changed on the device. Click one to check it in the test.</p>
+    <div class="changes" id="changes"></div>
   </div>
 </main>
 <script>
@@ -100,6 +115,7 @@
     try {
       state = await call('GET', '/state');
       code.textContent = state.code;
+      changes(state.database);
       // The screen may have changed under a cursor that has not moved.
       outline();
       await new Promise((resolve) => {
@@ -110,6 +126,46 @@
       });
     } catch (error) {
       say(error.message, true);
+    }
+  }
+
+  // Built from the DOM, not markup: the values come from the app's database.
+  function changes(database) {
+    const list = $('changes');
+    const key = JSON.stringify(database);
+    if (list.dataset.key === key) return;
+    list.dataset.key = key;
+    list.replaceChildren();
+    if (database.error) {
+      list.append(Object.assign(document.createElement('p'), { className: 'hint', textContent: "Could not read the app's database: " + database.error }));
+      return;
+    }
+    if (!database.changes.length) {
+      list.append(Object.assign(document.createElement('p'), { className: 'hint', textContent: 'No rows changed since the last step.' }));
+      return;
+    }
+    for (const change of database.changes) {
+      const card = Object.assign(document.createElement('div'), { className: 'change' });
+      const head = Object.assign(document.createElement('div'), { className: 'head', textContent: change.table });
+      head.append(Object.assign(document.createElement('span'), { className: 'kind ' + change.kind, textContent: change.kind }));
+      const fields = document.createElement('dl');
+      for (const [column, value] of Object.entries(change.row)) {
+        const wrote = change.kind === 'changed' && change.changed.includes(column);
+        fields.append(
+          Object.assign(document.createElement('dt'), { className: wrote ? 'wrote' : '', textContent: column }),
+          Object.assign(document.createElement('dd'), { className: wrote ? 'wrote' : '', textContent: value === null ? 'null' : String(value) }),
+        );
+      }
+      const buttons = Object.assign(document.createElement('div'), { className: 'row' });
+      const check = (label, assert) => {
+        const button = Object.assign(document.createElement('button'), { textContent: label });
+        button.addEventListener('click', () => act('/database', { table: change.table, rowid: change.rowid, assert }, 'Checking the database…'));
+        buttons.append(button);
+      };
+      check('assertDatabaseHas', 'has');
+      if (change.kind === 'added') check(`assertDatabaseCount (${change.count})`, 'count');
+      card.append(head, fields, buttons);
+      list.append(card);
     }
   }
 
