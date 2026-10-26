@@ -34,11 +34,4 @@ final class Script
 
         return implode("\n", $lines).';';
     }
-
-    public function file(string $name): string
-    {
-        $chain = implode("\n", array_map(fn (string $line): string => '        '.$line, explode("\n", $this->chain())));
-
-        return "<?php\n\nmobile(function () {\n    it(".var_export($name, true).", function () {\n{$chain}\n    });\n});\n";
-    }
 }

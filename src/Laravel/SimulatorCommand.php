@@ -21,7 +21,6 @@ final class SimulatorCommand extends Command
         {--ios : For codegen, record on the iOS Simulator}
         {--android : For codegen, record on the Android emulator}
         {--device= : For codegen, the Simulator or AVD to record on}
-        {--output= : For codegen, the directory the test is saved in}
         {--port=8899 : For codegen, the port the page is served on}';
 
     protected $description = 'Check that this machine can run NativePHP simulator tests, or record a test by clicking through the app';
@@ -57,20 +56,17 @@ final class SimulatorCommand extends Command
             return 1;
         }
 
-        $directory = rtrim(self::text($this->option('output')) ?? base_path('tests/Simulator'), '/');
-
         try {
-            (new Server($session, fn (string $name): string => $directory.'/'.Session::fileName($name)))
-                ->listen($port, function (string $url) use ($session): void {
-                    $this->info("Record the test at {$url}");
-                    $this->line('Press Ctrl+C to stop.');
+            (new Server($session))->listen($port, function (string $url) use ($session): void {
+                $this->info("Record the test at {$url}");
+                $this->line('Press Ctrl+C to stop.');
 
-                    // Ctrl+C is the way out, so the test so far is printed on the way.
-                    Shutdown::defer(function () use ($session): void {
-                        $this->newLine();
-                        $this->line($session->script->chain());
-                    });
+                // Ctrl+C is the way out, so the test so far is printed on the way.
+                Shutdown::defer(function () use ($session): void {
+                    $this->newLine();
+                    $this->line($session->script->chain());
                 });
+            });
         } catch (SimulatorException $exception) {
             $this->error($exception->getMessage());
 

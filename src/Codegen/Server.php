@@ -16,13 +16,7 @@ final class Server
     /** How long a connection may take to send its request. */
     private const READ_SECONDS = 5;
 
-    /**
-     * @param  Closure(string): string  $file  where a test with this name is saved
-     */
-    public function __construct(
-        private readonly Session $session,
-        private readonly Closure $file,
-    ) {}
+    public function __construct(private readonly Session $session) {}
 
     /**
      * Serves until the process is stopped. $ready gets the page's address once it listens.
@@ -83,7 +77,6 @@ final class Server
                 ) + ['code' => $this->session->script->chain()]),
                 'POST /press' => self::json($this->session->press((string) ($input['button'] ?? '')) + ['code' => $this->session->script->chain()]),
                 'POST /undo' => self::json(['code' => $this->undo()]),
-                'POST /save' => self::json(['file' => $this->save((string) ($input['name'] ?? ''))]),
                 default => [404, 'text/plain', 'Not found'],
             };
         } catch (SimulatorException $exception) {
@@ -96,11 +89,6 @@ final class Server
         $this->session->script->undo();
 
         return $this->session->script->chain();
-    }
-
-    private function save(string $name): string
-    {
-        return $this->session->save($name, ($this->file)($name));
     }
 
     /**

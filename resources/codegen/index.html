@@ -74,10 +74,6 @@
       <button id="undo">Undo last line</button>
       <button id="copy">Copy</button>
     </div>
-    <div class="row">
-      <input id="name" placeholder="What the test does, e.g. pays the second order" autocomplete="off">
-      <button id="save">Save test</button>
-    </div>
   </div>
 </main>
 <script>
@@ -240,16 +236,18 @@
     say('Removed the last line. The device stays as it is.');
   });
   $('copy').addEventListener('click', async () => {
-    await navigator.clipboard.writeText(code.textContent);
-    say('Copied.');
-  });
-  $('save').addEventListener('click', async () => {
     try {
-      const result = await call('POST', '/save', { name: $('name').value.trim() });
-      say('Saved ' + result.file);
-    } catch (error) {
-      say(error.message, true);
+      await navigator.clipboard.writeText(code.textContent);
+    } catch {
+      // A browser that keeps the clipboard API from this page still copies a selection.
+      const area = Object.assign(document.createElement('textarea'), { value: code.textContent });
+      document.body.appendChild(area);
+      area.select();
+      const copied = document.execCommand('copy');
+      area.remove();
+      if (!copied) return say('The browser did not allow copying. Select the code and copy it.', true);
     }
+    say('Copied. Paste it into a test inside mobile().');
   });
 
   // The app changes on its own too, so the picture follows it between clicks.

@@ -142,38 +142,6 @@ final class Session
     }
 
     /**
-     * Writes the test to $file, named $name. It does not replace a file that is there.
-     */
-    public function save(string $name, string $file): string
-    {
-        if ($name === '') {
-            throw new SimulatorException('Name the test first.');
-        }
-
-        if (file_exists($file)) {
-            throw new SimulatorException("{$file} is already there.");
-        }
-
-        if (! is_dir(dirname($file))) {
-            mkdir(dirname($file), 0777, true);
-        }
-
-        file_put_contents($file, $this->script->file($name));
-
-        return $file;
-    }
-
-    /**
-     * A test file name from what the test does: "pays an order" is PaysAnOrderTest.php.
-     */
-    public static function fileName(string $name): string
-    {
-        $words = preg_split('/[^A-Za-z0-9]+/', $name, -1, PREG_SPLIT_NO_EMPTY) ?: ['Recorded'];
-
-        return implode('', array_map(ucfirst(...), $words)).'Test.php';
-    }
-
-    /**
      * @return array{line: string}
      */
     private function run(Step $step): array

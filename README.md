@@ -193,7 +193,7 @@ php artisan nativephp:simulator codegen /controls --android --device="Pixel"
 
 Each control is named the way a test would find it: its accessibility id, then its label, then `within()` a container with an id, then `nth()`. A name is only kept when it finds that same control again. A step that fails is not recorded, and the page says why.
 
-**Save test** writes `tests/Simulator/<Name>Test.php`, wrapped in `mobile()`. It does not replace a file that is there. `--output` chooses another directory. Ctrl+C stops the recording and prints the test so far.
+**Copy** puts the test so far on the clipboard, to paste into a test inside `mobile()`. Ctrl+C stops the recording and prints it too.
 
 The recording runs against the app as it is: its own database, with no fakes. A test's `screen()` copies in the test database first, so a screen that shows rows needs the same rows in the test. `--port` serves the page on another port than 8899.
 

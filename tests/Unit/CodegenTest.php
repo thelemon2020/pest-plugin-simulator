@@ -144,7 +144,7 @@ it('writes a step inside within() as a closure', function () {
         ->toBe("->within('order-2', fn (\$screen) => \$screen->nth(2)->tap('Pay'))");
 });
 
-it('writes the chain and the test file', function () {
+it('writes the chain', function () {
     $script = new Script('/orders');
     $script->add(new Step('tap', ['Pay'], nth: 2));
     $script->add(new Step('assertSee', ["Paid, it's done"]));
@@ -153,18 +153,6 @@ it('writes the chain and the test file', function () {
         screen('/orders')
             ->nth(2)->tap('Pay')
             ->assertSee('Paid, it\'s done');
-        PHP)
-        ->and($script->file('pays an order'))->toBe(<<<'PHP'
-        <?php
-
-        mobile(function () {
-            it('pays an order', function () {
-                screen('/orders')
-                    ->nth(2)->tap('Pay')
-                    ->assertSee('Paid, it\'s done');
-            });
-        });
-
         PHP);
 });
 
@@ -179,7 +167,7 @@ it('drops the last step on undo', function () {
 
 it('runs a click on the device and records it', function () use ($orders) {
     $driver = new FakeDriver([$orders()]);
-    $server = new Server(new Session($driver, new Screen($driver, timeoutSeconds: 0.5), '/orders'), fn (string $name): string => '');
+    $server = new Server(new Session($driver, new Screen($driver, timeoutSeconds: 0.5), '/orders'));
 
     [$status, , $body] = $server->handle('POST', '/click', json_encode(['x' => 330, 'y' => 175, 'mode' => 'tap']), '127.0.0.1:8899');
 
@@ -194,7 +182,7 @@ it('runs a click on the device and records it', function () use ($orders) {
 it('keeps a step that failed out of the test', function () use ($element) {
     $driver = new FakeDriver([[$element('Paid', [0, 0, 100, 20], 'StaticText')], []]);
     $session = new Session($driver, new Screen($driver, timeoutSeconds: 0.2, failureDirectory: sys_get_temp_dir().'/codegen-test'), '/');
-    $server = new Server($session, fn (string $name): string => '');
+    $server = new Server($session);
 
     [$status, , $body] = $server->handle('POST', '/click', json_encode(['x' => 10, 'y' => 10, 'mode' => 'assert']), '127.0.0.1:8899');
 
@@ -203,24 +191,9 @@ it('keeps a step that failed out of the test', function () use ($element) {
         ->and($session->script->chain())->toBe("screen('/');");
 });
 
-it('saves the test once, under a name from what it does', function () use ($orders) {
-    $directory = sys_get_temp_dir().'/codegen-'.uniqid();
-    $driver = new FakeDriver([$orders()]);
-    $server = new Server(new Session($driver, new Screen($driver, timeoutSeconds: 0.5), '/orders'), fn (string $name): string => $directory.'/'.Session::fileName($name));
-    $server->handle('POST', '/click', json_encode(['x' => 330, 'y' => 115, 'mode' => 'tap']), '127.0.0.1:8899');
-
-    [$status, , $body] = $server->handle('POST', '/save', json_encode(['name' => 'pays the first order']), '127.0.0.1:8899');
-    [$again] = $server->handle('POST', '/save', json_encode(['name' => 'pays the first order']), '127.0.0.1:8899');
-
-    expect($status)->toBe(200)
-        ->and(json_decode($body, true)['file'])->toBe($directory.'/PaysTheFirstOrderTest.php')
-        ->and(file_get_contents($directory.'/PaysTheFirstOrderTest.php'))->toContain("it('pays the first order'")->toContain("->nth(1)->tap('Pay')")
-        ->and($again)->toBe(422);
-});
-
 it('only answers the recording page on this machine', function () use ($orders) {
     $driver = new FakeDriver([$orders()]);
-    $server = new Server(new Session($driver, new Screen($driver, timeoutSeconds: 0.5), '/orders'), fn (string $name): string => '');
+    $server = new Server(new Session($driver, new Screen($driver, timeoutSeconds: 0.5), '/orders'));
     $click = json_encode(['x' => 330, 'y' => 175, 'mode' => 'tap']);
 
     expect($server->handle('POST', '/click', $click, '127.0.0.1:8899', 'https://evil.example')[0])->toBe(403)
