@@ -18,7 +18,8 @@
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, sans-serif; }
   main { display: flex; gap: 24px; padding: 20px; min-height: 100vh; align-items: flex-start; }
-  .device { position: relative; flex: none; line-height: 0; border-radius: 18px; overflow: hidden; box-shadow: 0 0 0 1px var(--line), 0 8px 30px rgb(0 0 0 / .12); }
+  /* Stays in view while the panels beside it scroll, so a check stays next to its screen. */
+  .device { position: sticky; top: 20px; flex: none; line-height: 0; border-radius: 18px; overflow: hidden; box-shadow: 0 0 0 1px var(--line), 0 8px 30px rgb(0 0 0 / .12); }
   .device img { display: block; max-height: calc(100vh - 40px); max-width: 46vw; cursor: crosshair; user-select: none; }
   .device .box { position: absolute; pointer-events: none; border: 2px solid var(--accent); border-radius: 4px; background: color-mix(in srgb, var(--accent) 12%, transparent); display: none; }
   body.assert .device .box { border-color: var(--assert); background: color-mix(in srgb, var(--assert) 12%, transparent); }
@@ -59,6 +60,7 @@
   button:disabled { opacity: .45; cursor: not-allowed; }
   @media (max-width: 720px) {
     main { flex-direction: column; padding: 16px; }
+    .device { position: relative; top: auto; }
     .device img { max-width: 100%; max-height: 70vh; }
   }
 </style>
