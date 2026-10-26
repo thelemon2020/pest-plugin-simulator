@@ -2201,13 +2201,7 @@ final class Screen
                 return [];
             }
 
-            [$x, $y, $width, $height] = $frame;
-            $elements = array_values(array_filter(
-                $elements,
-                fn (array $element): bool => is_array($element['center'] ?? null)
-                    && $element['center'][0] >= $x && $element['center'][0] <= $x + $width
-                    && $element['center'][1] >= $y && $element['center'][1] <= $y + $height,
-            ));
+            $elements = $this->finder->inside($elements, $frame);
         }
 
         return $elements;

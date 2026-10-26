@@ -178,6 +178,27 @@ mobile(function () {
 
 The first test runs on iPhone and Android. The second test runs only while the current device is an iPhone.
 
+## Record a test
+
+`codegen` opens the app on one device and serves a page that shows its screen. Click the screen there to record a test.
+
+```bash
+php artisan nativephp:simulator codegen /form --ios
+php artisan nativephp:simulator codegen /controls --android --device="Pixel"
+```
+
+- **Tap mode** runs each click on the device, then adds the line. A field asks for the text to type. A switch or checkbox records `toggle()`. A tab records `changeTab()`, an alert button `alert()`, and Back `goBack()`.
+- **Assert mode** records a check for what you click: `assertSee()` for text, `assertValue()` for a field, `assertChecked()` for a switch, `assertNavTitle()` for the title. Press A to switch modes.
+- The buttons beside the screen scroll, go back, and close a sheet.
+
+Each control is named the way a test would find it: its accessibility id, then its label, then `within()` a container with an id, then `nth()`. A name is only kept when it finds that same control again. A step that fails is not recorded, and the page says why.
+
+**Save test** writes `tests/Simulator/<Name>Test.php`, wrapped in `mobile()`. It does not replace a file that is there. `--output` chooses another directory. Ctrl+C stops the recording and prints the test so far.
+
+The recording runs against the app as it is: its own database, with no fakes. A test's `screen()` copies in the test database first, so a screen that shows rows needs the same rows in the test. `--port` serves the page on another port than 8899.
+
+`select()`, `slide()`, `swipe()`, and long presses are not recorded yet. Write those lines by hand.
+
 ## Before the screen opens
 
 The first `screen()` on a device looks for a debug build. If that build is already installed, it does not compile again, and it does not start the app to check. On Android that is an app marked debuggable. On iOS it is a Simulator build of the app, which NativePHP always builds in its Debug configuration. If no debug build is installed, it runs `php artisan native:run` with `--build=debug`, then force-stops the app. Pass `--rebuild` to compile again anyway.
