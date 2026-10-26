@@ -417,3 +417,13 @@ it('writes a beforeEach that puts the starting rows back, parents first', functi
         PHP)
         ->and(Seed::code(Changes::snapshot($database), []))->toBe('');
 });
+
+it('names an iOS switch by its label, not by the value of the control inside it', function () use ($element) {
+    $labelled = $element('Notifications', [317, 132, 69, 28], 'Switch', ['checkable' => true, 'checked' => false, 'value' => '0']);
+    $inner = $element('0', [325, 132, 63, 28], 'Switch', ['checkable' => true, 'checked' => false, 'value' => '0']);
+    $selector = new Selector;
+
+    expect($selector->at([$labelled, $inner], 351, 146))->toBe($labelled)
+        ->and($selector->for([$labelled, $inner], $labelled)['target'])->toBe('Notifications')
+        ->and(fn () => $selector->for([$labelled, $inner], $inner))->toThrow(SimulatorException::class, 'no label or accessibility id');
+});

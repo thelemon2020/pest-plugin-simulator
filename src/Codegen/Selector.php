@@ -49,7 +49,7 @@ final class Selector
         }
 
         // Android reads a checkbox's square apart from its label, and only the label has a name.
-        $named = array_values(array_filter($under, fn (array $element): bool => $element['label'] !== '' || self::chosenId($element) !== null));
+        $named = array_values(array_filter($under, fn (array $element): bool => self::label($element) !== '' || self::chosenId($element) !== null));
         $under = $named === [] ? $under : $named;
 
         usort($under, fn (array $a, array $b): int => $this->area($a) <=> $this->area($b));
@@ -68,7 +68,7 @@ final class Selector
     public function for(array $elements, array $element): array
     {
         $names = array_values(array_unique(array_filter(
-            [self::chosenId($element), $element['label']],
+            [self::chosenId($element), self::label($element)],
             fn (?string $name): bool => $name !== null && $name !== '',
         )));
 
@@ -118,6 +118,25 @@ final class Selector
     {
         return in_array($element['role'], ['Button', 'Switch', 'TextField', 'TextView', 'Link', 'Cell', 'Slider'], true)
             || ($element['checkable'] ?? false);
+    }
+
+    /**
+     * The label that names a control. iOS reads a switch twice: the labelled one, and the
+     * control inside it, whose label is only its value, 0 or 1. That label changes when the
+     * switch is flipped, so it names nothing. A field's placeholder can be its label and its
+     * value at once, and does name it.
+     *
+     * @param  Element  $element
+     */
+    private static function label(array $element): string
+    {
+        $value = $element['value'] ?? null;
+
+        if (($element['role'] === 'Switch' || ($element['checkable'] ?? false)) && is_string($value) && $element['label'] === $value) {
+            return '';
+        }
+
+        return $element['label'];
     }
 
     /**
