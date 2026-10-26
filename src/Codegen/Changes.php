@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace NativePhp\Simulator\Codegen;
 
+use NativePhp\Simulator\Exceptions\SimulatorException;
 use PDO;
 use PDOException;
 
@@ -13,7 +14,7 @@ use PDOException;
  *
  * @phpstan-type Row array<string, int|float|string|null>
  * @phpstan-type Snapshot array<string, array<int, Row>>
- * @phpstan-type Change array{table: string, rowid: int, kind: 'added'|'changed', row: Row, changed: list<string>, count: int}
+ * @phpstan-type Change array{table: string, rowid: int, kind: 'added'|'changed', row: Row, changed: list<string>, suggested: list<string>, count: int}
  */
 final class Changes
 {
@@ -103,16 +104,13 @@ final class Changes
             foreach ($rows as $rowid => $row) {
                 $old = $before[$table][$rowid] ?? null;
 
-                if ($old === null) {
-                    $changes[] = ['table' => $table, 'rowid' => $rowid, 'kind' => 'added', 'row' => $row, 'changed' => array_keys($row), 'count' => count($rows)];
-
-                    continue;
-                }
-
-                $changed = array_keys(array_filter($row, fn ($value, string $column): bool => ($old[$column] ?? null) !== $value, ARRAY_FILTER_USE_BOTH));
+                $kind = $old === null ? 'added' : 'changed';
+                $changed = $old === null
+                    ? array_keys($row)
+                    : array_keys(array_filter($row, fn ($value, string $column): bool => ($old[$column] ?? null) !== $value, ARRAY_FILTER_USE_BOTH));
 
                 if ($changed !== []) {
-                    $changes[] = ['table' => $table, 'rowid' => $rowid, 'kind' => 'changed', 'row' => $row, 'changed' => $changed, 'count' => count($rows)];
+                    $changes[] = ['table' => $table, 'rowid' => $rowid, 'kind' => $kind, 'row' => $row, 'changed' => $changed, 'suggested' => self::suggested($row, $changed), 'count' => count($rows)];
                 }
             }
         }
@@ -121,26 +119,41 @@ final class Changes
     }
 
     /**
-     * The assertDatabaseHas() for a change: the columns it wrote, without the ones a test
-     * cannot know ahead of time. An id and a timestamp come out different on every run.
+     * The assertDatabaseHas() for a change, on $columns with the values the row has now. By
+     * default, the columns it suggests: those it wrote, without the ones a test cannot know
+     * ahead of time. An id and a timestamp come out different on every run.
      *
      * @param  Change  $change
+     * @param  list<string>|null  $columns
      */
-    public static function has(array $change): ?Step
+    public static function has(array $change, ?array $columns = null): ?Step
     {
         $data = [];
 
-        foreach ($change['changed'] as $column) {
-            $value = $change['row'][$column];
-
-            if ($column === 'id' || str_ends_with($column, '_at') || $column === 'remember_token' || $value === null) {
-                continue;
+        foreach ($columns ?? $change['suggested'] as $column) {
+            if (! array_key_exists($column, $change['row'])) {
+                throw new SimulatorException("[{$change['table']}] has no [{$column}] column.");
             }
 
-            $data[$column] = $value;
+            $data[$column] = $change['row'][$column];
         }
 
         return $data === [] ? null : new Step('assertDatabaseHas', [$change['table'], $data]);
+    }
+
+    /**
+     * Of the columns a step wrote, those a test can know ahead of time.
+     *
+     * @param  Row  $row
+     * @param  list<string>  $changed
+     * @return list<string>
+     */
+    private static function suggested(array $row, array $changed): array
+    {
+        return array_values(array_filter(
+            $changed,
+            fn (string $column): bool => $column !== 'id' && ! str_ends_with($column, '_at') && $column !== 'remember_token' && $row[$column] !== null,
+        ));
     }
 
     /**

@@ -312,3 +312,22 @@ it('writes arrays and null as PHP', function () {
     expect((new Step('assertDatabaseHas', ['orders', ['status' => "it's paid", 'note' => null, 'total' => 1.5]]))->code())
         ->toBe("->assertDatabaseHas('orders', ['status' => 'it\\'s paid', 'note' => null, 'total' => 1.5])");
 });
+
+it('suggests the columns a test can know, and checks the ones picked', function () use ($ordersTable) {
+    $database = $ordersTable();
+    $before = Changes::snapshot($database);
+    $database->exec("UPDATE orders SET status = 'paid', paid_at = '2026-10-26 09:00:00' WHERE id = 2");
+    [$paid] = Changes::between($before, Changes::snapshot($database));
+
+    expect($paid['suggested'])->toBe(['status'])
+        ->and(Changes::has($paid, ['id', 'status', 'note'])?->code())->toBe("->assertDatabaseHas('orders', ['id' => 2, 'status' => 'paid', 'note' => null])")
+        ->and(Changes::has($paid, []))->toBeNull();
+});
+
+it('refuses a column the row does not have', function () use ($ordersTable) {
+    $database = $ordersTable();
+    $before = Changes::snapshot($database);
+    $database->exec("UPDATE orders SET status = 'paid' WHERE id = 2");
+
+    Changes::has(Changes::between($before, Changes::snapshot($database))[0], ['nope']);
+})->throws(SimulatorException::class, '[orders] has no [nope] column.');

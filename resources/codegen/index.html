@@ -45,11 +45,13 @@
   .change .kind { font-size: 12px; font-weight: 500; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
   .change .kind.added { color: var(--assert); border-color: var(--assert); }
   .change .kind.changed { color: var(--accent); border-color: var(--accent); }
-  .change dl { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; font: 12px/1.5 ui-monospace, Menlo, monospace; }
-  .change dt { color: var(--muted); }
-  .change dd { margin: 0; word-break: break-word; }
-  .change .wrote { color: var(--ink); font-weight: 600; }
+  .change .columns { display: grid; grid-template-columns: max-content max-content 1fr; gap: 2px 10px; align-items: center; font: 12px/1.5 ui-monospace, Menlo, monospace; }
+  .change .columns label { display: contents; color: var(--muted); font-size: 12px; cursor: pointer; }
+  .change .columns input { margin: 0; accent-color: var(--accent); }
+  .change .columns .value { word-break: break-word; color: var(--ink); }
+  .change .columns .wrote { color: var(--ink); font-weight: 600; }
   .change .row button { font-size: 12px; padding: 4px 10px; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
   @media (max-width: 720px) {
     main { flex-direction: column; padding: 16px; }
     .device img { max-width: 100%; max-height: 70vh; }
@@ -87,7 +89,7 @@
       <button id="copy">Copy</button>
     </div>
     <h2>Database</h2>
-    <p class="hint">Rows the last action added or changed on the device. Checks change nothing, so the list stays until the next action.</p>
+    <p class="hint">Rows the last action added or changed on the device. Tick the columns to check. Checks change nothing, so the list stays until the next action.</p>
     <div class="changes" id="changes"></div>
   </div>
 </main>
@@ -130,6 +132,10 @@
   }
 
   // Built from the DOM, not markup: the values come from the app's database.
+  // The columns picked on each row, by table, rowid and what the row holds, so a row the
+  // next action writes again starts from what the server suggests.
+  const picked = new Map();
+
   function changes(database) {
     const list = $('changes');
     const key = JSON.stringify(database);
@@ -148,22 +154,39 @@
       const card = Object.assign(document.createElement('div'), { className: 'change' });
       const head = Object.assign(document.createElement('div'), { className: 'head', textContent: change.table });
       head.append(Object.assign(document.createElement('span'), { className: 'kind ' + change.kind, textContent: change.kind }));
-      const fields = document.createElement('dl');
+      // The columns to check start as the ones the server suggests, and keep what was
+      // picked when the list is drawn again.
+      const id = change.table + ':' + change.rowid + ':' + JSON.stringify(change.row);
+      if (!picked.has(id)) picked.set(id, new Set(change.suggested));
+      const chosen = picked.get(id);
+      const fields = Object.assign(document.createElement('div'), { className: 'columns' });
+      const buttons = Object.assign(document.createElement('div'), { className: 'row' });
+      const has = document.createElement('button');
+      const label = () => {
+        has.textContent = `assertDatabaseHas (${chosen.size} ${chosen.size === 1 ? 'column' : 'columns'})`;
+        has.disabled = chosen.size === 0;
+      };
       for (const [column, value] of Object.entries(change.row)) {
         const wrote = change.kind === 'changed' && change.changed.includes(column);
-        fields.append(
-          Object.assign(document.createElement('dt'), { className: wrote ? 'wrote' : '', textContent: column }),
-          Object.assign(document.createElement('dd'), { className: wrote ? 'wrote' : '', textContent: value === null ? 'null' : String(value) }),
+        const row = document.createElement('label');
+        const box = Object.assign(document.createElement('input'), { type: 'checkbox', checked: chosen.has(column) });
+        box.setAttribute('aria-label', 'Check ' + column);
+        box.addEventListener('change', () => { box.checked ? chosen.add(column) : chosen.delete(column); label(); });
+        row.append(
+          box,
+          Object.assign(document.createElement('span'), { className: wrote ? 'wrote' : '', textContent: column }),
+          Object.assign(document.createElement('span'), { className: 'value' + (wrote ? ' wrote' : ''), textContent: value === null ? 'null' : String(value) }),
         );
+        fields.append(row);
       }
-      const buttons = Object.assign(document.createElement('div'), { className: 'row' });
-      const check = (label, assert) => {
-        const button = Object.assign(document.createElement('button'), { textContent: label });
-        button.addEventListener('click', () => act('/database', { table: change.table, rowid: change.rowid, assert }, 'Checking the database…'));
-        buttons.append(button);
-      };
-      check('assertDatabaseHas', 'has');
-      if (change.kind === 'added') check(`assertDatabaseCount (${change.count})`, 'count');
+      label();
+      has.addEventListener('click', () => act('/database', { table: change.table, rowid: change.rowid, assert: 'has', columns: Object.keys(change.row).filter((column) => chosen.has(column)) }, 'Checking the database…'));
+      buttons.append(has);
+      if (change.kind === 'added') {
+        const count = Object.assign(document.createElement('button'), { textContent: `assertDatabaseCount (${change.count})` });
+        count.addEventListener('click', () => act('/database', { table: change.table, rowid: change.rowid, assert: 'count' }, 'Checking the database…'));
+        buttons.append(count);
+      }
       card.append(head, fields, buttons);
       list.append(card);
     }

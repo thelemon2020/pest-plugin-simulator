@@ -80,6 +80,7 @@ final class Server
                     (string) ($input['table'] ?? ''),
                     (int) ($input['rowid'] ?? 0),
                     ($input['assert'] ?? 'has') === 'count',
+                    self::columns($input['columns'] ?? null),
                 ) + ['code' => $this->session->script->chain()]),
                 'POST /undo' => self::json(['code' => $this->undo()]),
                 default => [404, 'text/plain', 'Not found'],
@@ -123,6 +124,16 @@ final class Server
         fwrite($client, "HTTP/1.1 {$status} ".($status === 200 ? 'OK' : 'Error')."\r\n"
             ."Content-Type: {$type}\r\nContent-Length: ".strlen($content)."\r\n"
             ."Cache-Control: no-store\r\nConnection: close\r\n\r\n".$content);
+    }
+
+    /**
+     * The columns a request picked: a list of names, or null to take the suggested ones.
+     *
+     * @return list<string>|null
+     */
+    private static function columns(mixed $columns): ?array
+    {
+        return is_array($columns) ? array_values(array_filter($columns, is_string(...))) : null;
     }
 
     /**

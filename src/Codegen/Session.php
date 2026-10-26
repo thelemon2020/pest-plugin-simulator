@@ -95,19 +95,22 @@ final class Session
     }
 
     /**
-     * Records a check on a row the last step wrote: assertDatabaseHas() with the columns it
-     * wrote, or with $count, assertDatabaseCount() for its table.
+     * Records a check on a row the last action wrote: assertDatabaseHas() on $columns, or on
+     * the ones it suggests, or with $count, assertDatabaseCount() for its table.
      *
+     * @param  list<string>|null  $columns
      * @return array{line: string}
      */
-    public function checkRow(string $table, int $rowid, bool $count = false): array
+    public function checkRow(string $table, int $rowid, bool $count = false, ?array $columns = null): array
     {
         $changes = $this->database()['changes'];
         $change = array_values(array_filter($changes, fn (array $change): bool => $change['table'] === $table && $change['rowid'] === $rowid))[0]
             ?? throw new SimulatorException("The last step did not write that row of [{$table}].");
 
-        $step = $count ? Changes::count($change) : (Changes::has($change)
-            ?? throw new SimulatorException('That row only changed its id or timestamps, which a test cannot know ahead of time.'));
+        $step = $count ? Changes::count($change) : (Changes::has($change, $columns)
+            ?? throw new SimulatorException($columns === null
+                ? 'That row only changed its id or timestamps, which a test cannot know ahead of time. Pick the columns to check.'
+                : 'Pick at least one column to check.'));
 
         return $this->run($step);
     }
