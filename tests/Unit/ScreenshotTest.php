@@ -9,6 +9,7 @@ use NativePhp\Simulator\Exceptions\SimulatorException;
 use NativePhp\Simulator\Run;
 use NativePhp\Simulator\Screen;
 use NativePhp\Simulator\Screenshots;
+use PHPUnit\Framework\Assert;
 use PHPUnit\Framework\AssertionFailedError;
 use Tests\Support\FakeDriver;
 
@@ -76,10 +77,12 @@ it('saves a baseline on the first run and passes', function () {
 it('passes when the screen matches its baseline', function () {
     [, $screen] = screenshotScreen(screenshotImage($this->root.'/now.png'), $this->failures);
     $screen->assertScreenshotMatches();
+    $before = Assert::getCount();
 
     $screen->assertScreenshotMatches();
 
-    expect(true)->toBeTrue();
+    // One assertion, as assertSee() counts, so a test made only of this is not risky.
+    expect(Assert::getCount() - $before)->toBe(1);
 });
 
 it('fails with how much changed, and saves the changed pixels', function () {
@@ -99,8 +102,6 @@ it('allows as many changed pixels as the threshold', function () {
     $driver->screen = screenshotImage($this->root.'/after.png', square: 4);
 
     $screen->assertScreenshotMatches(threshold: 0.01);
-
-    expect(true)->toBeTrue();
 });
 
 it('ignores colors a little apart, the way antialiasing moves them', function () {
@@ -109,8 +110,6 @@ it('ignores colors a little apart, the way antialiasing moves them', function ()
     $driver->screen = screenshotImage($this->root.'/after.png', color: [250, 248, 252]);
 
     $screen->assertScreenshotMatches();
-
-    expect(true)->toBeTrue();
 });
 
 it('fails a screenshot that is not the size of its baseline', function () {
