@@ -104,6 +104,8 @@
     try {
       state = await call('GET', '/state');
       code.textContent = state.code;
+      // The screen may have changed under a cursor that has not moved.
+      outline();
       await new Promise((resolve) => {
         const next = new Image();
         next.onload = next.onerror = resolve;
@@ -129,18 +131,15 @@
     return call('POST', '/pick', { x, y, mode });
   }
 
-  img.addEventListener('mousemove', async (event) => {
-    if (hovering || busy) return;
-    hovering = true;
-    let element;
-    try {
-      ({ element } = await pick(...toDevice(event)));
-    } catch {
-      return;
-    } finally {
-      hovering = false;
-    }
-    if (!element || !element.frame) { box.style.display = tip.style.display = 'none'; if (!element) return; }
+  // The last point the cursor was at over the screen, or null once it left.
+  let point = null;
+
+  function hide() {
+    box.style.display = tip.style.display = 'none';
+  }
+
+  function draw(element) {
+    if (!element) return hide();
     if (element.frame) {
       const scale = img.clientWidth / state.viewport[0];
       Object.assign(box.style, {
@@ -148,15 +147,43 @@
         left: element.frame[0] * scale + 'px', top: element.frame[1] * scale + 'px',
         width: element.frame[2] * scale + 'px', height: element.frame[3] * scale + 'px',
       });
+    } else {
+      box.style.display = 'none';
     }
     tip.style.display = 'block';
     tip.textContent = `${element.role || 'Element'}: ${element.label || element.id || '(no label)'}` + (element.id && element.label ? `  [${element.id}]` : '');
+  }
+
+  // One pick at a time. A move while one is out is not dropped: the pick after it is for
+  // where the cursor is now, so the outline never stays on a control it has left.
+  async function outline() {
+    if (hovering || busy || !point) return;
+    hovering = true;
+    try {
+      let asked, element;
+      do {
+        asked = point;
+        ({ element } = await pick(...asked));
+      } while (point && point !== asked && !busy);
+      if (point === asked) draw(element);
+    } catch {
+      hide();
+    } finally {
+      hovering = false;
+    }
+  }
+
+  img.addEventListener('mousemove', (event) => {
+    point = toDevice(event);
+    outline();
   });
-  img.addEventListener('mouseleave', () => { box.style.display = tip.style.display = 'none'; });
+  img.addEventListener('mouseleave', () => { point = null; hide(); });
 
   async function act(path, body, doing) {
     if (busy) return;
     busy = true;
+    // The step changes the screen, so the outline would be for one that is going away.
+    hide();
     say(doing);
     try {
       const result = await call('POST', path, body);
