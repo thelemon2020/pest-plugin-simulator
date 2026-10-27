@@ -29,6 +29,14 @@ final class Script
     }
 
     /**
+     * Drops every step, for a recording that starts over.
+     */
+    public function clear(): void
+    {
+        $this->lines = [];
+    }
+
+    /**
      * Drops the last step, and the title of the screen it led to.
      */
     public function undo(): void

@@ -20,16 +20,25 @@ use Throwable;
  * A test being recorded: the app open on one device, and each click turned into a step,
  * run on the screen, then kept.
  *
- * It opens the app as it is. A test's first screen() also copies in the test database and
- * the fakes; a recording runs against what the app already has.
+ * It opens the app as it is. Setup puts the rows a test starts from into the app first,
+ * the way a test's first screen() copies in its database, and starts the recording over.
  *
  * @phpstan-import-type Element from Driver
  * @phpstan-import-type Snapshot from Changes
  * @phpstan-import-type Change from Changes
+ * @phpstan-import-type ModelInfo from Models
  */
 final class Session
 {
     public readonly Script $script;
+
+    /**
+     * The rows applied to the app, which the test's beforeEach() makes too.
+     */
+    private Setup $setup;
+
+    /** @var list<ModelInfo>|null */
+    private ?array $models = null;
 
     /**
      * What the last state() read, for pick().
@@ -46,25 +55,6 @@ final class Session
      */
     private ?array $before = null;
 
-    /**
-     * The app's database when the recording first read it, for the beforeEach() that puts
-     * it back, and which tables point to which.
-     *
-     * @var Snapshot|null
-     */
-    private ?array $start = null;
-
-    /** @var array<string, list<string>> */
-    private array $references = [];
-
-    /**
-     * Tables a recorded database check names, which the seed needs even when the
-     * recording never wrote to them.
-     *
-     * @var array<string, true>
-     */
-    private array $checked = [];
-
     /** The title of the screen the recording is on, as the nav bar shows it. */
     private ?string $title = null;
 
@@ -73,8 +63,11 @@ final class Session
         private readonly Screen $screen,
         string $path,
         private readonly Selector $selector = new Selector,
+        private readonly ?string $modelsDirectory = null,
+        private readonly string $modelsNamespace = 'App\\Models',
     ) {
         $this->script = new Script($path);
+        $this->setup = new Setup([]);
     }
 
     public static function start(Device $device, string $path): self
@@ -95,14 +88,14 @@ final class Session
             timeoutSeconds: $configuration->timeout(),
             failureDirectory: $failures,
             firstLaunchSeconds: $driver->freshlyInstalled() ? Screen::FIRST_LAUNCH_SECONDS : 0.0,
-        ), $path);
+        ), $path, modelsDirectory: app_path('Models'), modelsNamespace: app()->getNamespace().'Models');
     }
 
     /**
      * What the page draws: the screen's size in the driver's own units, its controls, and the
      * test so far.
      *
-     * @return array{viewport: array{0: float, 1: float}, elements: list<Element>, code: string, database: array{changes: list<Change>, error: string|null}, seed: list<array{name: string, rows: int, touched: bool}>}
+     * @return array{viewport: array{0: float, 1: float}, elements: list<Element>, code: string, database: array{changes: list<Change>, error: string|null}, setup: list<array{model: string, rows: int}>, setupCode: string}
      */
     public function state(): array
     {
@@ -114,49 +107,115 @@ final class Session
             'elements' => $this->seen,
             'code' => $this->script->chain(),
             'database' => $this->database(),
-            'seed' => $this->tables(),
+            'setup' => array_map(fn (array $entry): array => ['model' => $entry['model']['name'], 'rows' => count($entry['rows'])], $this->setup->entries),
+            'setupCode' => $this->setupCode(),
         ];
     }
 
     /**
-     * The beforeEach() that puts $tables back as the recording found them.
+     * The app's models a test can start with rows of.
      *
-     * @param  list<string>  $tables
+     * @return list<ModelInfo>
      */
-    public function seed(array $tables): string
+    public function models(): array
     {
-        if ($this->start === null) {
-            throw new SimulatorException("The app's database has not been read yet.");
-        }
-
-        return Seed::code($this->start, $tables, $this->references);
+        return $this->models ??= $this->modelsDirectory === null ? [] : Models::in($this->modelsDirectory, $this->modelsNamespace);
     }
 
     /**
-     * Every table the recording found, with its rows then, and whether the recording wrote
-     * to it or checked it.
+     * $count rows of a model to start from, for the page to show and edit.
      *
-     * @return list<array{name: string, rows: int, touched: bool}>
+     * @return list<array<string, string|null>>
      */
-    private function tables(): array
+    public function rows(string $class, int $count): array
     {
-        if ($this->start === null) {
-            return [];
+        return Models::rows($this->model($class), max(1, min($count, 100)));
+    }
+
+    /**
+     * Puts the rows into the app and opens the first screen again. The recording starts
+     * over, since its steps were made against the rows that were there before.
+     *
+     * @param  array<array-key, mixed>  $entries  [{class, rows: [{column: value}]}], as the page sends them
+     */
+    public function applySetup(array $entries): void
+    {
+        $setup = [];
+
+        foreach ($entries as $entry) {
+            if (! is_array($entry) || ! is_string($entry['class'] ?? null)) {
+                continue;
+            }
+
+            $model = $this->model($entry['class']);
+            $rows = array_values(array_map(
+                fn (mixed $row): array => Models::values($model, is_array($row) ? $row : []),
+                is_array($entry['rows'] ?? null) ? $entry['rows'] : [],
+            ));
+
+            if ($rows !== []) {
+                $setup[] = ['model' => $model, 'rows' => $rows];
+            }
         }
 
-        try {
-            $written = array_column(Changes::between($this->start, $this->snapshot()), 'table');
-        } catch (Throwable) {
-            $written = [];
+        $setup = new Setup($setup);
+        $setup->apply($this->driver);
+        $this->setup = $setup;
+
+        $this->driver->open(Configuration::resolve()->urlFor($this->script->path));
+        DeviceDatabase::forget();
+        $this->script->clear();
+        $this->title = null;
+        $this->before = null;
+    }
+
+    /**
+     * The beforeEach() for what was applied, with its use lines.
+     */
+    private function setupCode(): string
+    {
+        ['uses' => $uses, 'code' => $code] = $this->setup->code();
+
+        return $code === '' ? '' : implode("\n", $uses)."\n\n".$code;
+    }
+
+    /**
+     * The whole test: the use lines, the beforeEach() for the setup, and the recording in
+     * an it() inside mobile().
+     */
+    public function file(string $name): string
+    {
+        ['uses' => $uses, 'code' => $setup] = $this->setup->code();
+        $chain = implode("\n", array_map(fn (string $line): string => '        '.$line, explode("\n", $this->script->chain())));
+        $parts = ['<?php'];
+
+        if ($uses !== []) {
+            $parts[] = implode("\n", $uses);
         }
 
-        $tables = [];
-
-        foreach ($this->start as $name => $rows) {
-            $tables[] = ['name' => $name, 'rows' => count($rows), 'touched' => in_array($name, $written, true) || isset($this->checked[$name])];
+        if ($setup !== '') {
+            $parts[] = $setup;
         }
 
-        return $tables;
+        $parts[] = "mobile(function () {\n    it(".Step::literal($name !== '' ? $name : 'goes through the recorded flow').", function () {\n{$chain}\n    });\n});";
+
+        return implode("\n\n", $parts)."\n";
+    }
+
+    /**
+     * One of the app's models, by its class: only a model the page was offered.
+     *
+     * @return ModelInfo
+     */
+    private function model(string $class): array
+    {
+        foreach ($this->models() as $model) {
+            if ($model['class'] === $class) {
+                return $model;
+            }
+        }
+
+        throw new SimulatorException("[{$class}] is not one of the app's models.");
     }
 
     /**
@@ -197,10 +256,7 @@ final class Session
                 ? 'That row only changed its id or timestamps, which a test cannot know ahead of time. Pick the columns to check.'
                 : 'Pick at least one column to check.'));
 
-        $line = $this->run($step);
-        $this->checked[$table] = true;
-
-        return $line;
+        return $this->run($step);
     }
 
     /**
@@ -218,7 +274,6 @@ final class Session
         }
 
         $this->before ??= $now;
-        $this->start ??= $now;
 
         return ['changes' => Changes::between($this->before, $now), 'error' => null];
     }
@@ -231,13 +286,8 @@ final class Session
         // One pull serves a Screen step. Here each read is a new look, and the digest keeps
         // it from pulling a database the app has not written to.
         DeviceDatabase::forget();
-        $database = DeviceDatabase::open($this->driver);
 
-        if ($this->start === null) {
-            $this->references = Seed::references($database);
-        }
-
-        return Changes::snapshot($database);
+        return Changes::snapshot(DeviceDatabase::open($this->driver));
     }
 
     public function screenshot(): string

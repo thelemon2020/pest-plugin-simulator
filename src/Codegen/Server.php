@@ -83,13 +83,26 @@ final class Server
                     self::columns($input['columns'] ?? null),
                 ) + ['code' => $this->session->script->chain()]),
                 'POST /open' => self::json($this->session->open((string) ($input['path'] ?? '')) + ['code' => $this->session->script->chain()]),
-                'POST /seed' => self::json(['code' => $this->session->seed(self::columns($input['tables'] ?? null) ?? [])]),
+                'GET /models' => self::json(['models' => $this->session->models()]),
+                'POST /rows' => self::json(['rows' => $this->session->rows((string) ($input['class'] ?? ''), (int) ($input['count'] ?? 1))]),
+                'POST /setup' => self::json($this->setup($input['models'] ?? null)),
+                'POST /file' => self::json(['code' => $this->session->file((string) ($input['name'] ?? ''))]),
                 'POST /undo' => self::json(['code' => $this->undo()]),
                 default => [404, 'text/plain', 'Not found'],
             };
         } catch (SimulatorException $exception) {
             return self::json(['error' => $exception->getMessage()], 422);
         }
+    }
+
+    /**
+     * @return array{code: string}
+     */
+    private function setup(mixed $models): array
+    {
+        $this->session->applySetup(is_array($models) ? $models : []);
+
+        return ['code' => $this->session->script->chain()];
     }
 
     private function undo(): string
@@ -129,7 +142,7 @@ final class Server
     }
 
     /**
-     * The names a request picked, columns or tables: a list of names, or null for none given.
+     * The columns a request picked: a list of names, or null to take the suggested ones.
      *
      * @return list<string>|null
      */

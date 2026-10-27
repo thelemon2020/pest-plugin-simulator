@@ -46,11 +46,26 @@
   .change .kind { font-size: 12px; font-weight: 500; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
   .change .kind.added { color: var(--assert); border-color: var(--assert); }
   .change .kind.changed { color: var(--accent); border-color: var(--accent); }
-  .tables { display: grid; grid-template-columns: max-content max-content 1fr; gap: 4px 10px; align-items: center; font: 12px/1.5 ui-monospace, Menlo, monospace; }
-  .tables label { display: contents; color: var(--muted); font-size: 12px; cursor: pointer; }
-  .tables input { margin: 0; accent-color: var(--accent); }
-  .tables .wrote { color: var(--ink); font-weight: 600; }
-  .tables .value { color: var(--muted); }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+  .tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 8px 14px; color: var(--muted); font-weight: 600; }
+  .tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+  section[role="tabpanel"] { display: flex; flex-direction: column; gap: 14px; }
+  section[hidden] { display: none; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  select { font: inherit; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); }
+  #count { flex: none; width: 72px; }
+  .entries { display: flex; flex-direction: column; gap: 10px; }
+  .entry { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--panel); display: flex; flex-direction: column; gap: 8px; }
+  .entry .head { display: flex; gap: 8px; align-items: baseline; font-weight: 600; }
+  .entry .head .table { color: var(--muted); font: 12px ui-monospace, Menlo, monospace; font-weight: 400; }
+  .entry .head .remove { margin-left: auto; }
+  .entry .grid { overflow-x: auto; }
+  .entry table { border-collapse: collapse; font: 12px/1.4 ui-monospace, Menlo, monospace; }
+  .entry th { text-align: left; color: var(--muted); font-weight: 500; padding: 0 6px 4px 0; white-space: nowrap; }
+  .entry td { padding: 2px 6px 2px 0; }
+  .entry td input { font: 12px ui-monospace, Menlo, monospace; padding: 4px 6px; min-width: 110px; width: 100%; }
+  .entry td input::placeholder { color: var(--muted); font-style: italic; }
+  .entry td button, .entry .head button { font-size: 12px; padding: 3px 8px; }
   .change .columns { display: grid; grid-template-columns: max-content max-content 1fr; gap: 2px 10px; align-items: center; font: 12px/1.5 ui-monospace, Menlo, monospace; }
   .change .columns label { display: contents; color: var(--muted); font-size: 12px; cursor: pointer; }
   .change .columns input { margin: 0; accent-color: var(--accent); }
@@ -74,42 +89,62 @@
   </div>
   <div class="side">
     <h1>Record a test</h1>
-    <div class="row">
-      <div class="seg" role="group" aria-label="Mode">
-        <button id="mode-tap" aria-pressed="true">Tap</button>
-        <button id="mode-assert" aria-pressed="false">Assert</button>
-      </div>
-      <button data-press="scroll-down">Scroll down</button>
-      <button data-press="scroll-up">Scroll up</button>
-      <button data-press="back">Back</button>
-      <button data-press="dismiss">Close sheet</button>
-      <button data-press="relaunch">Relaunch</button>
-    </div>
-    <p class="hint">Tap mode runs what you click on the device and records it. Assert mode records a check for what you click. Press A to switch.</p>
-    <form class="row" id="open">
-      <label for="route">Open a route</label>
-      <input id="route" placeholder="/settings" autocomplete="off">
-      <button type="submit">Open</button>
-    </form>
-    <div class="row">
-      <label for="text">Text for the next field</label>
-      <input id="text" placeholder="Ada Lovelace" autocomplete="off">
+    <div class="tabs" role="tablist" aria-label="Steps">
+      <button role="tab" id="tab-setup" aria-controls="panel-setup" aria-selected="true">1. Setup</button>
+      <button role="tab" id="tab-record" aria-controls="panel-record" aria-selected="false">2. Record</button>
     </div>
     <div class="status" id="status">Connecting…</div>
-    <pre id="code"></pre>
-    <div class="row">
-      <button id="undo">Undo last line</button>
-      <button id="copy">Copy</button>
-    </div>
-    <h2>Database</h2>
-    <p class="hint">Rows the last action added or changed on the device. Tick the columns to check. Checks change nothing, so the list stays until the next action.</p>
-    <div class="changes" id="changes"></div>
-    <h2>Starting data</h2>
-    <p class="hint">Tables as the app had them when the recording started. The ones the recording wrote or checked start ticked. Copy a beforeEach() that puts them back, so the test starts from the same rows.</p>
-    <div class="tables" id="tables"></div>
-    <div class="row">
-      <button id="copy-seed">Copy beforeEach()</button>
-    </div>
+
+    <section id="panel-setup" role="tabpanel" aria-labelledby="tab-setup">
+      <p class="hint">The rows the test starts with. Add rows of a model, edit them, then apply them: the app gets exactly these rows, and the recording starts over on its first screen. The test's beforeEach() makes the same rows.</p>
+      <form class="row" id="add-model">
+        <label for="model">Model</label>
+        <select id="model" aria-label="Model"></select>
+        <label for="count">Rows</label>
+        <input id="count" type="number" min="1" max="100" value="3">
+        <button type="submit">Add rows</button>
+      </form>
+      <div class="entries" id="entries"></div>
+      <div class="row">
+        <button id="apply" class="primary">Apply to the app</button>
+        <span class="hint" id="applied">Nothing applied yet. The app keeps the rows it has.</span>
+      </div>
+      <h2>beforeEach()</h2>
+      <pre id="setup-code"></pre>
+    </section>
+
+    <section id="panel-record" role="tabpanel" aria-labelledby="tab-record" hidden>
+      <div class="row">
+        <div class="seg" role="group" aria-label="Mode">
+          <button id="mode-tap" aria-pressed="true">Tap</button>
+          <button id="mode-assert" aria-pressed="false">Assert</button>
+        </div>
+        <button data-press="scroll-down">Scroll down</button>
+        <button data-press="scroll-up">Scroll up</button>
+        <button data-press="back">Back</button>
+        <button data-press="dismiss">Close sheet</button>
+        <button data-press="relaunch">Relaunch</button>
+      </div>
+      <p class="hint">Tap mode runs what you click on the device and records it. Assert mode records a check for what you click. Press A to switch.</p>
+      <form class="row" id="open">
+        <label for="route">Open a route</label>
+        <input id="route" placeholder="/settings" autocomplete="off">
+        <button type="submit">Open</button>
+      </form>
+      <div class="row">
+        <label for="text">Text for the next field</label>
+        <input id="text" placeholder="Ada Lovelace" autocomplete="off">
+      </div>
+      <pre id="code"></pre>
+      <div class="row">
+        <button id="undo">Undo last line</button>
+        <input id="test-name" placeholder="What the test does, e.g. pays the second order" autocomplete="off">
+        <button id="copy" class="primary">Copy test</button>
+      </div>
+      <h2>Database</h2>
+      <p class="hint">Rows the last action added or changed on the device. Tick the columns to check. Checks change nothing, so the list stays until the next action.</p>
+      <div class="changes" id="changes"></div>
+    </section>
   </div>
 </main>
 <script>
@@ -147,7 +182,7 @@
       }
       code.textContent = state.code;
       changes(state.database);
-      tables(state.seed);
+      setupState(state);
       // The screen may have changed under a cursor that has not moved.
       outline();
       await new Promise((resolve) => {
@@ -228,34 +263,150 @@
     }
   }
 
-  // A table the viewer ticked or unticked keeps that. One they left alone follows whether
-  // the recording has touched it yet.
-  const seedPicks = new Map();
-  const seeded = (table) => seedPicks.has(table.name) ? seedPicks.get(table.name) : table.touched;
-
-  function tables(list) {
-    const box = $('tables');
-    const key = JSON.stringify(list) + JSON.stringify([...seedPicks]);
-    if (box.dataset.key === key) return;
-    box.dataset.key = key;
-    box.replaceChildren();
-    if (!list || !list.length) {
-      box.append(Object.assign(document.createElement('p'), { className: 'hint', textContent: "The app's database has not been read yet." }));
-      return;
-    }
-    for (const table of list) {
-      const row = document.createElement('label');
-      const tick = Object.assign(document.createElement('input'), { type: 'checkbox', checked: seeded(table) });
-      tick.setAttribute('aria-label', 'Seed ' + table.name);
-      tick.addEventListener('change', () => { seedPicks.set(table.name, tick.checked); tables(state.seed); });
-      row.append(
-        tick,
-        Object.assign(document.createElement('span'), { className: table.touched ? 'wrote' : '', textContent: table.name }),
-        Object.assign(document.createElement('span'), { className: 'value', textContent: `${table.rows} ${table.rows === 1 ? 'row' : 'rows'}` }),
-      );
-      box.append(row);
+  // Tabs: set up the rows first, then record against them.
+  function show(tab) {
+    for (const name of ['setup', 'record']) {
+      $('tab-' + name).setAttribute('aria-selected', String(name === tab));
+      $('panel-' + name).hidden = name !== tab;
     }
   }
+  $('tab-setup').addEventListener('click', () => show('setup'));
+  $('tab-record').addEventListener('click', () => show('record'));
+
+  // The rows being set up, one entry per model, as the page edits them. What was applied
+  // last is kept as JSON, to tell an edit that has not reached the app yet.
+  let models = [];
+  let entries = [];
+  let applied = JSON.stringify([]);
+
+  async function loadModels() {
+    try {
+      models = (await call('GET', '/models')).models;
+    } catch (error) {
+      return say(error.message, true);
+    }
+    const select = $('model');
+    select.replaceChildren(...models.map((model) => Object.assign(document.createElement('option'), {
+      value: model.class,
+      textContent: model.name + (model.factory ? '' : ' (no factory)'),
+    })));
+    if (!models.length) {
+      select.append(Object.assign(document.createElement('option'), { textContent: 'No models found in app/Models', disabled: true }));
+      $('add-model').querySelector('button').disabled = true;
+    }
+    drawEntries();
+  }
+
+  $('add-model').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const model = models.find((model) => model.class === $('model').value);
+    if (!model) return;
+    try {
+      const { rows } = await call('POST', '/rows', { class: model.class, count: Number($('count').value) || 1 });
+      let entry = entries.find((entry) => entry.class === model.class);
+      if (!entry) entries.push(entry = { class: model.class, rows: [] });
+      entry.rows.push(...rows);
+      drawEntries();
+      say(`Added ${rows.length} ${model.name} ${rows.length === 1 ? 'row' : 'rows'}${model.factory ? ', made by its factory' : ', from the column defaults'}. Edit them, then apply.`);
+    } catch (error) {
+      say(error.message, true);
+    }
+  });
+
+  function drawEntries() {
+    const list = $('entries');
+    list.replaceChildren();
+    for (const entry of entries) {
+      const model = models.find((model) => model.class === entry.class);
+      if (!model) continue;
+      const card = Object.assign(document.createElement('div'), { className: 'entry' });
+      const head = Object.assign(document.createElement('div'), { className: 'head', textContent: model.name });
+      head.append(Object.assign(document.createElement('span'), { className: 'table', textContent: model.table }));
+      const more = Object.assign(document.createElement('button'), { textContent: 'Add a row' });
+      more.addEventListener('click', async () => {
+        const { rows } = await call('POST', '/rows', { class: model.class, count: 1 });
+        entry.rows.push(...rows);
+        drawEntries();
+      });
+      const remove = Object.assign(document.createElement('button'), { className: 'remove', textContent: 'Remove ' + model.name });
+      remove.addEventListener('click', () => { entries = entries.filter((other) => other !== entry); drawEntries(); });
+      head.append(more, remove);
+
+      const table = document.createElement('table');
+      const header = document.createElement('tr');
+      for (const column of model.columns) header.append(Object.assign(document.createElement('th'), { textContent: column.name, title: column.type + (column.nullable ? ', nullable' : '') }));
+      header.append(document.createElement('th'));
+      table.append(header);
+      entry.rows.forEach((row, index) => {
+        const tr = document.createElement('tr');
+        for (const column of model.columns) {
+          const input = Object.assign(document.createElement('input'), {
+            value: row[column.name] ?? '',
+            placeholder: column.nullable ? 'null' : '',
+          });
+          input.setAttribute('aria-label', `${model.name} ${index + 1} ${column.name}`);
+          input.addEventListener('input', () => { row[column.name] = input.value; drawApplied(); });
+          const cell = document.createElement('td');
+          cell.append(input);
+          tr.append(cell);
+        }
+        const drop = Object.assign(document.createElement('button'), { textContent: '×', title: 'Remove this row' });
+        drop.setAttribute('aria-label', `Remove ${model.name} ${index + 1}`);
+        drop.addEventListener('click', () => {
+          entry.rows.splice(index, 1);
+          if (!entry.rows.length) entries = entries.filter((other) => other !== entry);
+          drawEntries();
+        });
+        const last = document.createElement('td');
+        last.append(drop);
+        tr.append(last);
+        table.append(tr);
+      });
+      const grid = Object.assign(document.createElement('div'), { className: 'grid' });
+      grid.append(table);
+      card.append(head, grid);
+      list.append(card);
+    }
+    drawApplied();
+  }
+
+  function drawApplied(summary) {
+    const pending = JSON.stringify(entries) !== applied;
+    $('apply').textContent = pending ? 'Apply to the app' : 'Applied';
+    $('apply').disabled = !pending;
+    if (pending) {
+      $('applied').textContent = 'Not applied yet. Applying restarts the app with these rows and starts the recording over.';
+    } else if (summary !== undefined) {
+      $('applied').textContent = summary.length
+        ? 'The app has ' + summary.map((entry) => `${entry.rows} ${entry.model}`).join(', ') + '. Record against them on the Record tab.'
+        : 'Nothing applied. The app keeps the rows it has.';
+    }
+  }
+
+  function setupState(state) {
+    $('setup-code').textContent = state.setupCode || '// Apply rows to see the beforeEach() the test gets.';
+    if (JSON.stringify(entries) === applied) drawApplied(state.setup);
+  }
+
+  $('apply').addEventListener('click', async () => {
+    if (busy) return;
+    busy = true;
+    hide();
+    say('Putting the rows into the app and restarting it…');
+    try {
+      const result = await call('POST', '/setup', { models: entries });
+      applied = JSON.stringify(entries);
+      code.textContent = result.code;
+      say('Applied. The recording starts over on the first screen.');
+      show('record');
+    } catch (error) {
+      say(error.message, true);
+    } finally {
+      busy = false;
+      drawApplied();
+      refresh();
+    }
+  });
 
   // The device's own units: points on iOS, pixels on Android.
   function toDevice(event) {
@@ -371,7 +522,7 @@
   $('mode-tap').addEventListener('click', () => setMode('tap'));
   $('mode-assert').addEventListener('click', () => setMode('assert'));
   document.addEventListener('keydown', (event) => {
-    if (event.key.toLowerCase() === 'a' && !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
+    if (event.key.toLowerCase() === 'a' && !$('panel-record').hidden && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
       setMode(mode === 'tap' ? 'assert' : 'tap');
     }
   });
@@ -397,17 +548,10 @@
   }
 
   $('copy').addEventListener('click', async () => {
-    if (!await copy(code.textContent)) return say('The browser did not allow copying. Select the code and copy it.', true);
-    say('Copied. Paste it into a test inside mobile().');
-  });
-
-  $('copy-seed').addEventListener('click', async () => {
-    const chosen = (state.seed || []).filter(seeded).map((table) => table.name);
-    if (!chosen.length) return say('Tick a table to seed first.', true);
     try {
-      const result = await call('POST', '/seed', { tables: chosen });
-      if (!await copy(result.code)) return say('The browser did not allow copying.', true);
-      say(`Copied a beforeEach() for ${chosen.join(', ')}. Paste it above mobile().`);
+      const result = await call('POST', '/file', { name: $('test-name').value.trim() });
+      if (!await copy(result.code)) return say('The browser did not allow copying. Select the code and copy it.', true);
+      say('Copied the whole test, with its beforeEach(). Paste it into a file in tests/.');
     } catch (error) {
       say(error.message, true);
     }
@@ -425,7 +569,8 @@
     if (!busy && document.visibilityState === 'visible') await refresh();
     setTimeout(follow, 1500);
   }
-  refresh().then(() => say('Ready. Click the screen to record a step.'));
+  loadModels();
+  refresh().then(() => say('Ready. Set up rows to start from, or go to Record.'));
   setTimeout(follow, 1500);
 </script>
 </body>

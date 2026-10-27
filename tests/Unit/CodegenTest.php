@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 use NativePhp\Simulator\Codegen\Changes;
 use NativePhp\Simulator\Codegen\Script;
-use NativePhp\Simulator\Codegen\Seed;
 use NativePhp\Simulator\Codegen\Selector;
 use NativePhp\Simulator\Codegen\Server;
 use NativePhp\Simulator\Codegen\Session;
@@ -386,36 +385,6 @@ it('opens a route by its path, and refuses anything else', function () {
     } finally {
         Configuration::reset();
     }
-});
-
-it('writes a beforeEach that puts the starting rows back, parents first', function () {
-    $database = new PDO('sqlite::memory:');
-    $database->exec('CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)');
-    $database->exec('CREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER REFERENCES users(id), total INTEGER, note TEXT)');
-    $database->exec('CREATE TABLE tags (id INTEGER PRIMARY KEY, name TEXT)');
-    $database->exec("INSERT INTO users (name) VALUES ('Ada')");
-    $database->exec('INSERT INTO orders (user_id, total) VALUES (1, 1200), (1, 4200)');
-
-    $code = Seed::code(Changes::snapshot($database), ['orders', 'users', 'tags', 'missing'], Seed::references($database));
-
-    expect($code)->toBe(<<<'PHP'
-        use Illuminate\Support\Facades\DB;
-
-        beforeEach(function () {
-            DB::table('tags')->delete();
-            DB::table('orders')->delete();
-            DB::table('users')->delete();
-            DB::table('users')->insert([
-                ['id' => 1, 'name' => 'Ada'],
-            ]);
-            DB::table('orders')->insert([
-                ['id' => 1, 'user_id' => 1, 'total' => 1200, 'note' => null],
-                ['id' => 2, 'user_id' => 1, 'total' => 4200, 'note' => null],
-            ]);
-        });
-
-        PHP)
-        ->and(Seed::code(Changes::snapshot($database), []))->toBe('');
 });
 
 it('names an iOS switch by its label, not by the value of the control inside it', function () use ($element) {
