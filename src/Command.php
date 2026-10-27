@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace NativePhp\Simulator;
 
+use Closure;
 use NativePhp\Simulator\Exceptions\CommandTimedOut;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 
@@ -33,6 +34,11 @@ class Command
 
     /** The longest wait between two looks at a command's pipes. */
     private const float POLL = 0.02;
+
+    /** @var array<int, Closure(): void> what stops each command run() is still waiting on, by id */
+    private static array $running = [];
+
+    private static int $next = 0;
 
     /**
      * @param  list<string>  $arguments
@@ -135,9 +141,16 @@ class Command
             throw new SimulatorException('Could not run '.implode(' ', $command));
         }
 
-        $deadline = $started + $timeout;
-        $output = $this->exchange($process, $pipes, $stdin, $deadline);
-        $exit = $output === null ? null : $this->exitCode($process, $deadline);
+        $id = self::$next++;
+        self::$running[$id] = fn () => $this->kill($process, $pipes);
+
+        try {
+            $deadline = $started + $timeout;
+            $output = $this->exchange($process, $pipes, $stdin, $deadline);
+            $exit = $output === null ? null : $this->exitCode($process, $deadline);
+        } finally {
+            unset(self::$running[$id]);
+        }
 
         if ($output === null || $exit === null) {
             $this->kill($process, $pipes);
@@ -156,6 +169,19 @@ class Command
         }
 
         return $stdout;
+    }
+
+    /**
+     * Stops every command a call here is still waiting on, and what each started. Only a
+     * signal handler can find one: it runs on top of the call, which never gets to finish.
+     * Left running, a command outlives this process, and keeps what it inherited. A
+     * `simctl io screenshot` kept codegen's listening socket, and its port, for minutes.
+     */
+    public static function stopRunning(): void
+    {
+        while (($stop = array_pop(self::$running)) !== null) {
+            $stop();
+        }
     }
 
     /**
