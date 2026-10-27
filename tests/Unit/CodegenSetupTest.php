@@ -71,7 +71,7 @@ it('types what the page sent by the columns', function () {
     expect($values)->toBe(['name' => 'Lamp', 'status' => 'live', 'price' => 1200, 'note' => null]);
 });
 
-it('writes a beforeEach that empties each table and creates its rows', function () {
+it('writes the lines that empty each table and create its rows', function () {
     $setup = new Setup([
         ['model' => Models::describe(Gadget::class), 'rows' => [['name' => 'Lamp', 'status' => 'live', 'price' => 1200, 'note' => null]]],
         ['model' => Models::describe(Widget::class), 'rows' => [['label' => 'Cog', 'size' => 3], ['label' => "It's", 'size' => 4]]],
@@ -80,13 +80,11 @@ it('writes a beforeEach that empties each table and creates its rows', function 
     expect($setup->code())->toBe([
         'uses' => ['use Tests\Support\Codegen\Gadget;', 'use Tests\Support\Codegen\Widget;'],
         'code' => <<<'PHP'
-            beforeEach(function () {
-                Widget::withTrashed()->forceDelete();
-                Gadget::query()->delete();
-                Gadget::create(['name' => 'Lamp', 'status' => 'live', 'price' => 1200, 'note' => null]);
-                Widget::forceCreate(['label' => 'Cog', 'size' => 3]);
-                Widget::forceCreate(['label' => 'It\'s', 'size' => 4]);
-            });
+            Widget::withTrashed()->forceDelete();
+            Gadget::query()->delete();
+            Gadget::create(['name' => 'Lamp', 'status' => 'live', 'price' => 1200, 'note' => null]);
+            Widget::forceCreate(['label' => 'Cog', 'size' => 3]);
+            Widget::forceCreate(['label' => 'It\'s', 'size' => 4]);
             PHP,
     ])
         ->and((new Setup([]))->code())->toBe(['uses' => [], 'code' => '']);
@@ -123,13 +121,11 @@ it('applies the setup, starts the recording over, and writes the whole test', fu
 
                 use Tests\Support\Codegen\Gadget;
 
-                beforeEach(function () {
-                    Gadget::query()->delete();
-                    Gadget::create(['name' => 'Lamp', 'price' => 5]);
-                });
-
                 mobile(function () {
                     it('lists a gadget', function () {
+                        Gadget::query()->delete();
+                        Gadget::create(['name' => 'Lamp', 'price' => 5]);
+
                         screen('/gadgets');
                     });
                 });

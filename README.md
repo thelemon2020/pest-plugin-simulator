@@ -196,21 +196,26 @@ Each control is named the way a test would find it: its accessibility id, then i
 
 The **Database** panel lists the rows the last action added or changed in the app's database, read from the device after it, so a write that lands late shows up too. A check, such as `assertSee()`, changes nothing, so the list stays. Each row has a checkbox per column. The ones the action wrote start ticked, except an id, a column ending in `_at`, and a null, since a test run gets other ones. Tick or untick columns, then click **assertDatabaseHas** to check those columns with the values the row has now. A null checks that the column is null. Click **assertDatabaseCount** on an added row to check how many rows its table has. Both run once on the device before they are kept. The panel skips Laravel's own tables, such as `migrations`, `cache`, and `jobs`, and any table with more than 5,000 rows.
 
-The page has two tabs. **Setup** comes first: it says which rows the test starts with. Pick a model from `app/Models` and a number of rows, then **Add rows**. A model with a factory gets rows its factory makes. One without starts from its columns' defaults. Each row shows an input per column the model can fill, and every value can be edited. An empty value in a column that allows null is null. **Apply to the app** empties those models' tables in a copy of the app's database, creates the rows, and installs the copy on the device, as a test's first `screen()` does. Then it opens the first screen again, and the recording starts over. The page shows the `beforeEach()` the test gets:
+The page has two tabs. **Setup** comes first: it says which rows the test starts with. Pick a model from `app/Models` and a number of rows, then **Add rows**. A model with a factory gets rows its factory makes. One without starts from its columns' defaults. Each row shows an input per column the model can fill, and every value can be edited. An empty value in a column that allows null is null. **Apply to the app** empties those models' tables in a copy of the app's database, creates the rows, and installs the copy on the device, as a test's first `screen()` does. Then it opens the first screen again, and the recording starts over. The page shows the lines the test runs before its `screen()`:
 
 ```php
-beforeEach(function () {
+it('pays the second order', function () {
     Order::query()->delete();
     Order::create(['status' => 'unpaid', 'total' => 1200]);
     Order::create(['status' => 'unpaid', 'total' => 4200]);
+
+    screen('/orders')
+        ->nth(2)->tap('Pay');
 });
 ```
+
+The test's first `screen()` copies its database into the app, so those rows reach the app as they did when you applied them.
 
 The copy starts from the database the test starts from, so the rows get the same ids in both. Models are emptied in the reverse of the order they were added, and filled in that order, so add a model before the ones that point to it. A model without a fillable list is created with `forceCreate()`, and one with soft deletes is emptied with `forceDelete()`.
 
 **Record** has everything else.
 
-**Copy test** puts the whole test file on the clipboard: the `use` lines, the `beforeEach()`, and the recording in an `it()` inside `mobile()`, named by what you type next to it. Ctrl+C stops the recording and prints the chain.
+**Copy test** puts the whole test file on the clipboard: the `use` lines, and an `it()` inside `mobile()` with the setup lines, then the recording, named by what you type next to it. Ctrl+C stops the recording and prints the chain.
 
 Until rows are applied, the recording runs against the app as it is: its own database, with no fakes. A test's `screen()` copies in the test database first, so a screen that shows rows needs the same rows in the test. Set them up on the Setup tab, and recorded ids and counts hold. `--port` serves the page on another port than 8899.
 

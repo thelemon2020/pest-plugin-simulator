@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace NativePhp\Simulator\Codegen;
 
+use Illuminate\Foundation\Application;
 use NativePhp\Simulator\Configuration;
 use NativePhp\Simulator\Device;
 use NativePhp\Simulator\DeviceDatabase;
@@ -33,7 +34,7 @@ final class Session
     public readonly Script $script;
 
     /**
-     * The rows applied to the app, which the test's beforeEach() makes too.
+     * The rows applied to the app, which the test makes too, before its screen().
      */
     private Setup $setup;
 
@@ -88,7 +89,22 @@ final class Session
             timeoutSeconds: $configuration->timeout(),
             failureDirectory: $failures,
             firstLaunchSeconds: $driver->freshlyInstalled() ? Screen::FIRST_LAUNCH_SECONDS : 0.0,
-        ), $path, modelsDirectory: app_path('Models'), modelsNamespace: app()->getNamespace().'Models');
+        ), $path, ...self::modelsOf(function_exists('app') ? app() : null));
+    }
+
+    /**
+     * Where a Laravel app keeps its models. Outside one, as in this package's own tests,
+     * there are none to set up.
+     *
+     * @return array{modelsDirectory?: string, modelsNamespace?: string}
+     */
+    private static function modelsOf(mixed $app): array
+    {
+        if (! $app instanceof Application) {
+            return [];
+        }
+
+        return ['modelsDirectory' => $app->path('Models'), 'modelsNamespace' => $app->getNamespace().'Models'];
     }
 
     /**
@@ -170,7 +186,7 @@ final class Session
     }
 
     /**
-     * The beforeEach() for what was applied, with its use lines.
+     * The setup lines for what was applied, with their use lines.
      */
     private function setupCode(): string
     {
@@ -180,24 +196,21 @@ final class Session
     }
 
     /**
-     * The whole test: the use lines, the beforeEach() for the setup, and the recording in
-     * an it() inside mobile().
+     * The whole test: the use lines, then the recording in an it() inside mobile(), with
+     * the setup at its top. The test's first screen() copies those rows into the app.
      */
     public function file(string $name): string
     {
         ['uses' => $uses, 'code' => $setup] = $this->setup->code();
-        $chain = implode("\n", array_map(fn (string $line): string => '        '.$line, explode("\n", $this->script->chain())));
+        $body = ($setup === '' ? '' : $setup."\n\n").$this->script->chain();
+        $body = implode("\n", array_map(fn (string $line): string => $line === '' ? '' : '        '.$line, explode("\n", $body)));
         $parts = ['<?php'];
 
         if ($uses !== []) {
             $parts[] = implode("\n", $uses);
         }
 
-        if ($setup !== '') {
-            $parts[] = $setup;
-        }
-
-        $parts[] = "mobile(function () {\n    it(".Step::literal($name !== '' ? $name : 'goes through the recorded flow').", function () {\n{$chain}\n    });\n});";
+        $parts[] = "mobile(function () {\n    it(".Step::literal($name !== '' ? $name : 'goes through the recorded flow').", function () {\n{$body}\n    });\n});";
 
         return implode("\n\n", $parts)."\n";
     }

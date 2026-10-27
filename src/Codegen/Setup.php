@@ -14,8 +14,8 @@ use Throwable;
 
 /**
  * The rows a recorded test starts from, one list per model: put into a copy of the app's
- * database for the device, and written as the beforeEach() that makes the same rows when
- * the test runs.
+ * database for the device, and written as the lines that make the same rows at the top of
+ * the test. Its first screen() copies the test's database into the app, rows and all.
  *
  * Both empty each model's table first and then create its rows, in the order the models
  * were added, so the device gets what the test will get, ids included: the copy starts
@@ -75,7 +75,8 @@ final class Setup
     }
 
     /**
-     * The beforeEach(), with the use lines it needs. Empty when nothing is set up.
+     * The lines that go before the test's screen(), with the use lines they need. Empty
+     * when nothing is set up.
      *
      * @return array{uses: list<string>, code: string}
      */
@@ -86,10 +87,10 @@ final class Setup
         }
 
         $uses = [];
-        $lines = ['beforeEach(function () {'];
+        $lines = [];
 
         foreach (array_reverse($this->entries) as $entry) {
-            $lines[] = '    '.$entry['model']['name'].($entry['model']['softDeletes'] ? '::withTrashed()->forceDelete();' : '::query()->delete();');
+            $lines[] = $entry['model']['name'].($entry['model']['softDeletes'] ? '::withTrashed()->forceDelete();' : '::query()->delete();');
         }
 
         foreach ($this->entries as $entry) {
@@ -97,11 +98,9 @@ final class Setup
             $create = $entry['model']['fillable'] ? 'create' : 'forceCreate';
 
             foreach ($entry['rows'] as $row) {
-                $lines[] = '    '.$entry['model']['name'].'::'.$create.'('.Step::literal($row).');';
+                $lines[] = $entry['model']['name'].'::'.$create.'('.Step::literal($row).');';
             }
         }
-
-        $lines[] = '});';
 
         return ['uses' => array_values(array_unique($uses)), 'code' => implode("\n", $lines)];
     }

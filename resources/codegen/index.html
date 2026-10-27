@@ -96,7 +96,7 @@
     <div class="status" id="status">Connecting…</div>
 
     <section id="panel-setup" role="tabpanel" aria-labelledby="tab-setup">
-      <p class="hint">The rows the test starts with. Add rows of a model, edit them, then apply them: the app gets exactly these rows, and the recording starts over on its first screen. The test's beforeEach() makes the same rows.</p>
+      <p class="hint">The rows the test starts with. Add rows of a model, edit them, then apply them: the app gets exactly these rows, and the recording starts over on its first screen. The test makes the same rows before its screen(), which copies them into the app.</p>
       <form class="row" id="add-model">
         <label for="model">Model</label>
         <select id="model" aria-label="Model"></select>
@@ -109,7 +109,7 @@
         <button id="apply" class="primary">Apply to the app</button>
         <span class="hint" id="applied">Nothing applied yet. The app keeps the rows it has.</span>
       </div>
-      <h2>beforeEach()</h2>
+      <h2>Before screen()</h2>
       <pre id="setup-code"></pre>
     </section>
 
@@ -384,7 +384,7 @@
   }
 
   function setupState(state) {
-    $('setup-code').textContent = state.setupCode || '// Apply rows to see the beforeEach() the test gets.';
+    $('setup-code').textContent = state.setupCode || '// Apply rows to see the lines the test runs before screen().';
     if (JSON.stringify(entries) === applied) drawApplied(state.setup);
   }
 
@@ -551,7 +551,7 @@
     try {
       const result = await call('POST', '/file', { name: $('test-name').value.trim() });
       if (!await copy(result.code)) return say('The browser did not allow copying. Select the code and copy it.', true);
-      say('Copied the whole test, with its beforeEach(). Paste it into a file in tests/.');
+      say('Copied the whole test, with its setup. Paste it into a file in tests/.');
     } catch (error) {
       say(error.message, true);
     }
