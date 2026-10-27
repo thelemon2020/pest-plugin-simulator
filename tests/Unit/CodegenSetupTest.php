@@ -142,3 +142,79 @@ it('only sets up a model the page was offered', function () {
 
     $session->rows('App\Secret', 1);
 })->throws(SimulatorException::class, 'is not one of the app\'s models');
+
+it('adds a field the model did not list, typed by how its values look', function () {
+    $model = Models::withFields(Models::describe(Gadget::class), ['created_at', 'name']);
+
+    expect(array_column($model['columns'], 'name'))->toBe(['name', 'status', 'price', 'note', 'created_at'])
+        ->and($model['fillable'])->toBeFalse()
+        ->and(Models::values($model, ['name' => 'Lamp', 'created_at' => '2026-10-27 09:00:00']))->toBe(['name' => 'Lamp', 'created_at' => '2026-10-27 09:00:00'])
+        ->and(Models::values($model, ['name' => 'Lamp', 'created_at' => '']))->toBe(['name' => 'Lamp']);
+});
+
+it('refuses a field name that is not a column name', function () {
+    Models::withFields(Models::describe(Gadget::class), ['name; DROP TABLE gadgets']);
+})->throws(SimulatorException::class, 'is not a column name');
+
+it('creates an added field with forceCreate, since the model would not fill it', function () {
+    $driver = new FakeDriver([[]]);
+    $session = new Session($driver, new Screen($driver, timeoutSeconds: 0.5), '/gadgets', modelsDirectory: $this->directory, modelsNamespace: 'Tests\Support\Codegen');
+    Configuration::configure(['scheme' => 'sample']);
+
+    try {
+        $session->applySetup([['class' => Gadget::class, 'fields' => ['created_at'], 'rows' => [['name' => 'Lamp', 'created_at' => '2026-10-27 09:00:00']]]]);
+    } finally {
+        Configuration::reset();
+    }
+
+    expect($session->file('lists a gadget'))->toContain("Gadget::forceCreate(['name' => 'Lamp', 'created_at' => '2026-10-27 09:00:00']);");
+});
+
+it('writes rows made by the factory, pinning what was filled in', function () {
+    $setup = new Setup([[
+        'model' => Models::describe(Widget::class),
+        'factory' => true,
+        'rows' => [['label' => 'Cog'], [], [], ['size' => 9], []],
+    ]]);
+
+    expect($setup->code()['code'])->toBe(<<<'PHP'
+        Widget::withTrashed()->forceDelete();
+        Widget::factory()->create(['label' => 'Cog']);
+        Widget::factory()->count(2)->create();
+        Widget::factory()->create(['size' => 9]);
+        Widget::factory()->create();
+        PHP);
+});
+
+it('leaves an empty value to the factory', function () {
+    expect(Models::values(Models::describe(Widget::class), ['label' => '', 'size' => '4'], factory: true))->toBe(['size' => 4]);
+});
+
+it('makes the rows through the factory when it applies them', function () {
+    Configuration::configure(['scheme' => 'sample']);
+    $driver = new FakeDriver([[]]);
+    $session = new Session($driver, new Screen($driver, timeoutSeconds: 0.5), '/widgets', modelsDirectory: $this->directory, modelsNamespace: 'Tests\Support\Codegen');
+
+    try {
+        $session->applySetup([['class' => Widget::class, 'factory' => true, 'rows' => [['label' => 'Cog', 'size' => ''], ['label' => '', 'size' => '']]]]);
+    } finally {
+        Configuration::reset();
+    }
+
+    $copy = tempnam(sys_get_temp_dir(), 'copy');
+    file_put_contents($copy, $driver->databaseContents);
+    $rows = (new PDO('sqlite:'.$copy))->query('SELECT label, size FROM widgets ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+    unlink($copy);
+
+    expect($rows[0]['label'])->toBe('Cog')
+        ->and($rows[0]['size'])->toBeGreaterThan(0)
+        ->and($rows[1]['label'])->toStartWith('Widget ')
+        ->and($session->file('lists widgets'))->toContain("Widget::factory()->create(['label' => 'Cog']);\n        Widget::factory()->create();");
+});
+
+it('refuses the factory for a model that has none', function () {
+    $driver = new FakeDriver([[]]);
+    $session = new Session($driver, new Screen($driver), '/', modelsDirectory: $this->directory, modelsNamespace: 'Tests\Support\Codegen');
+
+    $session->applySetup([['class' => Gadget::class, 'factory' => true, 'rows' => [['name' => 'Lamp']]]]);
+})->throws(SimulatorException::class, 'Gadget has no factory to use.');

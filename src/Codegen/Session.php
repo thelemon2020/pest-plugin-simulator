@@ -152,7 +152,7 @@ final class Session
      * Puts the rows into the app and opens the first screen again. The recording starts
      * over, since its steps were made against the rows that were there before.
      *
-     * @param  array<array-key, mixed>  $entries  [{class, rows: [{column: value}]}], as the page sends them
+     * @param  array<array-key, mixed>  $entries  [{class, factory?: bool, fields?: [name], rows: [{column: value}]}], as the page sends them
      */
     public function applySetup(array $entries): void
     {
@@ -163,14 +163,21 @@ final class Session
                 continue;
             }
 
-            $model = $this->model($entry['class']);
+            $fields = is_array($entry['fields'] ?? null) ? array_values(array_filter($entry['fields'], is_string(...))) : [];
+            $model = Models::withFields($this->model($entry['class']), $fields);
+            $factory = ($entry['factory'] ?? false) === true;
+
+            if ($factory && ! $model['factory']) {
+                throw new SimulatorException("{$model['name']} has no factory to use.");
+            }
+
             $rows = array_values(array_map(
-                fn (mixed $row): array => Models::values($model, is_array($row) ? $row : []),
+                fn (mixed $row): array => Models::values($model, is_array($row) ? $row : [], $factory),
                 is_array($entry['rows'] ?? null) ? $entry['rows'] : [],
             ));
 
             if ($rows !== []) {
-                $setup[] = ['model' => $model, 'rows' => $rows];
+                $setup[] = ['model' => $model, 'rows' => $rows, 'factory' => $factory];
             }
         }
 

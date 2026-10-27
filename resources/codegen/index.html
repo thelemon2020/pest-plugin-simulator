@@ -7,30 +7,44 @@
 <style>
   :root {
     --bg: #f6f6f4; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6b66; --line: #e2e2dc;
-    --accent: #2f6fde; --assert: #1f8a4c; --error: #c2412d; --code-bg: #1d1d1b; --code-ink: #f1f1ea;
+    --accent: #2a64cc; --assert: #1a7a43; --error: #c2412d; --code-bg: #1d1d1b; --code-ink: #f1f1ea;
+    --on-accent: #ffffff; --on-assert: #ffffff;
+    color-scheme: light dark;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #151514; --panel: #1f1f1d; --ink: #ececE6; --muted: #9a9a92; --line: #33332f;
-      --accent: #6a9cf5; --assert: #4cc183; --error: #f07a63; --code-bg: #0d0d0c; --code-ink: #ececE6;
+      --bg: #151514; --panel: #1f1f1d; --ink: #ecece6; --muted: #9a9a92; --line: #33332f;
+      --accent: #6a9cf5; --assert: #4cc183; --error: #f07a63; --code-bg: #0d0d0c; --code-ink: #ecece6;
+      --on-accent: #0b1a33; --on-assert: #06210f;
     }
   }
+  /* The mode's colour, which the mirror's frame, its badge and the outline take. */
+  body { --mode: var(--accent); --on-mode: var(--on-accent); }
+  body.assert, body.checking { --mode: var(--assert); --on-mode: var(--on-assert); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  ::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, -apple-system, sans-serif; }
   main { display: flex; gap: 24px; padding: 20px; min-height: 100vh; align-items: flex-start; }
   /* Stays in view while the panels beside it scroll, so a check stays next to its screen. */
-  .device { position: sticky; top: 20px; flex: none; line-height: 0; border-radius: 18px; overflow: hidden; box-shadow: 0 0 0 1px var(--line), 0 8px 30px rgb(0 0 0 / .12); }
-  .device img { display: block; max-height: calc(100vh - 40px); max-width: 46vw; cursor: crosshair; user-select: none; }
-  .device .box { position: absolute; pointer-events: none; border: 2px solid var(--accent); border-radius: 4px; background: color-mix(in srgb, var(--accent) 12%, transparent); display: none; }
-  body.assert .device .box { border-color: var(--assert); background: color-mix(in srgb, var(--assert) 12%, transparent); }
+  .device { position: sticky; top: 20px; flex: none; line-height: 0; border-radius: 18px; overflow: hidden; box-shadow: 0 0 0 2px color-mix(in srgb, var(--mode) 45%, transparent), 0 8px 30px rgb(0 0 0 / .12); transition: box-shadow .2s ease-out; }
+  body.assert .device, body.checking .device { box-shadow: 0 0 0 4px var(--mode), 0 8px 30px rgb(0 0 0 / .12); }
+  .device img { display: block; max-height: calc(100vh - 68px); max-width: 46vw; cursor: crosshair; user-select: none; }
+  .device .box { position: absolute; pointer-events: none; border: 2px solid var(--mode); border-radius: 4px; background: color-mix(in srgb, var(--mode) 12%, transparent); display: none; }
+  /* What a click on the mirror records, on the mirror's own frame, clear of the device's status bar. */
+  .device .badge { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 12px; width: 0; min-width: 100%; white-space: nowrap; overflow: hidden; background: var(--mode); color: var(--on-mode); font: 600 12px/1 system-ui, -apple-system, sans-serif; line-height: 1; transition: background-color .2s ease-out, color .2s ease-out; }
+  .device .badge::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: currentColor; animation: rec 1.6s ease-in-out infinite; }
+  @keyframes rec { 50% { opacity: .35; } }
+  @media (prefers-reduced-motion: reduce) { .device .badge::before { animation: none; } }
   .device .tip { position: absolute; left: 8px; right: 8px; bottom: 8px; line-height: 1.3; padding: 6px 8px; border-radius: 6px; background: rgb(0 0 0 / .75); color: #fff; font: 12px ui-monospace, monospace; display: none; }
   .side { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
   h1 { margin: 0; font-size: 24px; font-weight: 600; letter-spacing: -0.01em; }
   .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; }
   .seg button { border: 0; border-radius: 0; }
-  .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
-  body.assert .seg button[aria-pressed="true"] { background: var(--assert); }
+  .seg button:first-child { border-radius: 7px 0 0 7px; }
+  .seg button:last-child { border-radius: 0 7px 7px 0; }
+  .seg button[aria-pressed="true"] { background: var(--mode); color: var(--on-mode); }
   button { font: inherit; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); cursor: pointer; }
   button:hover { border-color: var(--muted); }
   input { font: inherit; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); min-width: 0; flex: 1; }
@@ -51,14 +65,20 @@
   .tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
   section[role="tabpanel"] { display: flex; flex-direction: column; gap: 14px; }
   section[hidden] { display: none; }
-  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  /* Apply asks once more when it would throw recorded steps away. */
+  button.primary.confirming { background: var(--error); border-color: var(--error); color: var(--panel); }
   select { font: inherit; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); }
   #count { flex: none; width: 72px; }
   .entries { display: flex; flex-direction: column; gap: 10px; }
   .entry { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--panel); display: flex; flex-direction: column; gap: 8px; }
   .entry .head { display: flex; gap: 8px; align-items: baseline; font-weight: 600; }
   .entry .head .table { color: var(--muted); font: 12px ui-monospace, Menlo, monospace; font-weight: 400; }
-  .entry .head .remove { margin-left: auto; }
+  .entry .field { display: flex; gap: 6px; margin-left: auto; }
+  .entry .use-factory { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+  .entry .use-factory input { margin: 0; accent-color: var(--accent); }
+  .entry .field input { font: 12px ui-monospace, Menlo, monospace; padding: 3px 6px; width: 140px; flex: none; }
+  .entry th .drop { margin-left: 4px; padding: 0 5px; font-size: 12px; line-height: 1.4; }
   .entry .grid { overflow-x: auto; }
   .entry table { border-collapse: collapse; font: 12px/1.4 ui-monospace, Menlo, monospace; }
   .entry th { text-align: left; color: var(--muted); font-weight: 500; padding: 0 6px 4px 0; white-space: nowrap; }
@@ -76,13 +96,13 @@
   @media (max-width: 720px) {
     main { flex-direction: column; padding: 16px; }
     .device { position: relative; top: auto; }
-    .device img { max-width: 100%; max-height: 70vh; }
-  }
+    .device img { max-width: 100%; max-height: 70vh; }  }
 </style>
 </head>
 <body>
 <main>
   <div class="device">
+    <div class="badge" id="badge">Recording taps</div>
     <img id="screen" src="/screen.png" alt="The device's screen">
     <div class="box" id="box"></div>
     <div class="tip" id="tip"></div>
@@ -93,9 +113,9 @@
       <button role="tab" id="tab-setup" aria-controls="panel-setup" aria-selected="true">1. Setup</button>
       <button role="tab" id="tab-record" aria-controls="panel-record" aria-selected="false">2. Record</button>
     </div>
-    <div class="status" id="status">Connecting…</div>
 
     <section id="panel-setup" role="tabpanel" aria-labelledby="tab-setup">
+      <div class="status" id="status-setup" role="status" aria-live="polite">Connecting…</div>
       <p class="hint">The rows the test starts with. Add rows of a model, edit them, then apply them: the app gets exactly these rows, and the recording starts over on its first screen. The test makes the same rows before its screen(), which copies them into the app.</p>
       <form class="row" id="add-model">
         <label for="model">Model</label>
@@ -106,7 +126,8 @@
       </form>
       <div class="entries" id="entries"></div>
       <div class="row">
-        <button id="apply" class="primary">Apply to the app</button>
+        <button id="apply" class="primary" disabled>Nothing to apply</button>
+        <button id="apply-cancel" hidden>Keep the recording</button>
         <span class="hint" id="applied">Nothing applied yet. The app keeps the rows it has.</span>
       </div>
       <h2>Before screen()</h2>
@@ -114,6 +135,7 @@
     </section>
 
     <section id="panel-record" role="tabpanel" aria-labelledby="tab-record" hidden>
+      <div class="status" id="status-record" role="status" aria-live="polite">Connecting…</div>
       <div class="row">
         <div class="seg" role="group" aria-label="Mode">
           <button id="mode-tap" aria-pressed="true">Tap</button>
@@ -125,7 +147,7 @@
         <button data-press="dismiss">Close sheet</button>
         <button data-press="relaunch">Relaunch</button>
       </div>
-      <p class="hint">Tap mode runs what you click on the device and records it. Assert mode records a check for what you click. Press A to switch.</p>
+      <p class="hint">Tap mode runs what you click on the device and records it. Assert mode records a check for what you click. Press A to switch, or Shift-click for a single check.</p>
       <form class="row" id="open">
         <label for="route">Open a route</label>
         <input id="route" placeholder="/settings" autocomplete="off">
@@ -138,7 +160,7 @@
       <pre id="code"></pre>
       <div class="row">
         <button id="undo">Undo last line</button>
-        <input id="test-name" placeholder="What the test does, e.g. pays the second order" autocomplete="off">
+        <input id="test-name" aria-label="Test name" placeholder="What the test does, e.g. pays the second order" autocomplete="off">
         <button id="copy" class="primary">Copy test</button>
       </div>
       <h2>Database</h2>
@@ -149,15 +171,25 @@
 </main>
 <script>
   const $ = (id) => document.getElementById(id);
-  const img = $('screen'), box = $('box'), tip = $('tip'), status = $('status'), code = $('code');
+  const img = $('screen'), box = $('box'), tip = $('tip'), code = $('code');
   let state = { viewport: [1, 1], elements: [], code: '' };
   let mode = 'tap';
   let busy = false;
   let hovering = false;
 
-  function say(message, error = false) {
-    status.textContent = message;
-    status.classList.toggle('error', error);
+  // Each tab says what its own actions did, so a message never turns up on the other tab
+  // after it has gone stale. What the device itself is doing goes to both.
+  function say(message, error = false, tab = 'record') {
+    for (const name of tab === 'both' ? ['setup', 'record'] : [tab]) {
+      const status = $('status-' + name);
+      status.textContent = message;
+      status.classList.toggle('error', error);
+    }
+  }
+
+  // The steps recorded after screen(), which applying the setup would throw away.
+  function recordedSteps() {
+    return (code.textContent.match(/^\s+->/gm) || []).length;
   }
 
   async function call(method, path, body) {
@@ -179,6 +211,7 @@
       if (waiting) {
         waiting = false;
         say('Ready. Click the screen to record a step.');
+        say('The device is answering again.', false, 'setup');
       }
       code.textContent = state.code;
       changes(state.database);
@@ -194,9 +227,9 @@
     } catch (error) {
       failedReads++;
       if (failedReads >= 8) {
-        say(error.message, true);
+        say(error.message, true, 'both');
       } else if (failedReads >= 3) {
-        say('Waiting for the device to answer…');
+        say('Waiting for the device to answer…', false, 'both');
       }
       waiting = failedReads >= 3;
     }
@@ -279,16 +312,37 @@
   let entries = [];
   let applied = JSON.stringify([]);
 
+  // The values each row was made with, so ticking Use factory can empty the ones nobody
+  // edited, for the factory to fill, and unticking can put them back.
+  const made = new WeakMap();
+
+  function addRows(entry, rows) {
+    for (const row of rows) {
+      made.set(row, { ...row });
+      if (entry.factory) leaveToFactory(row, true);
+    }
+    entry.rows.push(...rows);
+  }
+
+  function leaveToFactory(row, factory) {
+    const original = made.get(row);
+    if (!original) return;
+    for (const [column, value] of Object.entries(original)) {
+      if (factory && (row[column] ?? '') === (value ?? '')) row[column] = '';
+      else if (!factory && row[column] === '') row[column] = value;
+    }
+  }
+
   async function loadModels() {
     try {
       models = (await call('GET', '/models')).models;
     } catch (error) {
-      return say(error.message, true);
+      return say(error.message, true, 'setup');
     }
     const select = $('model');
     select.replaceChildren(...models.map((model) => Object.assign(document.createElement('option'), {
       value: model.class,
-      textContent: model.name + (model.factory ? '' : ' (no factory)'),
+      textContent: model.name,
     })));
     if (!models.length) {
       select.append(Object.assign(document.createElement('option'), { textContent: 'No models found in app/Models', disabled: true }));
@@ -304,12 +358,13 @@
     try {
       const { rows } = await call('POST', '/rows', { class: model.class, count: Number($('count').value) || 1 });
       let entry = entries.find((entry) => entry.class === model.class);
-      if (!entry) entries.push(entry = { class: model.class, rows: [] });
-      entry.rows.push(...rows);
+      if (!entry) entries.push(entry = { class: model.class, factory: false, fields: [], rows: [] });
+      addRows(entry, rows);
       drawEntries();
-      say(`Added ${rows.length} ${model.name} ${rows.length === 1 ? 'row' : 'rows'}${model.factory ? ', made by its factory' : ', from the column defaults'}. Edit them, then apply.`);
+      const from = entry.factory ? ', left to its factory' : model.factory ? ', filled in by its factory' : ', from the column defaults';
+      say(`Added ${rows.length} ${model.name} ${rows.length === 1 ? 'row' : 'rows'}${from}. Edit them, then apply.`, false, 'setup');
     } catch (error) {
-      say(error.message, true);
+      say(error.message, true, 'setup');
     }
   });
 
@@ -324,25 +379,74 @@
       head.append(Object.assign(document.createElement('span'), { className: 'table', textContent: model.table }));
       const more = Object.assign(document.createElement('button'), { textContent: 'Add a row' });
       more.addEventListener('click', async () => {
-        const { rows } = await call('POST', '/rows', { class: model.class, count: 1 });
-        entry.rows.push(...rows);
+        try {
+          addRows(entry, (await call('POST', '/rows', { class: model.class, count: 1 })).rows);
+          drawEntries();
+        } catch (error) {
+          say(error.message, true, 'setup');
+        }
+      });
+      // A column the model did not list, added by name. It is sent with every row.
+      const field = Object.assign(document.createElement('form'), { className: 'field' });
+      const name = Object.assign(document.createElement('input'), { placeholder: 'column_name', autocomplete: 'off' });
+      name.setAttribute('aria-label', `Add a field to ${model.name}`);
+      field.append(name, Object.assign(document.createElement('button'), { type: 'submit', textContent: 'Add a field' }));
+      field.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const column = name.value.trim();
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(column)) return say('A field name is letters, numbers and underscores, starting with a letter.', true, 'setup');
+        if (model.columns.some((known) => known.name === column) || entry.fields.includes(column)) return say(`${model.name} already has ${column}.`, true, 'setup');
+        entry.fields.push(column);
+        for (const row of entry.rows) row[column] = '';
         drawEntries();
       });
-      const remove = Object.assign(document.createElement('button'), { className: 'remove', textContent: 'Remove ' + model.name });
-      remove.addEventListener('click', () => { entries = entries.filter((other) => other !== entry); drawEntries(); });
-      head.append(more, remove);
+      head.append(more);
 
+      // Rows made through the model's factory: what is filled in pins those columns, and
+      // what is left empty is the factory's to fill.
+      if (model.factory) {
+        const use = document.createElement('label');
+        use.className = 'use-factory';
+        const tick = Object.assign(document.createElement('input'), { type: 'checkbox', checked: entry.factory });
+        tick.addEventListener('change', () => {
+          entry.factory = tick.checked;
+          for (const row of entry.rows) leaveToFactory(row, entry.factory);
+          drawEntries();
+          say(entry.factory
+            ? `${model.name}'s factory fills the empty cells. Fill one in to pin it.`
+            : `${model.name} rows are created with exactly these values.`, false, 'setup');
+        });
+        use.append(tick, document.createTextNode('Use factory'));
+        head.append(use);
+      }
+
+      head.append(field);
+
+      const columns = [...model.columns, ...entry.fields.map((name) => ({ name, type: 'added by hand', nullable: true, added: true }))];
       const table = document.createElement('table');
       const header = document.createElement('tr');
-      for (const column of model.columns) header.append(Object.assign(document.createElement('th'), { textContent: column.name, title: column.type + (column.nullable ? ', nullable' : '') }));
+      for (const column of columns) {
+        const th = Object.assign(document.createElement('th'), { textContent: column.name, title: column.type + (column.nullable ? ', nullable' : '') });
+        if (column.added) {
+          const drop = Object.assign(document.createElement('button'), { className: 'drop', textContent: '×', title: 'Remove this field' });
+          drop.setAttribute('aria-label', `Remove the ${column.name} field`);
+          drop.addEventListener('click', () => {
+            entry.fields = entry.fields.filter((other) => other !== column.name);
+            for (const row of entry.rows) delete row[column.name];
+            drawEntries();
+          });
+          th.append(drop);
+        }
+        header.append(th);
+      }
       header.append(document.createElement('th'));
       table.append(header);
       entry.rows.forEach((row, index) => {
         const tr = document.createElement('tr');
-        for (const column of model.columns) {
+        for (const column of columns) {
           const input = Object.assign(document.createElement('input'), {
             value: row[column.name] ?? '',
-            placeholder: column.nullable ? 'null' : '',
+            placeholder: entry.factory ? 'factory' : column.nullable && !column.added ? 'null' : '',
           });
           input.setAttribute('aria-label', `${model.name} ${index + 1} ${column.name}`);
           input.addEventListener('input', () => { row[column.name] = input.value; drawApplied(); });
@@ -370,42 +474,71 @@
     drawApplied();
   }
 
+  // Set by the first click on Apply while steps are recorded: the second click replaces them.
+  let confirming = false;
+
   function drawApplied(summary) {
     const pending = JSON.stringify(entries) !== applied;
-    $('apply').textContent = pending ? 'Apply to the app' : 'Applied';
-    $('apply').disabled = !pending;
-    if (pending) {
-      $('applied').textContent = 'Not applied yet. Applying restarts the app with these rows and starts the recording over.';
+    const steps = recordedSteps();
+    confirming = confirming && pending && steps > 0;
+    const button = $('apply');
+    button.classList.toggle('confirming', confirming);
+    button.disabled = !pending;
+    button.textContent = confirming
+      ? `Replace ${steps} recorded ${steps === 1 ? 'step' : 'steps'}`
+      : pending ? 'Apply and restart app' : applied === '[]' ? 'Nothing to apply' : 'Applied';
+    $('apply-cancel').hidden = !confirming;
+    if (confirming) {
+      $('applied').textContent = 'Applying restarts the app and starts the recording over from screen(). Copy the test first to keep it.';
+    } else if (pending) {
+      $('applied').textContent = steps
+        ? `Not applied yet. Applying restarts the app with these rows and replaces the ${steps} recorded ${steps === 1 ? 'step' : 'steps'}.`
+        : 'Not applied yet. Applying restarts the app with these rows.';
     } else if (summary !== undefined) {
       $('applied').textContent = summary.length
-        ? 'The app has ' + summary.map((entry) => `${entry.rows} ${entry.model}`).join(', ') + '. Record against them on the Record tab.'
+        ? 'The app has ' + summary.map((entry) => `${entry.rows} ${entry.model} ${entry.rows === 1 ? 'row' : 'rows'}`).join(', ') + '. Record against them on the Record tab.'
         : 'Nothing applied. The app keeps the rows it has.';
     }
   }
 
   function setupState(state) {
     $('setup-code').textContent = state.setupCode || '// Apply rows to see the lines the test runs before screen().';
-    if (JSON.stringify(entries) === applied) drawApplied(state.setup);
+    // Drawn every time, since the steps Apply would replace change as they are recorded.
+    drawApplied(JSON.stringify(entries) === applied ? state.setup : undefined);
   }
 
   $('apply').addEventListener('click', async () => {
     if (busy) return;
+    if (!confirming && recordedSteps() > 0) {
+      confirming = true;
+      return drawApplied();
+    }
+    const replaced = confirming ? recordedSteps() : 0;
+    confirming = false;
     busy = true;
     hide();
-    say('Putting the rows into the app and restarting it…');
+    drawApplied();
+    say('Putting the rows into the app and restarting it…', false, 'setup');
     try {
       const result = await call('POST', '/setup', { models: entries });
       applied = JSON.stringify(entries);
       code.textContent = result.code;
-      say('Applied. The recording starts over on the first screen.');
-      show('record');
+      say('Applied. The app has these rows now. Add more, or go to Record when you are ready.', false, 'setup');
+      say(replaced ? `The setup changed, so the recording starts over. ${replaced} ${replaced === 1 ? 'step was' : 'steps were'} replaced.` : 'The app restarted with the new rows.');
     } catch (error) {
-      say(error.message, true);
+      say(error.message, true, 'setup');
     } finally {
       busy = false;
       drawApplied();
       refresh();
     }
+  });
+
+  $('apply-cancel').addEventListener('click', () => {
+    confirming = false;
+    drawApplied();
+    say('Kept the recording. The rows are not applied yet.', false, 'setup');
+    $('apply').focus();
   });
 
   // The device's own units: points on iOS, pixels on Android.
@@ -419,8 +552,31 @@
 
   // The server picks the control, so the outline is the one a click records.
   function pick(x, y) {
-    return call('POST', '/pick', { x, y, mode });
+    return call('POST', '/pick', { x, y, mode: current() });
   }
+
+  // Shift held over Tap mode makes the next click a single check.
+  let shift = false;
+
+  function current() {
+    return shift ? 'assert' : mode;
+  }
+
+  function drawMode() {
+    document.body.classList.toggle('assert', mode === 'assert');
+    document.body.classList.toggle('checking', shift && mode === 'tap');
+    $('badge').textContent = current() === 'assert' ? (mode === 'assert' ? 'Recording checks' : 'Recording one check') : 'Recording taps';
+  }
+
+  for (const type of ['keydown', 'keyup']) {
+    document.addEventListener(type, (event) => {
+      if (event.key !== 'Shift' || shift === (type === 'keydown')) return;
+      shift = type === 'keydown';
+      drawMode();
+      outline();
+    });
+  }
+  window.addEventListener('blur', () => { shift = false; drawMode(); });
 
   // The last point the cursor was at over the screen, or null once it left.
   let point = null;
@@ -435,7 +591,8 @@
       const scale = img.clientWidth / state.viewport[0];
       Object.assign(box.style, {
         display: 'block',
-        left: element.frame[0] * scale + 'px', top: element.frame[1] * scale + 'px',
+        // From the mirror's frame, which has the mode strip above the screen.
+        left: img.offsetLeft + element.frame[0] * scale + 'px', top: img.offsetTop + element.frame[1] * scale + 'px',
         width: element.frame[2] * scale + 'px', height: element.frame[3] * scale + 'px',
       });
     } else {
@@ -492,10 +649,13 @@
 
   img.addEventListener('click', async (event) => {
     if (busy) return;
+    // What the click records is on the Record tab, so that is where its message goes.
+    show('record');
     const [x, y] = toDevice(event);
+    const as = event.shiftKey ? 'assert' : mode;
     let element, field;
     try {
-      ({ element, field } = await pick(x, y));
+      ({ element, field } = await call('POST', '/pick', { x, y, mode: as }));
     } catch (error) {
       say(error.message, true);
       return;
@@ -506,7 +666,7 @@
       if (!text) return;
       $('text').value = '';
     }
-    act('/click', { x, y, mode, text }, mode === 'tap' ? 'Running it on the device…' : 'Recording the check…');
+    act('/click', { x, y, mode: as, text }, as === 'tap' ? 'Running it on the device…' : 'Recording the check…');
   });
 
   document.querySelectorAll('[data-press]').forEach((button) => {
@@ -515,9 +675,10 @@
 
   function setMode(next) {
     mode = next;
-    document.body.classList.toggle('assert', mode === 'assert');
     $('mode-tap').setAttribute('aria-pressed', String(mode === 'tap'));
     $('mode-assert').setAttribute('aria-pressed', String(mode === 'assert'));
+    drawMode();
+    outline();
   }
   $('mode-tap').addEventListener('click', () => setMode('tap'));
   $('mode-assert').addEventListener('click', () => setMode('assert'));
@@ -528,9 +689,12 @@
   });
 
   $('undo').addEventListener('click', async () => {
-    const result = await call('POST', '/undo');
-    code.textContent = result.code;
-    say('Removed the last line. The device stays as it is.');
+    try {
+      code.textContent = (await call('POST', '/undo')).code;
+      say('Removed the last line. The device stays as it is.');
+    } catch (error) {
+      say(error.message, true);
+    }
   });
   async function copy(text) {
     try {
@@ -570,7 +734,10 @@
     setTimeout(follow, 1500);
   }
   loadModels();
-  refresh().then(() => say('Ready. Set up rows to start from, or go to Record.'));
+  refresh().then(() => {
+    say('Setup is optional. Add rows for the test to start with, or go straight to Record.', false, 'setup');
+    say('Ready. Click the screen to record a step.');
+  });
   setTimeout(follow, 1500);
 </script>
 </body>

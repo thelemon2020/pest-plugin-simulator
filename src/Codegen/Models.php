@@ -26,6 +26,9 @@ use Throwable;
  */
 final class Models
 {
+    /** The type of a column the page added, which the schema did not describe. */
+    public const UNKNOWN = 'unknown';
+
     /** Columns the database fills in itself. */
     private const AUTOMATIC = ['id', 'created_at', 'updated_at', 'deleted_at'];
 
@@ -117,6 +120,39 @@ final class Models
     }
 
     /**
+     * The model with columns the page added by name, for one the schema or the fillable
+     * list did not show. An added column's type is not known, so its values are typed by
+     * how they look. One the model would not fill makes it use forceCreate().
+     *
+     * @param  ModelInfo  $model
+     * @param  list<string>  $names
+     * @return ModelInfo
+     */
+    public static function withFields(array $model, array $names): array
+    {
+        $known = array_column($model['columns'], 'name');
+        $instance = new $model['class'];
+
+        foreach (array_values(array_unique($names)) as $name) {
+            if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $name) !== 1) {
+                throw new SimulatorException("[{$name}] is not a column name.");
+            }
+
+            if (in_array($name, $known, true)) {
+                continue;
+            }
+
+            $model['columns'][] = ['name' => $name, 'type' => self::UNKNOWN, 'nullable' => true, 'default' => null];
+
+            if (! $instance->isFillable($name)) {
+                $model['fillable'] = false;
+            }
+        }
+
+        return $model;
+    }
+
+    /**
      * $count rows to start from, as the page shows them: the model's factory makes them, or
      * each column takes its default.
      *
@@ -146,12 +182,13 @@ final class Models
     /**
      * What the page sent for a row, typed by its columns: a number for a number column, and
      * null for an empty value in a column that allows it. A column it left out stays out.
+     * With $factory, an empty value is left out too, for the model's factory to fill.
      *
      * @param  ModelInfo  $model
      * @param  array<array-key, mixed>  $row
      * @return Values
      */
-    public static function values(array $model, array $row): array
+    public static function values(array $model, array $row, bool $factory = false): array
     {
         $values = [];
 
@@ -163,6 +200,13 @@ final class Models
 
             $value = $row[$column['name']];
             $value = is_scalar($value) ? (string) $value : null;
+            $unknown = $column['type'] === self::UNKNOWN;
+
+            // An added column left empty was not filled in, and whether it allows null is
+            // not known, so it is left out too.
+            if (($unknown || $factory) && ($value === null || $value === '')) {
+                continue;
+            }
 
             if ($value === null || ($value === '' && $column['nullable'])) {
                 $values[$column['name']] = null;
@@ -171,8 +215,8 @@ final class Models
             }
 
             $values[$column['name']] = match (true) {
-                self::integer($column['type']) && preg_match('/^-?\d+$/', $value) === 1 => (int) $value,
-                self::real($column['type']) && is_numeric($value) => (float) $value,
+                ($unknown || self::integer($column['type'])) && preg_match('/^-?\d+$/', $value) === 1 => (int) $value,
+                ($unknown || self::real($column['type'])) && is_numeric($value) => (float) $value,
                 default => $value,
             };
         }

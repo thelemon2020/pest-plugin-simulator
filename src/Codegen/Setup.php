@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace NativePhp\Simulator\Codegen;
 
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use NativePhp\Simulator\Driver;
@@ -24,7 +25,7 @@ use Throwable;
  * @phpstan-import-type ModelInfo from Models
  * @phpstan-import-type Values from Models
  *
- * @phpstan-type Entry array{model: ModelInfo, rows: list<Values>}
+ * @phpstan-type Entry array{model: ModelInfo, rows: list<Values>, factory?: bool}
  */
 final class Setup
 {
@@ -95,6 +96,13 @@ final class Setup
 
         foreach ($this->entries as $entry) {
             $uses[] = 'use '.$entry['model']['class'].';';
+
+            if ($entry['factory'] ?? false) {
+                array_push($lines, ...self::factoryLines($entry['model']['name'], $entry['rows']));
+
+                continue;
+            }
+
             $create = $entry['model']['fillable'] ? 'create' : 'forceCreate';
 
             foreach ($entry['rows'] as $row) {
@@ -103,6 +111,39 @@ final class Setup
         }
 
         return ['uses' => array_values(array_unique($uses)), 'code' => implode("\n", $lines)];
+    }
+
+    /**
+     * One factory call per row with the values it pins, and rows that pin nothing next to
+     * each other as one count().
+     *
+     * @param  list<Values>  $rows
+     * @return list<string>
+     */
+    private static function factoryLines(string $model, array $rows): array
+    {
+        $lines = [];
+        $index = 0;
+
+        while ($index < count($rows)) {
+            if ($rows[$index] !== []) {
+                $lines[] = $model.'::factory()->create('.Step::literal($rows[$index]).');';
+                $index++;
+
+                continue;
+            }
+
+            $bare = 0;
+
+            while ($index < count($rows) && $rows[$index] === []) {
+                $bare++;
+                $index++;
+            }
+
+            $lines[] = $model.'::factory()'.($bare > 1 ? "->count({$bare})" : '').'->create();';
+        }
+
+        return $lines;
     }
 
     private function make(): void
@@ -116,13 +157,34 @@ final class Setup
             foreach ($this->entries as $entry) {
                 foreach ($entry['rows'] as $row) {
                     try {
-                        $entry['model']['fillable'] ? $this->query($entry['model']['class'])->create($row) : $this->query($entry['model']['class'])->forceCreate($row);
+                        match (true) {
+                            $entry['factory'] ?? false => $this->factory($entry['model']['class'])->create($row),
+                            $entry['model']['fillable'] => $this->query($entry['model']['class'])->create($row),
+                            default => $this->query($entry['model']['class'])->forceCreate($row),
+                        };
                     } catch (Throwable $exception) {
                         throw new SimulatorException("Could not create a {$entry['model']['name']}: ".strtok($exception->getMessage(), "\n"), previous: $exception);
                     }
                 }
             }
         });
+    }
+
+    /**
+     * The model's factory, making rows in the copy.
+     *
+     * @param  class-string<Model>  $class
+     * @return Factory<Model>
+     */
+    private function factory(string $class): Factory
+    {
+        $factory = method_exists($class, 'factory') ? $class::factory() : null;
+
+        if (! $factory instanceof Factory) {
+            throw new SimulatorException(class_basename($class).' has no factory to use.');
+        }
+
+        return $factory->connection(self::CONNECTION);
     }
 
     /**
