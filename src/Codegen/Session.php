@@ -152,9 +152,12 @@ final class Session
      * Puts the rows into the app and opens the first screen again. The recording starts
      * over, since its steps were made against the rows that were there before.
      *
+     * The rows are in the app once this returns. When the app does not open again, the
+     * recording still starts over, and what went wrong comes back to show.
+     *
      * @param  array<array-key, mixed>  $entries  [{class, factory?: bool, fields?: [name], rows: [{column: value}]}], as the page sends them
      */
-    public function applySetup(array $entries): void
+    public function applySetup(array $entries): ?string
     {
         $setup = [];
 
@@ -184,12 +187,29 @@ final class Session
         $setup = new Setup($setup);
         $setup->apply($this->driver);
         $this->setup = $setup;
-
-        $this->driver->open(Configuration::resolve()->urlFor($this->script->path));
         DeviceDatabase::forget();
         $this->script->clear();
         $this->title = null;
         $this->before = null;
+
+        try {
+            $this->driver->open(Configuration::resolve()->urlFor($this->script->path));
+        } catch (Throwable $exception) {
+            return 'The rows are in the app, but it did not open again: '.(strtok($exception->getMessage(), "\n") ?: $exception::class).' Press Relaunch.';
+        }
+
+        return null;
+    }
+
+    /**
+     * The test so far, as the page shows it: the setup's use lines and rows, then the
+     * recording from screen().
+     */
+    public function code(): string
+    {
+        $setup = $this->setupCode();
+
+        return ($setup === '' ? '' : $setup."\n\n").$this->script->chain();
     }
 
     /**

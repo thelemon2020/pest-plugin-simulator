@@ -525,11 +525,13 @@
     hide();
     drawApplied();
     say('Putting the rows into the app and restarting it…', false, 'setup');
+    // What is sent is what gets applied: a cell edited while the app restarts is not.
+    const sending = JSON.stringify(entries);
     try {
-      const result = await call('POST', '/setup', { models: entries });
-      applied = JSON.stringify(entries);
+      const result = await call('POST', '/setup', { models: JSON.parse(sending) });
+      applied = sending;
       drawCode(result.code);
-      say('Applied. The app has these rows now. Add more, or go to Record when you are ready.', false, 'setup');
+      say(result.warning || 'Applied. The app has these rows now. Add more, or go to Record when you are ready.', !!result.warning, 'setup');
       say(replaced ? `The setup changed, so the recording starts over. ${replaced} ${replaced === 1 ? 'step was' : 'steps were'} replaced.` : 'The app restarted with the new rows.');
     } catch (error) {
       say(error.message, true, 'setup');
@@ -574,9 +576,12 @@
     $('badge').textContent = current() === 'assert' ? (mode === 'assert' ? 'Recording checks' : 'Recording one check') : 'Recording taps';
   }
 
+  // Shift in a text box is for a capital letter, not a check.
+  const typing = () => ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName);
+
   for (const type of ['keydown', 'keyup']) {
     document.addEventListener(type, (event) => {
-      if (event.key !== 'Shift' || shift === (type === 'keydown')) return;
+      if (event.key !== 'Shift' || shift === (type === 'keydown') || (type === 'keydown' && typing())) return;
       shift = type === 'keydown';
       drawMode();
       outline();

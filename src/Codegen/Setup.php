@@ -19,8 +19,8 @@ use Throwable;
  * the test. Its first screen() copies the test's database into the app, rows and all.
  *
  * Both empty each model's table first and then create its rows, in the order the models
- * were added, so the device gets what the test will get, ids included: the copy starts
- * from the same database the test does.
+ * were added, so the device gets what the test will get. The copy's ids start from 1 again,
+ * as they do in a test database that was just migrated.
  *
  * @phpstan-import-type ModelInfo from Models
  * @phpstan-import-type Values from Models
@@ -148,26 +148,50 @@ final class Setup
 
     private function make(): void
     {
-        DB::connection(self::CONNECTION)->transaction(function (): void {
-            foreach (array_reverse($this->entries) as $entry) {
-                $query = $this->query($entry['model']['class']);
+        // A factory makes the rows it needs, such as a parent's, on the default connection,
+        // and so does a model's observer. The copy is the default while the rows are made.
+        $default = DB::getDefaultConnection();
+        DB::setDefaultConnection(self::CONNECTION);
+
+        try {
+            DB::connection(self::CONNECTION)->transaction(fn () => $this->fill());
+        } finally {
+            DB::setDefaultConnection($default);
+        }
+    }
+
+    private function fill(): void
+    {
+        $sequence = DB::connection(self::CONNECTION)->table('sqlite_master')->where('type', 'table')->where('name', 'sqlite_sequence')->exists();
+
+        foreach (array_reverse($this->entries) as $entry) {
+            $query = $this->query($entry['model']['class']);
+
+            try {
                 $entry['model']['softDeletes'] ? $query->withoutGlobalScopes()->forceDelete() : $query->delete();
+            } catch (Throwable $exception) {
+                throw new SimulatorException("Could not empty {$entry['model']['table']}: ".strtok($exception->getMessage(), "\n"), previous: $exception);
             }
 
-            foreach ($this->entries as $entry) {
-                foreach ($entry['rows'] as $row) {
-                    try {
-                        match (true) {
-                            $entry['factory'] ?? false => $this->factory($entry['model']['class'])->create($row),
-                            $entry['model']['fillable'] => $this->query($entry['model']['class'])->create($row),
-                            default => $this->query($entry['model']['class'])->forceCreate($row),
-                        };
-                    } catch (Throwable $exception) {
-                        throw new SimulatorException("Could not create a {$entry['model']['name']}: ".strtok($exception->getMessage(), "\n"), previous: $exception);
-                    }
+            // Emptying a table keeps its AUTOINCREMENT count, so the ids would go on from it.
+            if ($sequence) {
+                DB::connection(self::CONNECTION)->table('sqlite_sequence')->where('name', $entry['model']['table'])->delete();
+            }
+        }
+
+        foreach ($this->entries as $entry) {
+            foreach ($entry['rows'] as $row) {
+                try {
+                    match (true) {
+                        $entry['factory'] ?? false => $this->factory($entry['model']['class'])->create($row),
+                        $entry['model']['fillable'] => $this->query($entry['model']['class'])->create($row),
+                        default => $this->query($entry['model']['class'])->forceCreate($row),
+                    };
+                } catch (Throwable $exception) {
+                    throw new SimulatorException("Could not create a {$entry['model']['name']}: ".strtok($exception->getMessage(), "\n"), previous: $exception);
                 }
             }
-        });
+        }
     }
 
     /**

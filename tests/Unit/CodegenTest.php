@@ -396,3 +396,24 @@ it('names an iOS switch by its label, not by the value of the control inside it'
         ->and($selector->for([$labelled, $inner], $labelled)['target'])->toBe('Notifications')
         ->and(fn () => $selector->for([$labelled, $inner], $inner))->toThrow(SimulatorException::class, 'no label or accessibility id');
 });
+
+it('answers an error it did not expect, and keeps serving', function () {
+    $driver = new FakeDriver([[]]);
+    $driver->reading = fn () => throw new RuntimeException("disk full\nmore detail");
+    $server = new Server(new Session($driver, new Screen($driver, timeoutSeconds: 0.5), '/'));
+
+    [$status, , $body] = $server->handle('GET', '/state', '', '127.0.0.1:8899');
+
+    expect($status)->toBe(500)
+        ->and(json_decode($body, true))->toBe(['error' => 'disk full']);
+});
+
+it('does not suggest a column that comes out different on every run', function () {
+    $before = ['users' => []];
+    $after = ['users' => [1 => [
+        'id' => 1, 'name' => 'Ada', 'uuid' => '9b2f1c4e-8a7d-4e3f-9c1b-2d5e6f7a8b9c', 'api_token' => 'x1y2', 'password' => '$2y$12$abcdefghijklmnopqrstuv',
+        'code' => '01HZX3Q7V8K9M2N4P5R6S7T8W9',
+    ]]];
+
+    expect(Changes::between($before, $after)[0]['suggested'])->toBe(['name']);
+});

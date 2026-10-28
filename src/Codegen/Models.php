@@ -238,7 +238,9 @@ final class Models
             return [];
         }
 
-        $model = $class::factory()->make();
+        // A parent the factory would make, such as 'user_id' => User::factory(), is left
+        // out: make() still creates it, in whatever database is the default.
+        $model = $class::factory()->withoutParents()->make();
 
         if (! $model instanceof Model) {
             return [];

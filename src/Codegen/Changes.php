@@ -152,8 +152,22 @@ final class Changes
     {
         return array_values(array_filter(
             $changed,
-            fn (string $column): bool => $column !== 'id' && ! str_ends_with($column, '_at') && $column !== 'remember_token' && $row[$column] !== null,
+            fn (string $column): bool => $row[$column] !== null && ! self::random($column, $row[$column]),
         ));
+    }
+
+    /**
+     * Whether a column comes out different on every run: an id, a timestamp, a token, a
+     * password hash, or a UUID or ULID.
+     */
+    private static function random(string $column, int|float|string $value): bool
+    {
+        if ($column === 'id' || str_ends_with($column, '_at') || in_array($column, ['uuid', 'ulid', 'token', 'password'], true)
+            || str_ends_with($column, '_token') || str_ends_with($column, '_uuid') || str_ends_with($column, '_ulid')) {
+            return true;
+        }
+
+        return is_string($value) && preg_match('/^(\$2[aby]\$|\$argon2)|^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$|^[0-9A-HJKMNP-TV-Z]{26}$/i', $value) === 1;
     }
 
     /**

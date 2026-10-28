@@ -64,7 +64,7 @@ final class SimulatorCommand extends Command
                 // Ctrl+C is the way out, so the test so far is printed on the way.
                 Shutdown::defer(function () use ($session): void {
                     $this->newLine();
-                    $this->line($session->script->chain());
+                    $this->line($session->code());
                 });
             });
         } catch (SimulatorException $exception) {

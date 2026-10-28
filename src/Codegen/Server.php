@@ -6,6 +6,7 @@ namespace NativePhp\Simulator\Codegen;
 
 use Closure;
 use NativePhp\Simulator\Exceptions\SimulatorException;
+use Throwable;
 
 /**
  * The page a recording is made from, served on this machine only. One request at a time,
@@ -91,17 +92,20 @@ final class Server
             };
         } catch (SimulatorException $exception) {
             return self::json(['error' => $exception->getMessage()], 422);
+        } catch (Throwable $exception) {
+            // Anything else is shown too: letting it out would stop the recording.
+            return self::json(['error' => strtok($exception->getMessage(), "\n") ?: $exception::class], 500);
         }
     }
 
     /**
-     * @return array{code: string}
+     * @return array{code: string, warning: string|null}
      */
     private function setup(mixed $models): array
     {
-        $this->session->applySetup(is_array($models) ? $models : []);
+        $warning = $this->session->applySetup(is_array($models) ? $models : []);
 
-        return ['code' => $this->session->script->chain()];
+        return ['code' => $this->session->script->chain(), 'warning' => $warning];
     }
 
     private function undo(): string
