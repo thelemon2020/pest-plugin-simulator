@@ -130,8 +130,6 @@
         <button id="apply-cancel" hidden>Keep the recording</button>
         <span class="hint" id="applied">Nothing applied yet. The app keeps the rows it has.</span>
       </div>
-      <h2>Before screen()</h2>
-      <pre id="setup-code"></pre>
     </section>
 
     <section id="panel-record" role="tabpanel" aria-labelledby="tab-record" hidden>
@@ -509,7 +507,6 @@
   }
 
   function setupState(state) {
-    $('setup-code').textContent = state.setupCode || '// Apply rows to see the lines the test runs before screen().';
     before = state.setupCode || '';
     drawCode();
     // Drawn every time, since the steps Apply would replace change as they are recorded.
