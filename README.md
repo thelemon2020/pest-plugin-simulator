@@ -215,7 +215,7 @@ The copy starts from the database the test starts from, so the rows get the same
 
 **Record** has everything else.
 
-**Copy test** puts the whole test file on the clipboard: the `use` lines, and an `it()` inside `mobile()` with the setup lines, then the recording, named by what you type next to it. Ctrl+C stops the recording and prints the chain.
+The code on Record is the test so far: the setup lines, then the recording. **Copy test** puts the whole test file on the clipboard: the `use` lines, and an `it()` inside `mobile()` with the setup lines, then the recording, named by what you type next to it. Ctrl+C stops the recording and prints the chain.
 
 Until rows are applied, the recording runs against the app as it is: its own database, with no fakes. A test's `screen()` copies in the test database first, so a screen that shows rows needs the same rows in the test. Set them up on the Setup tab, and recorded ids and counts hold. `--port` serves the page on another port than 8899.
 

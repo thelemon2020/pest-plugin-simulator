@@ -187,9 +187,17 @@
     }
   }
 
+  // The test as Copy writes it, without the mobile() and it() around it: the setup's lines,
+  // then the steps from screen() on.
+  let chain = '', before = '';
+  function drawCode(next = chain) {
+    chain = next;
+    code.textContent = (before ? before + '\n\n' : '') + chain;
+  }
+
   // The steps recorded after screen(), which applying the setup would throw away.
   function recordedSteps() {
-    return (code.textContent.match(/^\s+->/gm) || []).length;
+    return (chain.match(/^\s+->/gm) || []).length;
   }
 
   async function call(method, path, body) {
@@ -213,7 +221,7 @@
         say('Ready. Click the screen to record a step.');
         say('The device is answering again.', false, 'setup');
       }
-      code.textContent = state.code;
+      drawCode(state.code);
       changes(state.database);
       setupState(state);
       // The screen may have changed under a cursor that has not moved.
@@ -503,6 +511,8 @@
 
   function setupState(state) {
     $('setup-code').textContent = state.setupCode || '// Apply rows to see the lines the test runs before screen().';
+    before = state.setupCode || '';
+    drawCode();
     // Drawn every time, since the steps Apply would replace change as they are recorded.
     drawApplied(JSON.stringify(entries) === applied ? state.setup : undefined);
   }
@@ -522,7 +532,7 @@
     try {
       const result = await call('POST', '/setup', { models: entries });
       applied = JSON.stringify(entries);
-      code.textContent = result.code;
+      drawCode(result.code);
       say('Applied. The app has these rows now. Add more, or go to Record when you are ready.', false, 'setup');
       say(replaced ? `The setup changed, so the recording starts over. ${replaced} ${replaced === 1 ? 'step was' : 'steps were'} replaced.` : 'The app restarted with the new rows.');
     } catch (error) {
@@ -635,7 +645,7 @@
     say(doing);
     try {
       const result = await call('POST', path, body);
-      code.textContent = result.code;
+      drawCode(result.code);
       say(result.line ? 'Recorded ' + result.line : 'Done.');
       return true;
     } catch (error) {
@@ -690,7 +700,7 @@
 
   $('undo').addEventListener('click', async () => {
     try {
-      code.textContent = (await call('POST', '/undo')).code;
+      drawCode((await call('POST', '/undo')).code);
       say('Removed the last line. The device stays as it is.');
     } catch (error) {
       say(error.message, true);
