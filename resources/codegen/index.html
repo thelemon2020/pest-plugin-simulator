@@ -160,7 +160,6 @@
       <pre id="code"></pre>
       <div class="row">
         <button id="undo">Undo last line</button>
-        <input id="test-name" aria-label="Test name" placeholder="What the test does, e.g. pays the second order" autocomplete="off">
         <button id="copy" class="primary">Copy test</button>
       </div>
       <h2>Database</h2>
@@ -722,13 +721,8 @@
   }
 
   $('copy').addEventListener('click', async () => {
-    try {
-      const result = await call('POST', '/file', { name: $('test-name').value.trim() });
-      if (!await copy(result.code)) return say('The browser did not allow copying. Select the code and copy it.', true);
-      say('Copied the whole test, with its setup. Paste it into a file in tests/.');
-    } catch (error) {
-      say(error.message, true);
-    }
+    if (!await copy(code.textContent)) return say('The browser did not allow copying. Select the code and copy it.', true);
+    say(code.textContent.startsWith('use ') ? 'Copied. The use lines go at the top of the test file, the rest in an it() inside mobile().' : 'Copied. Paste it into an it() inside mobile().');
   });
 
   $('open').addEventListener('submit', (event) => {

@@ -86,7 +86,6 @@ final class Server
                 'GET /models' => self::json(['models' => $this->session->models()]),
                 'POST /rows' => self::json(['rows' => $this->session->rows((string) ($input['class'] ?? ''), (int) ($input['count'] ?? 1))]),
                 'POST /setup' => self::json($this->setup($input['models'] ?? null)),
-                'POST /file' => self::json(['code' => $this->session->file((string) ($input['name'] ?? ''))]),
                 'POST /undo' => self::json(['code' => $this->undo()]),
                 default => [404, 'text/plain', 'Not found'],
             };

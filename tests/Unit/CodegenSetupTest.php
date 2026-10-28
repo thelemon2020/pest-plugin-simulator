@@ -105,7 +105,7 @@ it('puts the rows into a copy of the database for the device, and leaves the rea
         ->and(Gadget::pluck('name')->all())->toBe(['Old']);
 });
 
-it('applies the setup, starts the recording over, and writes the whole test', function () {
+it('applies the setup, starts the recording over, and shows the lines it runs first', function () {
     Configuration::configure(['scheme' => 'sample']);
     $driver = new FakeDriver([[]]);
     $session = new Session($driver, new Screen($driver, timeoutSeconds: 0.5), '/gadgets', modelsDirectory: $this->directory, modelsNamespace: 'Tests\Support\Codegen');
@@ -116,20 +116,11 @@ it('applies the setup, starts the recording over, and writes the whole test', fu
 
         expect($session->script->chain())->toBe("screen('/gadgets');")
             ->and($driver->opened)->toBe(['sample://elsewhere', 'sample://gadgets'])
-            ->and($session->file('lists a gadget'))->toBe(<<<'PHP'
-                <?php
-
+            ->and($session->state()['setupCode'])->toBe(<<<'PHP'
                 use Tests\Support\Codegen\Gadget;
 
-                mobile(function () {
-                    it('lists a gadget', function () {
-                        Gadget::query()->delete();
-                        Gadget::create(['name' => 'Lamp', 'price' => 5]);
-
-                        screen('/gadgets');
-                    });
-                });
-
+                Gadget::query()->delete();
+                Gadget::create(['name' => 'Lamp', 'price' => 5]);
                 PHP);
     } finally {
         Configuration::reset();
@@ -167,7 +158,7 @@ it('creates an added field with forceCreate, since the model would not fill it',
         Configuration::reset();
     }
 
-    expect($session->file('lists a gadget'))->toContain("Gadget::forceCreate(['name' => 'Lamp', 'created_at' => '2026-10-27 09:00:00']);");
+    expect($session->state()['setupCode'])->toContain("Gadget::forceCreate(['name' => 'Lamp', 'created_at' => '2026-10-27 09:00:00']);");
 });
 
 it('writes rows made by the factory, pinning what was filled in', function () {
@@ -209,7 +200,7 @@ it('makes the rows through the factory when it applies them', function () {
     expect($rows[0]['label'])->toBe('Cog')
         ->and($rows[0]['size'])->toBeGreaterThan(0)
         ->and($rows[1]['label'])->toStartWith('Widget ')
-        ->and($session->file('lists widgets'))->toContain("Widget::factory()->create(['label' => 'Cog']);\n        Widget::factory()->create();");
+        ->and($session->state()['setupCode'])->toContain("Widget::factory()->create(['label' => 'Cog']);\nWidget::factory()->create();");
 });
 
 it('refuses the factory for a model that has none', function () {

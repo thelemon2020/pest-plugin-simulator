@@ -203,26 +203,6 @@ final class Session
     }
 
     /**
-     * The whole test: the use lines, then the recording in an it() inside mobile(), with
-     * the setup at its top. The test's first screen() copies those rows into the app.
-     */
-    public function file(string $name): string
-    {
-        ['uses' => $uses, 'code' => $setup] = $this->setup->code();
-        $body = ($setup === '' ? '' : $setup."\n\n").$this->script->chain();
-        $body = implode("\n", array_map(fn (string $line): string => $line === '' ? '' : '        '.$line, explode("\n", $body)));
-        $parts = ['<?php'];
-
-        if ($uses !== []) {
-            $parts[] = implode("\n", $uses);
-        }
-
-        $parts[] = "mobile(function () {\n    it(".Step::literal($name !== '' ? $name : 'goes through the recorded flow').", function () {\n{$body}\n    });\n});";
-
-        return implode("\n\n", $parts)."\n";
-    }
-
-    /**
      * One of the app's models, by its class: only a model the page was offered.
      *
      * @return ModelInfo
