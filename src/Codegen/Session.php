@@ -187,7 +187,9 @@ final class Session
         $setup = new Setup($setup);
         $setup->apply($this->driver);
         $this->setup = $setup;
-        DeviceDatabase::forget();
+        // A setup with the same rows makes a database as big as the last, with the same header,
+        // which the digest cannot tell from the last pull. So that pull is thrown away.
+        DeviceDatabase::reset();
         $this->script->clear();
         $this->title = null;
         $this->before = null;

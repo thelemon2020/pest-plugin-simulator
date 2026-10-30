@@ -9,6 +9,7 @@ use NativePhp\Simulator\Codegen\Session;
 use NativePhp\Simulator\Codegen\Setup;
 use NativePhp\Simulator\Codegen\Step;
 use NativePhp\Simulator\Configuration;
+use NativePhp\Simulator\DeviceDatabase;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 use NativePhp\Simulator\Screen;
 use Tests\Support\Codegen\Gadget;
@@ -133,6 +134,24 @@ it('applies the setup, starts the recording over, and shows the lines it runs fi
                 PHP);
     } finally {
         Configuration::reset();
+    }
+});
+
+it('reads the new rows after a setup that made a database just like the last one', function () {
+    Configuration::configure(['scheme' => 'sample']);
+    $driver = new FakeDriver([[]]);
+    $driver->digest = 'same size, same header';
+    $session = new Session($driver, new Screen($driver, timeoutSeconds: 0.5), '/gadgets', modelsDirectory: $this->directory, modelsNamespace: 'Tests\Support\Codegen');
+
+    try {
+        $session->applySetup([['class' => Gadget::class, 'rows' => [['name' => 'Lamp']]]]);
+        $session->state();
+        $session->applySetup([['class' => Gadget::class, 'rows' => [['name' => 'Desk']]]]);
+
+        expect(DeviceDatabase::open($driver)->query('SELECT name FROM gadgets')->fetchAll(PDO::FETCH_COLUMN))->toBe(['Desk']);
+    } finally {
+        Configuration::reset();
+        DeviceDatabase::reset();
     }
 });
 

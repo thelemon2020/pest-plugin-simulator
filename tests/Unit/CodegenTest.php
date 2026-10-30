@@ -60,6 +60,14 @@ it('takes the label of an Android checkbox over its unnamed square', function ()
     expect((new Selector)->at([$label, $square], 183, 628))->toBe($label);
 });
 
+it('takes the text of an Android row over the unnamed button around it', function () use ($element) {
+    $row = $element('', [0, 737, 1080, 147]);
+    $text = $element('Orders', [42, 779, 133, 63], 'android.widget.TextView');
+
+    expect((new Selector)->at([$row, $text], 108, 810))->toBe($text)
+        ->and((new Selector)->at([$row, $text], 900, 810))->toBe($row);
+});
+
 it('names a control by its accessibility id first', function () use ($element) {
     $save = $element('Save', [20, 20, 100, 40], extra: ['id' => 'save-button']);
 

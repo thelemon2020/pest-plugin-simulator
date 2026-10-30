@@ -29,9 +29,9 @@ final class Selector
     public function __construct(private readonly ElementFinder $finder = new ElementFinder) {}
 
     /**
-     * The control under a point: the smallest one whose frame holds it. With $touch, one you
-     * can touch wins over the text inside it, since that is what a tap there reaches. One with
-     * a name wins over one a test could not name.
+     * The control under a point: the smallest one whose frame holds it. One with a name wins
+     * over one a test could not name. Then, with $touch, one you can touch wins over the text
+     * inside it, since that is what a tap there reaches.
      *
      * @param  list<Element>  $elements
      * @return Element|null
@@ -43,14 +43,15 @@ final class Selector
             fn (array $element): bool => is_array($element['center'] ?? null) && $this->holds($element, $x, $y),
         ));
 
+        // Android reads a checkbox's square apart from its label, and a list row's button apart
+        // from its text, and only the label and the text have a name.
+        $named = array_values(array_filter($under, fn (array $element): bool => self::label($element) !== '' || self::chosenId($element) !== null));
+        $under = $named === [] ? $under : $named;
+
         if ($touch) {
             $touchable = array_values(array_filter($under, fn (array $element): bool => self::touchable($element)));
             $under = $touchable === [] ? $under : $touchable;
         }
-
-        // Android reads a checkbox's square apart from its label, and only the label has a name.
-        $named = array_values(array_filter($under, fn (array $element): bool => self::label($element) !== '' || self::chosenId($element) !== null));
-        $under = $named === [] ? $under : $named;
 
         usort($under, fn (array $a, array $b): int => $this->area($a) <=> $this->area($b));
 

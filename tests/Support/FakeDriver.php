@@ -330,6 +330,9 @@ final class FakeDriver implements Driver
     /** Whether appFilesDigest() can tell, as a driver whose shell has no md5sum cannot. */
     public bool $digests = true;
 
+    /** What appFilesDigest() says whatever the files hold, as a device's does for two databases with the same size and header. */
+    public ?string $digest = null;
+
     public function appFilesDigest(array $files): ?string
     {
         $this->events[] = ['digest', implode(',', array_keys($files))];
@@ -342,6 +345,10 @@ final class FakeDriver implements Driver
 
         if (! $this->digests) {
             return null;
+        }
+
+        if ($this->digest !== null) {
+            return $this->digest;
         }
 
         // The whole file, not its first bytes: a test swaps in a whole new database, whose
