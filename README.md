@@ -315,6 +315,12 @@ screen('/basket')
 
 `within()` needs a container the platform shows as one element: an alert, a sheet, a list row, or a view an app gives its own accessibility container. NativePHP does not do that for a `<native:column>` yet, even with an `a11y-label`: its children are read on their own, and the label goes nowhere. On those screens, `nth()` picks between the repeated controls instead.
 
+`assertAccessible()` fails when a button, field, switch, or select on the screen has no label, and lists each one with its accessibility id and where it is. An id does not count, because a screen reader does not say it. On iOS, an icon button is named by its SF Symbol, which is what VoiceOver says. On Android, text or an `a11y-label` inside the control's frame names it, as TalkBack reads it: a checkbox is named by its text. Another control inside it does not name it. An image with no label is left out, since it is often decoration, and so are the system's photo picker and share sheet. It waits until the timeout for a label the app sets late. Inside `within()`, it checks only that control.
+
+```php
+screen('/settings')->assertAccessible();
+```
+
 ## Fill in controls
 
 These calls read the control's state first and wait until it reads what they asked for. They are named after the calls in NativePHP's own test harness, so a test can move from `Native::test()` to a device with few changes.

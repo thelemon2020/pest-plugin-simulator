@@ -590,6 +590,63 @@ final class ElementFinder
     }
 
     /**
+     * The buttons, fields, switches, and Android selects a screen reader has no name for. An id does not count:
+     * VoiceOver and TalkBack do not read it. An unlabeled image is often decoration, so it is
+     * left out, and so are the system's photo picker and share sheet, which the app does not draw.
+     *
+     * Android reports a control and its text as separate nodes, like a checkbox and the text
+     * inside it, or a button and the a11y-label on a node with its frame. TalkBack reads that
+     * text as the control's name, so a label inside the control's frame names it.
+     *
+     * @param  list<Element>  $elements
+     * @return list<Element>
+     */
+    public function unlabeled(array $elements): array
+    {
+        return array_values(array_filter(
+            $elements,
+            fn (array $element): bool => $element['label'] === ''
+                && $this->isControl($element['role'])
+                && ! in_array($element['chrome'] ?? null, ['photos', 'share'], true)
+                && ! $this->labeledInside($elements, $element['frame'] ?? null),
+        ));
+    }
+
+    /**
+     * @param  list<Element>  $elements
+     * @param  array{0: float, 1: float, 2: float, 3: float}|null  $frame
+     */
+    private function labeledInside(array $elements, ?array $frame): bool
+    {
+        if ($frame === null) {
+            return false;
+        }
+
+        foreach ($elements as $element) {
+            $inner = $element['frame'] ?? null;
+
+            // A control inside takes focus on its own, so its label is not this one's name.
+            if ($element['label'] === '' || $inner === null || $this->isControl($element['role'])) {
+                continue;
+            }
+
+            if (AccessibilityTree::frameInside($inner, $frame)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Android keeps a select's own class, android.widget.Spinner, as its role.
+     */
+    private function isControl(?string $role): bool
+    {
+        return in_array($role, ['Button', 'TextField', 'Switch'], true) || str_contains($role ?? '', 'Spinner');
+    }
+
+    /**
      * @param  list<Element>  $elements
      */
     public function hasWebView(array $elements): bool
@@ -678,7 +735,11 @@ final class ElementFinder
 
             if ($element['label'] === '') {
                 $line = $id !== null ? "{$role}: [{$id}]" : "{$role}: (no label)";
-                $unlabeled[] = $id !== null ? "{$role} [{$id}]" : $role;
+
+                // A label inside the control names it, as unlabeled() reads it.
+                if (! $this->labeledInside($elements, $element['frame'] ?? null)) {
+                    $unlabeled[] = $id !== null ? "{$role} [{$id}]" : $role;
+                }
             } else {
                 $line = "{$role}: {$element['label']}";
             }

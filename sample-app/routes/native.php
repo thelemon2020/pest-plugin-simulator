@@ -13,6 +13,7 @@ use App\NativeComponents\Photos;
 use App\NativeComponents\Sheet;
 use App\NativeComponents\Slow;
 use App\NativeComponents\Tabs;
+use App\NativeComponents\Unlabeled;
 use Illuminate\Support\Facades\Route;
 
 Route::native('/', Home::class)->layout(StackLayout::class);
@@ -27,3 +28,4 @@ Route::native('/slow', Slow::class)->layout(StackLayout::class);
 Route::native('/photos', Photos::class)->layout(StackLayout::class);
 Route::native('/boom', Boom::class)->layout(StackLayout::class);
 Route::native('/checkout', Checkout::class)->layout(StackLayout::class);
+Route::native('/unlabeled', Unlabeled::class)->layout(StackLayout::class);
