@@ -75,6 +75,25 @@ final class ElementFinder
     }
 
     /**
+     * The controls whose center sits inside a frame: what within() looks at.
+     *
+     * @param  list<Element>  $elements
+     * @param  array{0: float, 1: float, 2: float, 3: float}  $frame
+     * @return list<Element>
+     */
+    public function inside(array $elements, array $frame): array
+    {
+        [$x, $y, $width, $height] = $frame;
+
+        return array_values(array_filter(
+            $elements,
+            fn (array $element): bool => is_array($element['center'] ?? null)
+                && $element['center'][0] >= $x && $element['center'][0] <= $x + $width
+                && $element['center'][1] >= $y && $element['center'][1] <= $y + $height,
+        ));
+    }
+
+    /**
      * What the prompt says in English, for when the device's own text can't be read.
      *
      * @var OpenPrompt

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace NativePhp\Simulator;
 
+use Pest\Exceptions\InvalidPestCommand;
 use Pest\TestSuite;
 
 /**
@@ -176,7 +177,12 @@ final class Trace
      */
     public static function test(): string
     {
-        $test = TestSuite::getInstance()->test;
+        // Outside a Pest run, as in codegen, there is no suite to ask, and asking throws.
+        try {
+            $test = TestSuite::getInstance()->test;
+        } catch (InvalidPestCommand) {
+            return '';
+        }
 
         if ($test !== null && method_exists($test, 'getPrintableTestCaseMethodName')) {
             return (string) $test->getPrintableTestCaseMethodName();

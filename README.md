@@ -178,6 +178,49 @@ mobile(function () {
 
 The first test runs on iPhone and Android. The second test runs only while the current device is an iPhone.
 
+## Record a test
+
+`codegen` opens the app on one device and serves a page that shows its screen. Click the screen there to record a test.
+
+```bash
+php artisan nativephp:simulator codegen /form --ios
+php artisan nativephp:simulator codegen /controls --android --device="Pixel"
+```
+
+- **Tap mode** runs each click on the device, then adds the line. A field asks for the text to type. A switch or checkbox records `toggle()`. A tab records `changeTab()`, an alert button `alert()`, and Back `goBack()`.
+- **Assert mode** records a check for what you click: `assertSee()` for text, `assertValue()` for a field, `assertChecked()` for a switch, `assertNavTitle()` for the title. Press A to switch modes, or hold Shift while you click to record a single check in Tap mode. A strip on top of the mirror says which one a click records, and turns green, with the mirror's frame, for a check.
+- The buttons beside the screen scroll, go back, close a sheet, and relaunch the app (`relaunch()`). **Open a route** records `openUrl('/settings')`, which opens another route in the running app by its deep link.
+- A tap that opens another screen keeps the same chain, so one recording can go through a whole flow. Each time the nav bar's title changes, the chain gets a comment with it, such as `// Orders`. A screen with no nav bar, as on Android, keeps the last one.
+
+Each control is named the way a test would find it: its accessibility id, then its label, then `within()` a container with an id, then `nth()`. A name is only kept when it finds that same control again. A step that fails is not recorded, and the page says why.
+
+The **Database** panel lists the rows the last action added or changed in the app's database, read from the device after it, so a write that lands late shows up too. A check, such as `assertSee()`, changes nothing, so the list stays. Each row has a checkbox per column. The ones the action wrote start ticked, except a null and the ones a test run gets other values for: an id, a column ending in `_at`, a token, a password hash, and a UUID or ULID. Tick or untick columns, then click **assertDatabaseHas** to check those columns with the values the row has now. A null checks that the column is null. Click **assertDatabaseCount** on an added row to check how many rows its table has. Both run once on the device before they are kept. The panel skips Laravel's own tables, such as `migrations`, `cache`, and `jobs`, and any table with more than 5,000 rows.
+
+The page has two tabs. **Setup** comes first: it says which rows the test starts with. Pick a model from `app/Models` and a number of rows, then **Add rows**. A model with a factory gets rows its factory makes. One without starts from its columns' defaults. Each row shows an input per column the model can fill, and every value can be edited. An empty value in a column that allows null is null. A model with a factory has a **Use factory** checkbox. Ticking it empties the values nobody edited, and unticking puts them back. With it ticked, each row is made by the factory, `Order::factory()->create(['total' => 1200])`, with the values filled in pinned and the empty ones left to the factory. Rows with nothing filled in become `Order::factory()->count(3)->create()`. A value the factory makes up is different on every run, so check it only once it is pinned. **Add a field** adds a column the list missed, by its name. Its values are typed by how they look, an empty one is left out, and the model is then created with `forceCreate()` if it would not fill that column. The × on a row removes it, and removing a model's last row removes the model. Apply keeps you on Setup, so more models can be added and applied. **Apply and restart app** empties those models' tables in a copy of the app's database, creates the rows, and installs the copy on the device, as a test's first `screen()` does. Then it opens the first screen again, and the recording starts over. With steps recorded, Apply asks first, as **Replace 2 recorded steps**, so copy the test before you change its setup. The code on the Record tab starts with the lines the test runs before its `screen()`:
+
+```php
+it('pays the second order', function () {
+    Order::query()->delete();
+    Order::create(['status' => 'unpaid', 'total' => 1200]);
+    Order::create(['status' => 'unpaid', 'total' => 4200]);
+
+    screen('/orders')
+        ->nth(2)->tap('Pay');
+});
+```
+
+The test's first `screen()` copies its database into the app, so those rows reach the app as they did when you applied them.
+
+Emptying a table starts its ids from 1 again in the copy, as in a test database that was just migrated, so the rows get the same ids in both. A factory that makes a parent, such as `'user_id' => User::factory()`, makes it in the copy too. The rows Add rows shows leave that parent out, so fill it in or leave it to the factory. Models are emptied in the reverse of the order they were added, and filled in that order, so add a model before the ones that point to it. A model without a fillable list is created with `forceCreate()`, and one with soft deletes is emptied with `forceDelete()`.
+
+**Record** has everything else.
+
+The code on Record is the test so far: the `use` lines and the setup lines, then the recording. **Copy test** puts that code on the clipboard as it is shown. Paste the `use` lines at the top of a test file and the rest into an `it()` inside `mobile()`. Ctrl+C stops the recording and prints the same code.
+
+Until rows are applied, the recording runs against the app as it is: its own database, with no fakes. A test's `screen()` copies in the test database first, so a screen that shows rows needs the same rows in the test. Set them up on the Setup tab, and recorded ids and counts hold. `--port` serves the page on another port than 8899.
+
+`select()`, `slide()`, `swipe()`, and long presses are not recorded yet. Write those lines by hand. A click on a slider, or on an Android picker, records nothing and says which call to write. On iOS a picker is a button, so a click records `tap('Size')`, and a click on the option that opens records that tap too.
+
 ## Before the screen opens
 
 The first `screen()` on a device looks for a debug build. If that build is already installed, it does not compile again, and it does not start the app to check. On Android that is an app marked debuggable. On iOS it is a Simulator build of the app, which NativePHP always builds in its Debug configuration. If no debug build is installed, it runs `php artisan native:run` with `--build=debug`, then force-stops the app. Pass `--rebuild` to compile again anyway.
