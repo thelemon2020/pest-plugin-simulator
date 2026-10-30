@@ -22,6 +22,9 @@ final class Shutdown
 
     public static function run(): void
     {
+        // A signal or exit() that lands mid-command never returns to it.
+        Command::stopRunning();
+
         // One at a time: a signal that lands mid-cleanup runs this again, and
         // that call picks up at the next task instead of repeating any.
         while (($task = array_pop(self::$tasks)) !== null) {
