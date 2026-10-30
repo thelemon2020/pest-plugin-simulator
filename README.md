@@ -219,7 +219,7 @@ The code on Record is the test so far: the `use` lines and the setup lines, then
 
 Until rows are applied, the recording runs against the app as it is: its own database, with no fakes. A test's `screen()` copies in the test database first, so a screen that shows rows needs the same rows in the test. Set them up on the Setup tab, and recorded ids and counts hold. `--port` serves the page on another port than 8899.
 
-`select()`, `slide()`, `swipe()`, and long presses are not recorded yet. Write those lines by hand.
+`select()`, `slide()`, `swipe()`, and long presses are not recorded yet. Write those lines by hand. A click on a slider, or on an Android picker, records nothing and says which call to write. On iOS a picker is a button, so a click records `tap('Size')`, and a click on the option that opens records that tap too.
 
 ## Before the screen opens
 

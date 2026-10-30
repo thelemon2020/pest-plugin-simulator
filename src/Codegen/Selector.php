@@ -101,7 +101,7 @@ final class Selector
                     break;
                 }
 
-                if (self::same($match, $element)) {
+                if ($this->reaches($match, $element)) {
                     return ['target' => $name, 'nth' => $nth, 'within' => null];
                 }
             }
@@ -165,7 +165,7 @@ final class Selector
     private function finds(array $elements, string $name, ?int $nth, array $element): bool
     {
         try {
-            return self::same($this->finder->match($elements, $name, $nth), $element);
+            return $this->reaches($this->finder->match($elements, $name, $nth), $element);
         } catch (NoMatch|AmbiguousMatch) {
             return false;
         }
@@ -194,6 +194,20 @@ final class Selector
         usort($containers, fn (array $a, array $b): int => $this->area($a) <=> $this->area($b));
 
         return $containers;
+    }
+
+    /**
+     * Whether a tap on $match lands on $element: it is $element, or it has the same label and
+     * $element is inside it. Android reads a tab as the tab and its text, both with one label.
+     *
+     * @param  Element  $match
+     * @param  Element  $element
+     */
+    private function reaches(array $match, array $element): bool
+    {
+        [$x, $y] = $element['center'] ?? [INF, INF];
+
+        return self::same($match, $element) || ($match['label'] === $element['label'] && $this->holds($match, (float) $x, (float) $y));
     }
 
     /**

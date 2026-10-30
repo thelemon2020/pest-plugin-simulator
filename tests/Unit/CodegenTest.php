@@ -60,6 +60,29 @@ it('takes the label of an Android checkbox over its unnamed square', function ()
     expect((new Selector)->at([$label, $square], 183, 628))->toBe($label);
 });
 
+it('names an Android tab by its label, though the tab and its text are read apart', function () use ($element) {
+    $elements = [
+        $element('Overview', [0, 296, 360, 126], 'android.view.View', ['selected' => true]),
+        $element('Overview', [105, 332, 151, 53], 'android.widget.TextView'),
+        $element('Activity', [360, 296, 360, 126], 'android.view.View'),
+        $element('Activity', [478, 332, 124, 53], 'android.widget.TextView'),
+    ];
+    $selector = new Selector;
+
+    expect($selector->for($elements, $selector->at($elements, 540, 358)))->toBe(['target' => 'Activity', 'nth' => null, 'within' => null]);
+});
+
+it('does not record a picker or a slider, whose calls take a value a click does not give', function () use ($element) {
+    $picker = [$element('Size', [42, 1052, 735, 147], 'android.view.View'), $element('Medium', [42, 1052, 735, 147], 'TextField', ['value' => 'Medium'])];
+    $slider = [$element('20.0', [16, 798, 1048, 116], 'android.widget.SeekBar', ['range' => [0, 100]]), $element('Volume', [16, 798, 1048, 116], 'android.view.View')];
+    $field = [$element('Name', [42, 350, 996, 147], 'TextField', ['value' => ''])];
+
+    expect(Verb::unrecorded($picker, $picker[1]))->toBe("Pickers are not recorded yet. Write ->select('Size', …) by hand.")
+        ->and(Verb::unrecorded($slider, $slider[0]))->toBe("Sliders are not recorded yet. Write ->slide('Volume', …) by hand.")
+        ->and(Verb::unrecorded($slider, $slider[1]))->not->toBeNull()
+        ->and(Verb::unrecorded($field, $field[0]))->toBeNull();
+});
+
 it('takes the text of an Android row over the unnamed button around it', function () use ($element) {
     $row = $element('', [0, 737, 1080, 147]);
     $text = $element('Orders', [42, 779, 133, 63], 'android.widget.TextView');

@@ -337,6 +337,11 @@ final class Session
         $this->notice($elements);
         $element = $this->selector->at($elements, $x, $y, touch: ! $check)
             ?? throw new SimulatorException('Nothing the plugin can read is there.');
+
+        if (! $check && ($why = Verb::unrecorded($elements, $element)) !== null) {
+            throw new SimulatorException($why);
+        }
+
         // Only a step that names its control needs a name: assertSee() takes the text.
         $at = fn (): array => $this->selector->for($elements, $element);
 
@@ -353,7 +358,7 @@ final class Session
     {
         $element = $this->selector->at($this->seen, $x, $y, touch: ! $check);
 
-        return ['element' => $element, 'field' => ! $check && $element !== null && Verb::field($element)];
+        return ['element' => $element, 'field' => ! $check && $element !== null && Verb::field($element) && Verb::unrecorded($this->seen, $element) === null];
     }
 
     /**

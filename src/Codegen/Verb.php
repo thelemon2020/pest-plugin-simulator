@@ -94,6 +94,38 @@ final class Verb
     }
 
     /**
+     * Why a tap on the control cannot be recorded, for a picker or a slider, whose calls
+     * take a value a click does not give. Android reads each as two controls in one spot:
+     * a picker as its label over a field holding the choice, and a slider as its label
+     * over the bar, which says its range.
+     *
+     * @param  list<Element>  $elements
+     * @param  Element  $element
+     */
+    public static function unrecorded(array $elements, array $element): ?string
+    {
+        $spot = array_values(array_filter(
+            $elements,
+            fn (array $other): bool => is_array($other['center'] ?? null) && is_array($element['center'] ?? null)
+                && hypot($other['center'][0] - $element['center'][0], $other['center'][1] - $element['center'][1]) <= 1.0,
+        ));
+        $named = array_values(array_filter($spot, fn (array $other): bool => $other['label'] !== '' && ! self::field($other) && ! is_numeric($other['label'])));
+        $label = $named[0]['label'] ?? 'Label';
+
+        foreach ($spot as $other) {
+            if (($other['range'] ?? null) !== null || $other['role'] === 'Slider' || str_contains($other['role'] ?? '', 'SeekBar')) {
+                return "Sliders are not recorded yet. Write ->slide('{$label}', …) by hand.";
+            }
+        }
+
+        if (self::field($element) && $named !== [] && $named[0]['label'] !== $element['label']) {
+            return "Pickers are not recorded yet. Write ->select('{$label}', …) by hand.";
+        }
+
+        return null;
+    }
+
+    /**
      * Whether a tap on the control types into it.
      *
      * @param  Element  $element
