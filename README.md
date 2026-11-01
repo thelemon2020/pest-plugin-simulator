@@ -937,7 +937,7 @@ jobs:
           touch database/database.sqlite
           php artisan migrate --force
 
-      - uses: thelemon2020/pest-plugin-simulator/actions/android@v0.5.0
+      - uses: thelemon2020/pest-plugin-simulator/actions/android@v0.6.0
         with:
           tests: tests/Simulator
 ```
@@ -985,7 +985,7 @@ jobs:
           touch database/database.sqlite
           php artisan migrate --force
 
-      - uses: thelemon2020/pest-plugin-simulator/actions/ios@v0.5.0
+      - uses: thelemon2020/pest-plugin-simulator/actions/ios@v0.6.0
         with:
           tests: tests/Simulator
 ```
