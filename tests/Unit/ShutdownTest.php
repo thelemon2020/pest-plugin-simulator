@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use NativePhp\Simulator\Command;
 use NativePhp\Simulator\Shutdown;
 
 beforeEach(function () {
@@ -10,6 +11,9 @@ beforeEach(function () {
 
 afterEach(function () {
     @unlink($this->log);
+    if (file_exists($this->log.'.pid')) {
+        unlink($this->log.'.pid');
+    }
     Shutdown::reset();
 });
 
@@ -34,6 +38,21 @@ it('runs the tasks on a signal, unblocked, and exits with its conventional code'
 it('finishes the remaining tasks when a signal lands mid-cleanup, without repeating one', function () {
     expect(endRun($this->log, 'signal-during-cleanup'))->toBe(143)
         ->and(file_get_contents($this->log))->toBe("second\nfirst\n");
+})->skip(! function_exists('pcntl_async_signals'), 'Needs ext-pcntl.');
+
+it('stops a command still running when the run is interrupted', function () {
+    expect(endRun($this->log, 'signal-during-command'))->toBe(130)
+        ->and(file_get_contents($this->log))->toBe("second\na command started here blocks 0 signals\nfirst\n");
+
+    $pid = (int) file_get_contents($this->log.'.pid');
+    $running = (new Command)->running($pid);
+
+    if ($running) {
+        posix_kill($pid, SIGKILL);
+    }
+
+    expect($pid)->toBeGreaterThan(0)
+        ->and($running)->toBeFalse();
 })->skip(! function_exists('pcntl_async_signals'), 'Needs ext-pcntl.');
 
 it('leaves signal handling alone until there is something to clean up', function () {

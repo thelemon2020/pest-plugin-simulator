@@ -40,7 +40,7 @@ Shutdown::defer(function () use ($write, $ending): void {
         $write('rest of second');
     }
 
-    if (in_array($ending, ['SIGINT', 'SIGTERM', 'after-phpunit-sigint'], true)) {
+    if (in_array($ending, ['SIGINT', 'SIGTERM', 'after-phpunit-sigint', 'signal-during-command'], true)) {
         $blocked = (new Command)->run(PHP_BINARY, ['-r', 'pcntl_sigprocmask(SIG_BLOCK, [SIGUSR2], $old); echo count($old);']);
         $write('a command started here blocks '.$blocked.' signals');
     }
@@ -50,7 +50,14 @@ if ($ending === 'handlers') {
     $write('after defer: SIGINT '.$handler(SIGINT).', SIGTERM '.$handler(SIGTERM));
 }
 
+if ($ending === 'signal-during-command') {
+    // The command interrupts this run itself, then outlives it unless it is stopped.
+    (new Command)->run('sh', ['-c', 'echo $$ > "$1"; kill -INT $PPID; exec sleep 30', 'sh', $log.'.pid']);
+    $write('rest of command');
+}
+
 match ($ending) {
+    'signal-during-command' => null,
     'terminate', 'signal-during-cleanup', 'handlers' => Shutdown::run(),
     'fatal' => throw new RuntimeException('The run crashed.'),
     'SIGINT', 'after-phpunit-sigint' => posix_kill(getmypid(), SIGINT),
