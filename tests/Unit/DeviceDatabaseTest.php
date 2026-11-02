@@ -14,6 +14,7 @@ use NativePhp\Simulator\Screen;
 use NativePhp\Simulator\Sessions;
 use NativePhp\Simulator\TestDatabase;
 use NativePhp\Simulator\Trace;
+use PHPUnit\Framework\Assert;
 use PHPUnit\Framework\AssertionFailedError;
 use Tests\Support\FakeDriver;
 use Tests\Support\RecordingCommand;
@@ -573,3 +574,30 @@ it('says at once when a table has no deleted-at column', function () {
         ->toThrow(AssertionFailedError::class, "The device's [orders] table has no [deleted_at] column.")
         ->and(microtime(true) - $started)->toBeLessThan(1.0);
 });
+
+it('counts an assertion for each check that passes, as assertSee() does', function (Closure $checks, int $count) {
+    $this->driver->appFiles['database/database.sqlite'] = sqliteBytes(function (PDO $pdo): void {
+        $pdo->exec('CREATE TABLE orders (id INTEGER PRIMARY KEY, status TEXT, paid_at TEXT NULL)');
+        $pdo->exec("INSERT INTO orders (status) VALUES ('unpaid'), ('paid'), ('unpaid')");
+        $pdo->exec('CREATE TABLE tickets (id INTEGER PRIMARY KEY, seat TEXT, cancelled_at TEXT NULL)');
+        $pdo->exec("INSERT INTO tickets (seat, cancelled_at) VALUES ('1A', NULL), ('1B', '2026-10-21 09:00:00')");
+        $pdo->exec('CREATE TABLE refunds (id INTEGER PRIMARY KEY)');
+    })[0];
+    $before = Assert::getCount();
+
+    $checks(deviceScreen($this->driver));
+
+    expect(Assert::getCount() - $before)->toBe($count);
+})->with([
+    'assertDatabaseHas' => [fn (Screen $screen) => $screen->assertDatabaseHas('orders', ['status' => 'paid']), 1],
+    'assertDatabaseHas, a row each' => [fn (Screen $screen) => $screen->assertDatabaseHas('orders', [['id' => 1], ['id' => 2]]), 2],
+    'assertDatabaseMissing' => [fn (Screen $screen) => $screen->assertDatabaseMissing('orders', ['status' => 'refunded']), 1],
+    'assertDatabaseCount' => [fn (Screen $screen) => $screen->assertDatabaseCount('orders', 3), 1],
+    'assertDatabaseCount, a table each' => [fn (Screen $screen) => $screen->assertDatabaseCount(['orders' => 3, 'tickets' => 2]), 2],
+    'assertDatabaseEmpty' => [fn (Screen $screen) => $screen->assertDatabaseEmpty('refunds'), 1],
+    'assertModelExists' => [fn (Screen $screen) => $screen->assertModelExists(deviceModel(Order::class, 2)), 1],
+    'assertModelMissing' => [fn (Screen $screen) => $screen->assertModelMissing(deviceModel(Order::class, 9)), 1],
+    'assertSoftDeleted' => [fn (Screen $screen) => $screen->assertSoftDeleted(deviceModel(Ticket::class, 2)), 1],
+    'assertNotSoftDeleted' => [fn (Screen $screen) => $screen->assertNotSoftDeleted(deviceModel(Ticket::class, 1)), 1],
+    'two checks in a row' => [fn (Screen $screen) => $screen->assertDatabaseHas('orders', ['status' => 'paid'])->assertDatabaseCount('orders', 3), 2],
+]);

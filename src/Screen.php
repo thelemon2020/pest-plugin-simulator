@@ -1592,7 +1592,8 @@ final class Screen
     /**
      * Pulls the app's database until $holds says yes or the time runs out. Each pull waits
      * first for the app to take every event it was sent, when it shows the IdleMarker, so
-     * a tap's write has had its chance to land. A failure saves the last pull as
+     * a tap's write has had its chance to land. A check that holds counts one PHPUnit
+     * assertion, as assertSee() does. A failure saves the last pull as
      * device.sqlite beside the screenshot. A query no pull could answer, such as a column
      * the table does not have, fails at once.
      *
@@ -1631,6 +1632,8 @@ final class Screen
             if ($error === null) {
                 try {
                     if (DeviceDatabase::hasTable($database, $table) && $holds($database)) {
+                        Assert::assertTrue($holds($database));
+
                         return;
                     }
                 } catch (BadDatabaseQuery|PDOException $exception) {
@@ -1723,6 +1726,8 @@ final class Screen
                     $this->note('different', round($share, 5));
 
                     if ($share <= $threshold) {
+                        Assert::assertTrue($share <= $threshold);
+
                         return;
                     }
 
