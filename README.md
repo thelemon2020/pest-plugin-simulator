@@ -35,6 +35,8 @@ If the test is already inside `mobile()` and a fresh install still says `screen(
 composer pest:dump-plugins
 ```
 
+The plugin is tested against NativePHP 4.7: the sample app and CI run it. Notes below say where 4.6 differs, but 4.6 is no longer run.
+
 Laravel finds `NativePhp\Simulator\Laravel\ServiceProvider` on its own. You do not add it to `bootstrap/providers.php`.
 
 The Composer package does not include a phone. Install the iOS Simulator, the Android Emulator, or both. A missing platform skips those tests. `php artisan nativephp:simulator` checks that the tools are there.
@@ -104,17 +106,19 @@ If the same value is set in more than one place, the plugin uses `Configuration:
 
 `timeout`, `permissions`, and `record_failures` are not `.env` variables. Set a timeout with `Configuration::configure(['timeout' => 15])`. The timeout is how long each step waits, 15 seconds by default. The first screen after the plugin builds and installs the app gets up to 60 seconds from the launch instead, because a NativePHP app unpacks its Laravel code and runs its artisan commands on its first launch before it draws anything. On CI's Android emulator that took 15.5 seconds. Set permissions with `permissions()` inside a test, or with `Configuration::configure(['permissions' => ['location']])` for every test. `record_failures` is under [Debug a flaky test](#debug-a-flaky-test).
 
-A test that copies the database stops the app, so its first screen launches the app again. NativePHP 4.6's iOS app unpacks its Laravel code on every launch, not only the first, unless the build number reads the same on both sides of its check. Set it in `.env`, and read it as a number in `config/nativephp.php`:
+A test that copies the database stops the app, so its first screen launches the app again. NativePHP's iOS app unpacks its Laravel code on every launch, not only the first, unless the build number reads the same on both sides of its check. Set it in `.env`:
 
 ```dotenv
 NATIVEPHP_APP_VERSION_CODE=1
 ```
 
+On NativePHP 4.6, also read it as a number in `config/nativephp.php`. 4.7 reads it either way.
+
 ```php
 'version_code' => (int) env('NATIVEPHP_APP_VERSION_CODE', 1),
 ```
 
-Without both, each test's first step waits for the unpack: 4 seconds a launch on an M1 Pro, and 10 to 20 on a GitHub macOS runner. With both, a rebuild at the same version would keep the old code, so before it builds the app the plugin removes the app's note of what it unpacked. The launch that ends the build unpacks the new code, and the launches after it do not.
+Without it, each test's first step waits for the unpack: 4 seconds a launch on an M1 Pro, and 10 to 20 on a GitHub macOS runner. With it, a rebuild at the same version would keep the old code, so before it builds the app the plugin removes the app's note of what it unpacked. The launch that ends the build unpacks the new code, and the launches after it do not.
 
 `php artisan native:run` runs in the directory the tests run from, and the `idb_companion` and emulator logs are written there. Set another directory with `Configuration::configure(['app_directory' => '/path/to/app'])`.
 
@@ -313,7 +317,7 @@ screen('/basket')
     ->nth(1)->assertChecked('Gift wrap');
 ```
 
-`within()` needs a container the platform shows as one element: an alert, a sheet, a list row, or a view an app gives its own accessibility container. NativePHP does not do that for a `<native:column>` yet, even with an `a11y-label`: its children are read on their own, and the label goes nowhere. On those screens, `nth()` picks between the repeated controls instead.
+`within()` needs a container the platform shows as one element: an alert, a sheet, a list row, or a view an app gives its own accessibility container. NativePHP does not do that for a `<native:column>`. On 4.6 an `a11y-label` on it goes nowhere, and its children are read on their own. From 4.7 the labelled column is read as one element, and the buttons and text inside it are hidden from the screen reader and from the plugin, so leave the label off a row whose controls a test taps. On a screen of unlabelled rows, `nth()` picks between the repeated controls instead.
 
 `assertAccessible()` fails when a button, field, switch, or select on the screen has no label, and lists each one with its accessibility id and where it is. An id does not count, because a screen reader does not say it. On iOS, an icon button is named by its SF Symbol, which is what VoiceOver says. On Android, text or an `a11y-label` inside the control's frame names it, as TalkBack reads it: a checkbox is named by its text. Another control inside it does not name it. An image with no label is left out, since it is often decoration, and so are the system's photo picker and share sheet. It waits until the timeout for a label the app sets late. Inside `within()`, it checks only that control.
 
@@ -346,7 +350,7 @@ screen('/settings')
 
 `changeTab('Activity')` taps a tab in a `<native:tab-row>` or tab bar, and waits until it is the active one.
 
-`submit('Search…', 'Talk Talk')` types into the field, then presses the keyboard's return key. Leave the text off to press return in a field that has its text already. On Android, it performs the field's IME action. NativePHP 4.6 runs a field's `@submit` only from the keyboard's own Done key, which Gboard does not show to a test, so `submit()` does not submit a NativePHP field on Android yet.
+`submit('Search…', 'Talk Talk')` types into the field, then presses the keyboard's return key. Leave the text off to press return in a field that has its text already. On Android, it performs the field's IME action. NativePHP 4.6 and 4.7 run a field's `@submit` only from the keyboard's own Done key, which Gboard does not show to a test, so `submit()` does not submit a NativePHP field on Android yet.
 
 `dismissSheet()` closes the sheet that is up. On iOS it drags the sheet down by its grabber, and waits until the sheet has gone. Android presses Back, which closes a bottom sheet. When no sheet is open, it presses Back on either platform, which goes back a screen.
 
@@ -652,7 +656,7 @@ iOS runs `xcrun simctl ui <udid> content_size`. Android runs `adb shell settings
 
 `rotate()` takes `portrait` or `landscape`, and turns the device as a hand would, counter-clockwise for landscape. iOS calls `idb_companion`'s `set_orientation`. Android turns auto-rotate on with `adb shell settings put system accelerometer_rotation 1`, and points the emulator's gravity along its side with `adb emu sensor set acceleration`. A rotation lock would not turn a NativePHP app on Android: one that allows portrait and landscape follows the sensor and ignores the lock. Called on an open screen, the step waits until the app is drawn the other way round, for about 5 seconds at most. Called before `screen()`, it does not wait: the screen showing then may be the home screen, which does not turn on a phone, and `screen()` waits for the route anyway.
 
-On Android, NativePHP 4.6 can crash when it is turned while it is still starting: it tells PHP about the new orientation before it has loaded the library that carries the message (`UnsatisfiedLinkError` in `NativeElementBridge.nativeElementWriteEvent`). Wait for the screen before turning it, as `screen('/')->assertSee('Home')->rotate('landscape')` does. That took about 2.5 seconds on an Android emulator, whose sensor settles before the screen turns, and half a second on an iOS Simulator. The app only turns to orientations it allows, set under `orientation` in `config/nativephp.php`; NativePHP allows only portrait on a phone by default. Putting it back puts back the device's own orientation, and on Android, its auto-rotate setting and gravity.
+On Android, a NativePHP app turned while it is still starting tells PHP about the new orientation before it has loaded the library that carries the message. NativePHP 4.6 crashes there (`UnsatisfiedLinkError` in `NativeElementBridge.nativeElementWriteEvent`). 4.7 drops the message, so PHP never hears about the turn. Wait for the screen before turning it, as `screen('/')->assertSee('Home')->rotate('landscape')` does. That took about 2.5 seconds on an Android emulator, whose sensor settles before the screen turns, and half a second on an iOS Simulator. The app only turns to orientations it allows, set under `orientation` in `config/nativephp.php`; NativePHP allows only portrait on a phone by default. Putting it back puts back the device's own orientation, and on Android, its auto-rotate setting and gravity.
 
 `fixStatusBar()` shows 9:41, full Wi-Fi, and a full battery, so screenshots match from run to run. iOS runs `xcrun simctl status_bar <udid> override`, which also shows full cellular bars. Android uses System UI's demo mode, with no cellular icon and no notification icons. On Android, an appearance or text size change redraws the status bar, and the redraw drops demo mode. So a fixed status bar is fixed again 2 seconds after that change, and each such change takes those 2 seconds longer.
 
@@ -949,7 +953,7 @@ The action needs a Linux runner: the emulator boots in time only with KVM, which
 | `app-directory` | `.` | The app's directory. |
 | `tests` | | The test files or directories to run. Empty runs the suites `phpunit.xml` lists. |
 | `pest-arguments` | | More arguments for Pest, such as `--filter=checkout`. `--android`, `--rebuild`, and `--simulator-verbose` are always passed. |
-| `api-level` | `36` | The emulator's Android API level. A NativePHP 4.6 app needs 33 or newer. |
+| `api-level` | `36` | The emulator's Android API level. A NativePHP 4.6 or 4.7 app needs 33 or newer. |
 | `system-image` | `google_apis` | The emulator's system image, as in `system-images;android-36;google_apis;x86_64`. |
 | `device-profile` | `pixel_7` | The device the emulator copies, from `avdmanager list device`. |
 | `avd-name` | `Pixel` | The emulator's AVD name. A suite with an `->android([...])` list needs it to be one of those. |

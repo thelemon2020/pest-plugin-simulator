@@ -30,3 +30,36 @@ class TreeObservers
 {
     public static function register(TreeObserver $observer): void {}
 }
+
+class NativeComponent
+{
+    /** @var \WeakReference<self>|null */
+    private static ?\WeakReference $nativeActiveComponent = null;
+
+    /** The fingerprint of the last frame published, from 4.7. */
+    private ?string $publishedFrame = null;
+
+    public static function active(): ?self
+    {
+        return self::$nativeActiveComponent?->get();
+    }
+
+    /**
+     * @return \WeakReference<self>|null
+     */
+    public static function markActive(self $component): ?\WeakReference
+    {
+        $previous = self::$nativeActiveComponent;
+        self::$nativeActiveComponent = \WeakReference::create($component);
+
+        return $previous;
+    }
+
+    /**
+     * @param  \WeakReference<self>|null  $previous
+     */
+    public static function restoreActive(?\WeakReference $previous): void
+    {
+        self::$nativeActiveComponent = $previous;
+    }
+}
