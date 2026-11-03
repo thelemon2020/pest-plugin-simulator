@@ -35,6 +35,8 @@ If the test is already inside `mobile()` and a fresh install still says `screen(
 composer pest:dump-plugins
 ```
 
+The plugin is tested against NativePHP 4.7: the sample app and CI run it. Notes below say where 4.6 differs, but 4.6 is no longer run.
+
 Laravel finds `NativePhp\Simulator\Laravel\ServiceProvider` on its own. You do not add it to `bootstrap/providers.php`.
 
 The Composer package does not include a phone. Install the iOS Simulator, the Android Emulator, or both. A missing platform skips those tests. `php artisan nativephp:simulator` checks that the tools are there.
@@ -315,7 +317,7 @@ screen('/basket')
     ->nth(1)->assertChecked('Gift wrap');
 ```
 
-`within()` needs a container the platform shows as one element: an alert, a sheet, a list row, or a view an app gives its own accessibility container. NativePHP does not do that for a `<native:column>`. On 4.6 an `a11y-label` on it goes nowhere, and its children are read on their own. From 4.7 the labelled column is read as one element, and the buttons and text inside it are hidden from the screen reader and from the plugin, so leave the label off a row whose controls a test taps. On those screens, `nth()` picks between the repeated controls instead.
+`within()` needs a container the platform shows as one element: an alert, a sheet, a list row, or a view an app gives its own accessibility container. NativePHP does not do that for a `<native:column>`. On 4.6 an `a11y-label` on it goes nowhere, and its children are read on their own. From 4.7 the labelled column is read as one element, and the buttons and text inside it are hidden from the screen reader and from the plugin, so leave the label off a row whose controls a test taps. On a screen of unlabelled rows, `nth()` picks between the repeated controls instead.
 
 `assertAccessible()` fails when a button, field, switch, or select on the screen has no label, and lists each one with its accessibility id and where it is. An id does not count, because a screen reader does not say it. On iOS, an icon button is named by its SF Symbol, which is what VoiceOver says. On Android, text or an `a11y-label` inside the control's frame names it, as TalkBack reads it: a checkbox is named by its text. Another control inside it does not name it. An image with no label is left out, since it is often decoration, and so are the system's photo picker and share sheet. It waits until the timeout for a label the app sets late. Inside `within()`, it checks only that control.
 
@@ -348,7 +350,7 @@ screen('/settings')
 
 `changeTab('Activity')` taps a tab in a `<native:tab-row>` or tab bar, and waits until it is the active one.
 
-`submit('Search…', 'Talk Talk')` types into the field, then presses the keyboard's return key. Leave the text off to press return in a field that has its text already. On Android, it performs the field's IME action. NativePHP 4.6 runs a field's `@submit` only from the keyboard's own Done key, which Gboard does not show to a test, so `submit()` does not submit a NativePHP field on Android yet.
+`submit('Search…', 'Talk Talk')` types into the field, then presses the keyboard's return key. Leave the text off to press return in a field that has its text already. On Android, it performs the field's IME action. NativePHP 4.6 and 4.7 run a field's `@submit` only from the keyboard's own Done key, which Gboard does not show to a test, so `submit()` does not submit a NativePHP field on Android yet.
 
 `dismissSheet()` closes the sheet that is up. On iOS it drags the sheet down by its grabber, and waits until the sheet has gone. Android presses Back, which closes a bottom sheet. When no sheet is open, it presses Back on either platform, which goes back a screen.
 

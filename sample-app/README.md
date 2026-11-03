@@ -29,6 +29,6 @@ Three tests skip themselves on purpose:
 
 On CI each step waits up to 60 seconds instead of 15 (`tests/Pest.php`). GitHub's macOS runner is several times slower than a Mac, and stalled for half a minute at times.
 
-`.env.example` sets `NATIVEPHP_APP_VERSION_CODE=1`, and `config/nativephp.php` reads it with `(int)`. NativePHP's iOS app compares the build number in its bundle with the one in the `.env` it unpacked. 4.7 no longer needs the cast, but 4.6 does. Without the `.env` line, they never match, so the app unpacks its Laravel code and runs its migrations on every launch. Every test launches the app after copying the database, and on CI's macOS runner that took 10 to 20 seconds of each test's first 15-second step.
+`.env.example` sets `NATIVEPHP_APP_VERSION_CODE=1`, and `config/nativephp.php` reads it with `(int)`. NativePHP's iOS app compares the build number in its bundle with the one in the `.env` it unpacked. 4.7 no longer needs the cast. Without the `.env` line on 4.7, or without either on 4.6, they never match, so the app unpacks its Laravel code and runs its migrations on every launch. Every test launches the app after copying the database, and on CI's macOS runner that took 10 to 20 seconds of each test's first 15-second step.
 
 `.github/workflows/devices.yml` runs the Android tests on every pull request, and the iOS tests by hand or weekly.

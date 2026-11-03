@@ -142,6 +142,14 @@ final class Mirror
     }
 
     /**
+     * Whether a test's fakes are in place.
+     */
+    public function testing(): bool
+    {
+        return $this->test !== null;
+    }
+
+    /**
      * Forgets the app it was booted in. A real app boots once; the tests' stand-in app is
      * made again for every test.
      */
