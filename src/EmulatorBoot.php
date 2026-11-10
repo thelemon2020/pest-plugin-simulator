@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace NativePhp\Simulator;
 
+/** @internal */
 final class EmulatorBoot
 {
     public const int TIMEOUT_SECONDS = 300;

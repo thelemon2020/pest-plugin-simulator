@@ -21,6 +21,8 @@ use Stringable;
  * request was sent with, not from its body, so that travels too, as do its attributes.
  *
  * @phpstan-type Pair array{request: array{method: string, url: string, headers: array<string, list<string>>, body: string, data?: array<array-key, mixed>, attributes?: array<array-key, mixed>}, response: array{status: int, headers: array<string, list<string>>, body: string}|null}
+ *
+ * @internal
  */
 final class HttpRecords
 {

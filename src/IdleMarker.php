@@ -14,6 +14,8 @@ namespace NativePhp\Simulator;
  * testTagsAsResourceId). Nothing else on screen is changed by it.
  *
  * @phpstan-import-type Element from Driver
+ *
+ * @internal
  */
 final class IdleMarker
 {

@@ -8,6 +8,8 @@ namespace NativePhp\Simulator;
  * Where on screen a slider takes a value, as slide() learns it: a straight line from points
  * along the track to values, drawn through the last two places a drag let go and the values
  * it left. Before any drag, it is the track's own line.
+ *
+ * @internal
  */
 final class SliderLine
 {

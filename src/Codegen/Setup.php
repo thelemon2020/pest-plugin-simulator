@@ -26,6 +26,8 @@ use Throwable;
  * @phpstan-import-type Values from Models
  *
  * @phpstan-type Entry array{model: ModelInfo, rows: list<Values>, factory?: bool}
+ *
+ * @internal
  */
 final class Setup
 {

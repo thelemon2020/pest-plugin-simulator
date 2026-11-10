@@ -6,6 +6,7 @@ namespace NativePhp\Simulator;
 
 use NativePhp\Simulator\Exceptions\SimulatorException;
 
+/** @internal */
 final class Device
 {
     public function __construct(

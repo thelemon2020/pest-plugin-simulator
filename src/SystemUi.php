@@ -8,6 +8,8 @@ namespace NativePhp\Simulator;
  * A test that fails with a photo picker, a permission dialog, an alert, or a share sheet
  * open leaves it there for the next one. A test's first screen() closes whatever is left
  * before it opens the app.
+ *
+ * @internal
  */
 final class SystemUi
 {

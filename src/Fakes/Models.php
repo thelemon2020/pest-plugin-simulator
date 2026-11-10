@@ -22,6 +22,8 @@ use NativePhp\Simulator\Sessions;
  * one. A model keeps the name of the connection the app saved it through, so after the
  * read it is a model of the test's connection by that name, and a relation loaded later
  * is loaded there, as Model::is() expects.
+ *
+ * @internal
  */
 final class Models
 {

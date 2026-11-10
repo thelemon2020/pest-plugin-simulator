@@ -6,6 +6,7 @@ namespace NativePhp\Simulator;
 
 use NativePhp\Simulator\Exceptions\SimulatorException;
 
+/** @internal */
 final class Doctor
 {
     public function __construct(private readonly Machine $machine = new LocalMachine) {}

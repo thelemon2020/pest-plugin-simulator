@@ -12,6 +12,8 @@ use Psr\Http\Message\ResponseInterface;
 /**
  * A response a test gave Http::fake(), from Http::response(), as its parts (see Payload).
  * Http::failedConnection() is a closure, and travels as one.
+ *
+ * @internal
  */
 final class StubResponse
 {

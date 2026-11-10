@@ -17,6 +17,8 @@ use NativePhp\Simulator\Exceptions\SimulatorException;
  * the words come from: CoreServices' SchemeApproval.strings, one per language (53 on iOS 26.5).
  *
  * @phpstan-import-type OpenPrompt from Driver
+ *
+ * @internal
  */
 final class SchemeApproval
 {

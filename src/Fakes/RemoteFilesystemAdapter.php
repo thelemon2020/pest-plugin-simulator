@@ -18,6 +18,8 @@ use ReflectionClass;
  *
  * Its positive asserts read the record again until they pass or the timeout runs out. Its
  * negative ones read it once, after the app has taken every event it was sent.
+ *
+ * @internal
  */
 final class RemoteFilesystemAdapter extends FilesystemAdapter
 {

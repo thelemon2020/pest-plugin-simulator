@@ -6,6 +6,8 @@ namespace NativePhp\Simulator;
 
 /**
  * The APNs payload push() delivers.
+ *
+ * @internal
  */
 final class PushNotification
 {

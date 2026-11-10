@@ -18,6 +18,7 @@ final class MobileSuite
     /** @var list<string>|null */
     private ?array $android = null;
 
+    /** @internal */
     public function __construct(private readonly Closure $tests) {}
 
     /**

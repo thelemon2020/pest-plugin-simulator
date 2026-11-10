@@ -13,6 +13,7 @@ use NativePhp\Simulator\Doctor;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 use NativePhp\Simulator\Shutdown;
 
+/** @internal */
 final class SimulatorCommand extends Command
 {
     protected $signature = 'nativephp:simulator

@@ -9,6 +9,8 @@ use NativePhp\Simulator\Screen;
 /**
  * One call a recorded test makes on its screen, written out and run the same way, so the
  * line the test gets is the line that worked.
+ *
+ * @internal
  */
 final class Step
 {

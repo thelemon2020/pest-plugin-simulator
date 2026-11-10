@@ -14,6 +14,8 @@ use ReflectionProperty;
  *
  * Only loaded inside an app that has NativePHP, which is the only place the interface it
  * implements exists.
+ *
+ * @internal
  */
 final class TreeTap implements TreeObserver
 {

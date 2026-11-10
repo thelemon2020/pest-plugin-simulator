@@ -39,6 +39,8 @@ use ReflectionProperty;
  *
  * The app applies the file with Laravel's own fakes (see Mirror), and writes back what they
  * recorded (see Records).
+ *
+ * @internal
  */
 final class FakeSync
 {

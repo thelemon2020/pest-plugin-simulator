@@ -8,6 +8,8 @@ namespace NativePhp\Simulator;
  * A command Command::open() started and left running, to write to its stdin and read its
  * stdout while it runs. Every read waits on stream_select() up to a deadline, so a process
  * that stops answering cannot hang the test, and a signal still gets through.
+ *
+ * @internal
  */
 final class RunningCommand
 {

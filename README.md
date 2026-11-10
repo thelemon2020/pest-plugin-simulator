@@ -1,10 +1,5 @@
 # Pest Simulator
 
-> **Early days.** This package is under active, early development, and the API and behavior
-> may still shift. If you hit a bug or need a feature it doesn't cover yet, please
-> [open an issue](https://github.com/thelemon2020/pest-plugin-simulator/issues) or a pull
-> request — both are very welcome.
-
 A Pest plugin for NativePHP. Every test that calls `screen()` has to sit inside `mobile()`. That is what boots the simulator or emulator. `screen()` opens a route, then you tap, type, and check the device.
 
 Pest 4 and Pest 5 load the plugin for you. In a Laravel app, `php artisan nativephp:simulator` checks that the machine is ready.
@@ -35,8 +30,6 @@ If the test is already inside `mobile()` and a fresh install still says `screen(
 composer pest:dump-plugins
 ```
 
-The plugin is tested against NativePHP 4.7: the sample app and CI run it. Notes below say where 4.6 differs, but 4.6 is no longer run.
-
 Laravel finds `NativePhp\Simulator\Laravel\ServiceProvider` on its own. You do not add it to `bootstrap/providers.php`.
 
 The Composer package does not include a phone. Install the iOS Simulator, the Android Emulator, or both. A missing platform skips those tests. `php artisan nativephp:simulator` checks that the tools are there.
@@ -65,6 +58,30 @@ With no `->ios([...])` list, tests use the newest iPhone that Xcode has installe
 ```bash
 export ANDROID_HOME="$HOME/Library/Android/sdk"
 ```
+
+## Versions
+
+| | Supported | What runs it |
+|---|---|---|
+| PHP | 8.3 and newer | This package's tests on 8.3 and 8.4. The sample app on 8.5. |
+| Pest | 4 (PHPUnit 12) and 5 (PHPUnit 13) | This package's tests, on both. |
+| NativePHP | 4.7 | The sample app, on both devices. Notes below say where 4.6 differs, but 4.6 is no longer run. |
+| Laravel | 13 | The sample app. |
+| Android | API 36 | The Android device job, every pull request. |
+| iOS | 26 | The iOS device job, weekly, on GitHub's `macos-latest` runner. |
+
+From 1.0 the package follows [semantic versioning](https://semver.org). A breaking change to the API waits for a major version. The API is:
+
+- the functions: `mobile()`, `screen()`, `permissions()`, `keepDatabase()`, `allowAppErrors()`, `expectAppError()`, `appearance()`, `textSize()`, `location()`, `rotate()`, `fixStatusBar()`, `addPhoto()`, `enrollBiometrics()`, `deviceDatabase()`, `record()`, and `stopRecord()`;
+- the public methods on the `Screen` that `screen()` returns, and on the suite that `mobile()` returns;
+- `Configuration::configure()` and the keys it takes;
+- the exceptions in `NativePhp\Simulator\Exceptions`;
+- the command-line options, the `nativephp:simulator` command, the environment variables, and the inputs of the two GitHub Actions;
+- the `nativephp-pending` element an app shows to say it is still answering.
+
+Every other class is marked `@internal`. It can change in any release. So can the wording of failure messages, and how long the plugin waits between reads.
+
+[CHANGELOG.md](CHANGELOG.md) lists what changed in each release.
 
 ## Configure
 
@@ -289,7 +306,7 @@ iOS drops a touch while a sheet slides in, and the screen it reads already has t
 
 `assertSee('Saved')` reads the screen. `assertSee('Save', 'Name')` checks both labels on that one read, and waits until a single read contains every label. When the wait ends, the failure names the labels still missing from that read. Another `assertSee()` reads again. A `tap()` after it reads again too, and uses that coordinate.
 
-`assertNavTitle()` reads the navigation bar. `assertTabActive()` reads the selected tab. `assertNavigatedTo('/settings')` passes when that path is an accessibility id, or when the navigation title is the last part of the path (`Settings`). `assertEnabled()`, `assertDisabled()`, `assertChecked()`, and `assertNotChecked()` read those states from the same screen.
+`assertNavTitle()` reads the navigation bar. `assertTabActive()` reads the selected tab. `assertNavigatedTo('/settings')` passes when that path is an accessibility id, or when the navigation title is the last part of the path (`Settings`). `assertEnabled()`, `assertDisabled()`, `assertChecked()`, and `assertNotChecked()` read those states from the same screen. A `<native:chip>` is on or off by being selected, not checked, so check it with `assertSelected()` and `assertNotSelected()`.
 
 `assertTabActive()` and `tap()` on a tab bar button both read iOS's native `TabView` through the `AXBRIDGE` backend, which is what crosses process boundaries to see the tab bar's children — the older `AX` backend reads it as a childless group, with no per-tab `selected` flag and no tab buttons to find at all. **AXBRIDGE needs idb_companion 1.6.3 or newer** (`brew upgrade idb-companion`); `php artisan nativephp:simulator doctor` reports the installed build's date and says so if it's too old. Before 1.6.3, AXBRIDGE's guest transport was one-shot with a hardcoded 30s silence deadline per read, and a full tree read routinely exceeded it — every read hung to its own 60s ceiling and came back with nothing, even though the screen was rendering correctly underneath. 1.6.3 reworked the transport to stream and lifted that deadline.
 

@@ -17,6 +17,8 @@ use NativePhp\Simulator\Exceptions\SimulatorException;
  * @phpstan-import-type Element from Driver
  *
  * @phpstan-type Target array{target: string, nth: int|null, within: string|null}
+ *
+ * @internal
  */
 final class Selector
 {

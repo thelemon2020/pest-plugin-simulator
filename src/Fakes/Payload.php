@@ -28,6 +28,8 @@ use Throwable;
  *
  * A response from Http::response() is a promise of a PSR-7 response, whose body is a stream
  * that does not serialize, so it travels as its status, headers, and body instead.
+ *
+ * @internal
  */
 final class Payload
 {

@@ -8,6 +8,8 @@ use NativePhp\Simulator\Exceptions\SimulatorException;
 
 /**
  * A file addPhoto() puts in the device's photo library.
+ *
+ * @internal
  */
 final class Photo
 {

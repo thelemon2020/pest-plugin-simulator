@@ -54,6 +54,8 @@ use Throwable;
  * TreeTap and docs/spikes/laravel-parity.md). Looking costs one stat when there is no
  * file. The app is booted once and kept, so a fake stays in place across requests, and the
  * real services are put back when the file goes.
+ *
+ * @internal
  */
 final class Mirror
 {

@@ -23,6 +23,8 @@ use Throwable;
  * @phpstan-type Column array{name: string, type: string, nullable: bool, default: string|null}
  * @phpstan-type ModelInfo array{class: class-string<Model>, name: string, table: string, columns: list<Column>, factory: bool, fillable: bool, softDeletes: bool}
  * @phpstan-type Values array<string, int|float|string|null>
+ *
+ * @internal
  */
 final class Models
 {

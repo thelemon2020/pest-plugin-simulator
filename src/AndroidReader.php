@@ -24,6 +24,8 @@ use Closure;
  * Only one process at a time can hold the device's accessibility connection, so the reader
  * is stopped before AndroidDriver falls back to `uiautomator dump`. After three failures in
  * a row it is not started again.
+ *
+ * @internal
  */
 final class AndroidReader
 {

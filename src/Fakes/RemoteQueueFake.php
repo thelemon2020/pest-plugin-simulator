@@ -10,6 +10,8 @@ use Illuminate\Support\Testing\Fakes\QueueFake;
 /**
  * Laravel's QueueFake, whose asserts check the jobs the app pushed too (see
  * PullsFromTheApp).
+ *
+ * @internal
  */
 final class RemoteQueueFake extends QueueFake
 {

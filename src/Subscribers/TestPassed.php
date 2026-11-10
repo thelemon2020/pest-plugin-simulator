@@ -11,6 +11,8 @@ use PHPUnit\Event\Test\PassedSubscriber;
 /**
  * PHPUnit says a test passed only after its tearDown, so an afterEach() that fails still
  * keeps the clip record_failures made.
+ *
+ * @internal
  */
 final class TestPassed implements PassedSubscriber
 {

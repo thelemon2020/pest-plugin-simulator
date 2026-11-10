@@ -12,6 +12,8 @@ use Throwable;
  * The appearance, text size, location, status bar, and orientation a test asks the device for. Like
  * Permissions, each test is compared with what the device holds: a setting an earlier test
  * changed and this one does not ask for is put back, and one both ask for is left alone.
+ *
+ * @internal
  */
 final class DeviceState
 {

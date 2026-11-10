@@ -10,6 +10,7 @@ use Pest\Plugins\Parallel;
 use PHPUnit\Event\TestSuite\Loaded;
 use PHPUnit\Event\TestSuite\LoadedSubscriber;
 
+/** @internal */
 final class ParallelLanes implements LoadedSubscriber
 {
     public const string ENV = 'NATIVEPHP_SIMULATOR_LANE';

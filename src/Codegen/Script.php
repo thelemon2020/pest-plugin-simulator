@@ -7,6 +7,8 @@ namespace NativePhp\Simulator\Codegen;
 /**
  * The test a codegen session has recorded so far: the screen it opened and each step after,
  * with a comment where a step led to a screen with another title.
+ *
+ * @internal
  */
 final class Script
 {

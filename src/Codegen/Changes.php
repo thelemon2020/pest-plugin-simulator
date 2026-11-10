@@ -15,6 +15,8 @@ use PDOException;
  * @phpstan-type Row array<string, int|float|string|null>
  * @phpstan-type Snapshot array<string, array<int, Row>>
  * @phpstan-type Change array{table: string, rowid: int, kind: 'added'|'changed', row: Row, changed: list<string>, suggested: list<string>, count: int}
+ *
+ * @internal
  */
 final class Changes
 {

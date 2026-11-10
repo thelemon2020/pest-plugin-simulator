@@ -11,6 +11,8 @@ use Throwable;
 /**
  * The page a recording is made from, served on this machine only. One request at a time,
  * since every one of them talks to the same device.
+ *
+ * @internal
  */
 final class Server
 {
