@@ -14,6 +14,8 @@ use Pest\TestSuite;
  * FailureCapture).
  *
  * A test can open more than one screen, so the steps belong to the test, not a Screen.
+ *
+ * @internal
  */
 final class Trace
 {

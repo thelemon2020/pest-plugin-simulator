@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace NativePhp\Simulator;
 
+/** @internal */
 class Socket
 {
     public function reachable(int $port): bool

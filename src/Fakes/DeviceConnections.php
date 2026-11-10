@@ -19,6 +19,8 @@ use PDO;
  * is then a model of the test's default connection, as one the test loaded itself is:
  * Model::is() matches them, and fresh() or a relation loaded later reads the test's
  * database.
+ *
+ * @internal
  */
 final class DeviceConnections implements ConnectionResolverInterface
 {

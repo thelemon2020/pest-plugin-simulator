@@ -10,6 +10,8 @@ use Closure;
  * Putting a setting back means the device's own value, which need not be the platform's
  * default: a Simulator someone keeps in dark mode stays dark. So a driver reads the value
  * before its first change, and writes it back when DeviceState lets the setting go.
+ *
+ * @internal
  */
 trait RestoresSettings
 {

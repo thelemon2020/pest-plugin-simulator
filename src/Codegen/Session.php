@@ -28,6 +28,8 @@ use Throwable;
  * @phpstan-import-type Snapshot from Changes
  * @phpstan-import-type Change from Changes
  * @phpstan-import-type ModelInfo from Models
+ *
+ * @internal
  */
 final class Session
 {

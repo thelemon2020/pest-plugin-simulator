@@ -10,6 +10,8 @@ use Illuminate\Support\Testing\Fakes\MailFake;
 /**
  * Laravel's MailFake, whose asserts check the mail the app sent too (see PullsFromTheApp).
  * FakeSync puts it in place of the MailFake that Mail::fake() made, at the next step.
+ *
+ * @internal
  */
 final class RemoteMailFake extends MailFake
 {

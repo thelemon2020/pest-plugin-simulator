@@ -8,6 +8,8 @@ use NativePhp\Simulator\Exceptions\SimulatorException;
 
 /**
  * @phpstan-import-type Element from Driver
+ *
+ * @internal
  */
 final class AndroidDriver implements Driver
 {

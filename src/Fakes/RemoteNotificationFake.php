@@ -10,6 +10,8 @@ use Illuminate\Support\Testing\Fakes\NotificationFake;
 /**
  * Laravel's NotificationFake, whose asserts check the notifications the app sent too (see
  * PullsFromTheApp).
+ *
+ * @internal
  */
 final class RemoteNotificationFake extends NotificationFake
 {

@@ -7,6 +7,7 @@ namespace NativePhp\Simulator;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 use PDO;
 
+/** @internal */
 final class SqliteSnapshot
 {
     public static function write(PDO $source, string $destination): void

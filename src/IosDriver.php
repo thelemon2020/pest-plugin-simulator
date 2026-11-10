@@ -12,6 +12,8 @@ use NativePhp\Simulator\Grpc\Protobuf;
 
 /**
  * @phpstan-import-type OpenPrompt from Driver
+ *
+ * @internal
  */
 final class IosDriver implements Driver
 {

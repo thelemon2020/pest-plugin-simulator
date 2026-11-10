@@ -21,6 +21,8 @@ use Throwable;
  *
  * A file names the test whose fakes recorded it. One left by an earlier test, or by a run
  * that stopped part way, reads as nothing.
+ *
+ * @internal
  */
 final class Records
 {

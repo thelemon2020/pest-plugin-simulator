@@ -14,6 +14,8 @@ use NativePhp\Simulator\Exceptions\SimulatorException;
  *
  * @phpstan-import-type Element from Driver
  * @phpstan-import-type Target from Selector
+ *
+ * @internal
  */
 final class Verb
 {

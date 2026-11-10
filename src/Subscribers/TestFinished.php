@@ -8,6 +8,7 @@ use NativePhp\Simulator\Recording;
 use PHPUnit\Event\Test\Finished;
 use PHPUnit\Event\Test\FinishedSubscriber;
 
+/** @internal */
 final class TestFinished implements FinishedSubscriber
 {
     public function notify(Finished $event): void

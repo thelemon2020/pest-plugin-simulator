@@ -18,6 +18,8 @@ use ReflectionProperty;
  * positive asserts call eventually(), which reads the record again until the assert passes
  * or the timeout runs out. Its negative asserts call settled(), which reads it once, after
  * the app has taken every event it was sent.
+ *
+ * @internal
  */
 trait PullsFromTheApp
 {

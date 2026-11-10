@@ -6,6 +6,7 @@ namespace NativePhp\Simulator\Grpc;
 
 use NativePhp\Simulator\Exceptions\SimulatorException;
 
+/** @internal */
 final class Protobuf
 {
     public static function varint(int $value): string

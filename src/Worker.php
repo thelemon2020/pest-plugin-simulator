@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace NativePhp\Simulator;
 
+/** @internal */
 final class Worker
 {
     public static function index(): int

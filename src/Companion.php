@@ -6,6 +6,7 @@ namespace NativePhp\Simulator;
 
 use NativePhp\Simulator\Exceptions\SimulatorException;
 
+/** @internal */
 final class Companion
 {
     public static function path(): ?string

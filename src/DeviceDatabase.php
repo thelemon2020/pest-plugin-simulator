@@ -30,6 +30,8 @@ use UnitEnum;
  * such as `meta->gift`, and [column, operator, value] conditions under a numeric key.
  *
  * @phpstan-type Condition array{column: string, path: ?string, operator: string, value: int|float|string|null}
+ *
+ * @internal
  */
 final class DeviceDatabase
 {

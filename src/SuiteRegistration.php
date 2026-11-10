@@ -6,6 +6,7 @@ namespace NativePhp\Simulator;
 
 use Closure;
 
+/** @internal */
 final class SuiteRegistration
 {
     /** @var list<Device>|null */

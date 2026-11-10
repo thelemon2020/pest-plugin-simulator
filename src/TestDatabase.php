@@ -8,6 +8,7 @@ use Closure;
 use Illuminate\Support\Facades\DB;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 
+/** @internal */
 final class TestDatabase
 {
     private static bool $published = false;

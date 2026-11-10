@@ -11,6 +11,8 @@ use Illuminate\Support\Testing\Fakes\BusFake;
 /**
  * Laravel's BusFake, whose asserts check the jobs and batches the app dispatched too (see
  * PullsFromTheApp).
+ *
+ * @internal
  */
 final class RemoteBusFake extends BusFake
 {

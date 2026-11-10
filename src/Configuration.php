@@ -76,6 +76,7 @@ final class Configuration
         }
     }
 
+    /** @internal */
     public static function reset(): void
     {
         self::$scheme = null;
@@ -90,6 +91,7 @@ final class Configuration
         self::$hostConfig = [];
     }
 
+    /** @internal */
     public static function resolve(): self
     {
         return new self(
@@ -123,6 +125,7 @@ final class Configuration
         private readonly array $resolvedHostConfig = [],
     ) {}
 
+    /** @internal */
     public function scheme(): string
     {
         return $this->resolvedScheme ?? throw new SimulatorException(
@@ -130,16 +133,19 @@ final class Configuration
         );
     }
 
+    /** @internal */
     public function deeplinkScheme(): ?string
     {
         return $this->resolvedScheme;
     }
 
+    /** @internal */
     public function deeplinkHost(): ?string
     {
         return $this->resolvedHost;
     }
 
+    /** @internal */
     public function bundleId(): string
     {
         return $this->resolvedBundleId ?? throw new SimulatorException(
@@ -147,16 +153,19 @@ final class Configuration
         );
     }
 
+    /** @internal */
     public function appId(): ?string
     {
         return $this->resolvedBundleId;
     }
 
+    /** @internal */
     public function timeout(): float
     {
         return $this->resolvedTimeout;
     }
 
+    /** @internal */
     public function appDirectory(): string
     {
         return $this->resolvedAppDirectory ?? throw new SimulatorException(
@@ -166,6 +175,8 @@ final class Configuration
 
     /**
      * @return list<string>|null
+     *
+     * @internal
      */
     public function permissions(): ?array
     {
@@ -175,6 +186,8 @@ final class Configuration
     /**
      * Record every test and keep the clip only when it fails. `--record-failures` turns
      * this on for one run.
+     *
+     * @internal
      */
     public function recordFailures(): bool
     {
@@ -184,6 +197,8 @@ final class Configuration
     /**
      * Whether each test copies the host's test database into the app before its first
      * screen(). keepDatabase() turns it off for one test.
+     *
+     * @internal
      */
     public function copiesDatabase(): bool
     {
@@ -193,6 +208,8 @@ final class Configuration
     /**
      * Whether an error the app logs fails the test that was driving it (see AppLog).
      * allowAppErrors() turns it off for one test.
+     *
+     * @internal
      */
     public function checksAppErrors(): bool
     {
@@ -205,12 +222,15 @@ final class Configuration
      * among them: the app has its own database, copied in, and its own log, read back.
      *
      * @return list<string>
+     *
+     * @internal
      */
     public function hostConfig(): array
     {
         return ['database', 'logging', ...$this->resolvedHostConfig];
     }
 
+    /** @internal */
     public function urlFor(string $path): string
     {
         if (str_contains($path, '://')) {

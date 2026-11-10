@@ -10,6 +10,8 @@ use Illuminate\Container\Container;
  * Whether the tests booted a Laravel app. Laravel is not a dependency of the plugin, and
  * its helpers load with Composer before any app is booted, so a function or a class being
  * there says nothing.
+ *
+ * @internal
  */
 final class Laravel
 {

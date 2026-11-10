@@ -17,6 +17,8 @@ use Throwable;
  * What a failed test leaves in simulator-failures/: the trace, the tree, a screenshot, and
  * the app's logs. A failed assertion saves them from Screen. A test that ends with an error
  * instead, such as a device call that timed out, saves them on its way out.
+ *
+ * @internal
  */
 final class FailureCapture
 {

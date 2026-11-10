@@ -11,6 +11,8 @@ use PHPUnit\Framework\TestCase;
 /**
  * The running test's name as a file name: a recording and a screenshot baseline are named
  * after the test they belong to.
+ *
+ * @internal
  */
 final class TestLabel
 {

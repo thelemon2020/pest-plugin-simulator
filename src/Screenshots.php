@@ -9,6 +9,8 @@ use NativePhp\Simulator\Exceptions\SimulatorException;
 
 /**
  * Baseline screenshots, and how far a new one is from its baseline.
+ *
+ * @internal
  */
 final class Screenshots
 {

@@ -13,6 +13,8 @@ use NativePhp\Simulator\VerboseLog;
  * Speaks to idb_companion over HTTP/2 through PHP's own curl extension, on one handle per
  * Client, so every call after the first rides the connection the first one opened instead
  * of starting a process and a TCP connection of its own.
+ *
+ * @internal
  */
 class Client
 {

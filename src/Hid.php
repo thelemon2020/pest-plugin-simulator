@@ -7,6 +7,7 @@ namespace NativePhp\Simulator;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 use NativePhp\Simulator\Grpc\Protobuf;
 
+/** @internal */
 final class Hid
 {
     /** @var array<int|string, array{0: int, 1: bool}> PHP stores the digits as int keys */

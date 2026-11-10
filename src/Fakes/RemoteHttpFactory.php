@@ -21,6 +21,8 @@ use ReflectionProperty;
  * Http::preventStrayRequests(), and the asserts are Laravel's own, unchanged.
  *
  * @phpstan-import-type Pair from HttpRecords
+ *
+ * @internal
  */
 final class RemoteHttpFactory extends Factory
 {

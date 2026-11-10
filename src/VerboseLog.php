@@ -12,6 +12,8 @@ namespace NativePhp\Simulator;
  * crashes, so a parallel run would show nothing. Every process appends to the same file,
  * and each line names its worker, so lines from a slow worker sit next to whatever the
  * others were doing at the time.
+ *
+ * @internal
  */
 final class VerboseLog
 {

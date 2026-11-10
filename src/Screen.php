@@ -38,6 +38,8 @@ final class Screen
 
     /**
      * @param  float  $firstLaunchSeconds  how long the app has to show its first screen, when this screen launched it for the first time since it was installed
+     *
+     * @internal
      */
     public function __construct(
         private readonly Driver $driver,

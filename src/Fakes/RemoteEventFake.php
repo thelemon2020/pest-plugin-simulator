@@ -11,6 +11,8 @@ use Illuminate\Support\Testing\Fakes\EventFake;
  * Laravel's EventFake, whose asserts check the events the app dispatched too (see
  * PullsFromTheApp). The app's own fake always lets NativePHP's `Native\` events through,
  * so they are never in its record.
+ *
+ * @internal
  */
 final class RemoteEventFake extends EventFake
 {

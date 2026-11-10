@@ -16,6 +16,8 @@ namespace NativePhp\Simulator;
  * @phpstan-type Element array{label: string, role: ?string, id: ?string, center: ?array{0: float|int, 1: float|int}, value?: ?string, enabled?: bool, selected?: bool, checked?: bool, chrome?: ?string, webview?: bool, carousel?: ?array{0: float, 1: float, 2: float, 3: float}, secure?: bool, frame?: ?array{0: float, 1: float, 2: float, 3: float}, range?: ?array{0: float, 1: float}, checkable?: bool}
  * @phpstan-type Tappable array{label: string, role: ?string, id: ?string, center: array{0: float|int, 1: float|int}, value?: ?string, enabled?: bool, selected?: bool, checked?: bool, chrome?: ?string, webview?: bool, carousel?: ?array{0: float, 1: float, 2: float, 3: float}, secure?: bool, frame?: ?array{0: float, 1: float, 2: float, 3: float}, range?: ?array{0: float, 1: float}, checkable?: bool}
  * @phpstan-type OpenPrompt array{titles: list<string>, open: string}
+ *
+ * @internal
  */
 interface Driver
 {

@@ -11,6 +11,8 @@ use ReflectionProperty;
  * A ResponseSequence from Http::sequence() or Http::fakeSequence(), as its responses and
  * what it does once they run out (see Payload). It is packed when the fakes file is
  * written, so responses the test pushed after fakeSequence() returned are in it.
+ *
+ * @internal
  */
 final class StubSequence
 {

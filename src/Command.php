@@ -8,6 +8,7 @@ use Closure;
 use NativePhp\Simulator\Exceptions\CommandTimedOut;
 use NativePhp\Simulator\Exceptions\SimulatorException;
 
+/** @internal */
 class Command
 {
     /** Ample for a query, a tap, or a file copy. It only stops a call that is never coming back. */

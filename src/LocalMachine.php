@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace NativePhp\Simulator;
 
+/** @internal */
 final class LocalMachine implements Machine
 {
     public function xcrun(): ?string

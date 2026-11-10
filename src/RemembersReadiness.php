@@ -11,6 +11,8 @@ use NativePhp\Simulator\Exceptions\SimulatorException;
  * Off the parallel path, a driver skips its boot path once it has brought its shared device
  * up, until another driver boots a device. This is what catches the device going away
  * anyway, crashed or shut down from outside, between one screen() and the next.
+ *
+ * @internal
  */
 trait RemembersReadiness
 {

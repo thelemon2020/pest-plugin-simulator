@@ -28,6 +28,8 @@ use Throwable;
  *     #0 /…/vendor/laravel/framework/src/Illuminate/Container/BoundMethod.php(36): App\NativeComponents\Checkout->pay()
  *
  * @phpstan-type Entry array{level: string, header: string, message: string, class: ?string, where: ?string, frames: list<string>, file?: string}
+ *
+ * @internal
  */
 final class AppLog
 {

@@ -11,6 +11,7 @@ use Pest\Factories\TestCaseMethodFactory;
 use PHPUnit\Framework\Assert;
 use PHPUnit\Framework\Attributes\Group;
 
+/** @internal */
 final class MobileTestFilter implements TestCaseMethodFilter
 {
     public function accept(TestCaseMethodFactory $method): bool

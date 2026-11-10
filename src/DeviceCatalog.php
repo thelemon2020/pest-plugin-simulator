@@ -6,6 +6,7 @@ namespace NativePhp\Simulator;
 
 use NativePhp\Simulator\Exceptions\SimulatorException;
 
+/** @internal */
 final class DeviceCatalog
 {
     private static ?self $instance = null;

@@ -12,6 +12,8 @@ use NativePhp\Simulator\Exceptions\NoMatch;
  * @phpstan-import-type Element from Driver
  * @phpstan-import-type Tappable from Driver
  * @phpstan-import-type OpenPrompt from Driver
+ *
+ * @internal
  */
 final class ElementFinder
 {

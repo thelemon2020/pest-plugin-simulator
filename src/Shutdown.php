@@ -7,6 +7,7 @@ namespace NativePhp\Simulator;
 use Closure;
 use Throwable;
 
+/** @internal */
 final class Shutdown
 {
     /** @var list<Closure(): void> */

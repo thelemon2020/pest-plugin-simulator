@@ -6,6 +6,7 @@ namespace NativePhp\Simulator;
 
 use NativePhp\Simulator\Exceptions\SimulatorException;
 
+/** @internal */
 final class Arguments
 {
     private const PLATFORMS = 'NATIVEPHP_SIMULATOR_PLATFORMS';

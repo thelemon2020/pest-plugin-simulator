@@ -11,6 +11,7 @@ use Pest\Plugins\Parallel;
 use Pest\TestSuite;
 use PHPUnit\Event\Facade as EventFacade;
 
+/** @internal */
 final class Plugin implements Bootable, HandlesArguments, Terminable
 {
     private static bool $booted = false;
