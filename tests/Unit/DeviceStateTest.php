@@ -396,6 +396,22 @@ it('puts back portrait when the ios simulator cannot say how it was turned', fun
     expect($client->calls[2])->toBe(['unary', 'set_orientation', [Protobuf::varintField(1, 0)]]);
 });
 
+it('still turns the ios simulator when it cannot read how it was turned', function () {
+    $client = new RecordingClient;
+    $client->failing = ['get_orientation'];
+    $driver = deviceStateIosDriver(new RecordingCommand);
+    (new ReflectionProperty(IosDriver::class, 'client'))->setValue($driver, $client);
+
+    $driver->orientation('landscape');
+    $driver->orientation(null);
+
+    expect($client->calls)->toBe([
+        ['unary', 'get_orientation', ['']],
+        ['unary', 'set_orientation', [Protobuf::varintField(1, 2)]],
+        ['unary', 'set_orientation', [Protobuf::varintField(1, 0)]],
+    ]);
+});
+
 it('presses home on ios and launches the running app again', function () {
     $command = new RecordingCommand;
     $client = new RecordingClient;
