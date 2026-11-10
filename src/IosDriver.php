@@ -1184,7 +1184,18 @@ final class IosDriver implements Driver
             'orientation',
             $turn,
             function (): string {
-                $current = Protobuf::intField($this->client()->unary('get_orientation', ''), 1);
+                // Some Simulators cannot say how they are turned. On GitHub's macos-26 runner
+                // get_orientation fails with "CoreDevice capability not supported", and on an
+                // iOS 27.2 Simulator that has just booted it timed out waiting for CoreDevice.
+                // set_orientation worked on both. A phone Simulator boots in portrait, so that
+                // is what is put back.
+                try {
+                    $current = Protobuf::intField($this->client()->unary('get_orientation', ''), 1);
+                } catch (CompanionUnresponsive $unresponsive) {
+                    throw $unresponsive;
+                } catch (SimulatorException) {
+                    return '0';
+                }
 
                 return (string) ($current >= 1 && $current <= 4 ? $current - 1 : 0);
             },
