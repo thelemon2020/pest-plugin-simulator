@@ -1030,16 +1030,24 @@ final class AccessibilityTree
         }
 
         $role = strtolower((string) ($node['type'] ?? $node['role'] ?? $node['AXRole'] ?? $node['class'] ?? ''));
+        $bar = null;
 
         if (str_contains($role, 'navigationbar') || str_contains($role, 'toolbar') || str_contains($role, 'actionbar')) {
-            return 'navigation';
+            $bar = 'navigation';
+        } elseif (str_contains($role, 'tabbar') || str_contains($role, 'bottomnavigation') || str_contains($role, 'tabwidget')) {
+            $bar = 'tab';
         }
 
-        if (str_contains($role, 'tabbar') || str_contains($role, 'bottomnavigation') || str_contains($role, 'tabwidget')) {
-            return 'tab';
+        if ($bar === null) {
+            return null;
         }
 
-        return null;
+        // A bar is a strip across the screen. An Xcode 27 Simulator also reports the
+        // floating tab bar's host as a Toolbar the size of the screen; read as a bar, its
+        // centre put the bottom edge of the visible band at the middle of the screen.
+        $frame = self::frame($node);
+
+        return $frame !== null && $frame[3] > $frame[2] ? null : $bar;
     }
 
     /**

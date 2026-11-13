@@ -432,6 +432,20 @@ it('taps a chip in a sheet over a tab bar where it is', function () {
         ->and(array_map(fn (float $axis): float => round($axis, 1), $driver->taps[0]))->toBe([59.2, 487.0]);
 });
 
+it('taps below the middle of a screen whose floating bar host is a full-screen Toolbar', function () {
+    // An Xcode 27 Simulator puts the floating tab bar's host in the tree as a Toolbar the
+    // size of the screen. Read as a bar, its centre sat on the middle of the screen, and
+    // everything under it was "below the screen" for 8 scrolls that moved nothing.
+    $json = (string) file_get_contents(dirname(__DIR__).'/Fixtures/ios-full-screen-toolbar-host.json');
+    $driver = new FakeDriver([AccessibilityTree::summarize($json)]);
+    $driver->viewport = AccessibilityTree::viewport($json);
+
+    (new Screen($driver, timeoutSeconds: 0))->tap('Next →');
+
+    expect($driver->swipes)->toBe([])
+        ->and(array_map(fn (float $axis): float => round($axis, 1), $driver->taps[0]))->toBe([347.3, 477.0]);
+});
+
 it('waits for a sheet that just opened to finish sliding in before tapping into it', function () {
     // iOS drops a tap while a sheet presents, and the tree already has the sheet where it
     // will stop, so only the time since the sheet first showed up says when it is safe.

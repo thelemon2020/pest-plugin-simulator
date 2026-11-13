@@ -205,12 +205,16 @@ it('reads an iOS switch value and the tab lens', function () {
 
 it('marks navigation chrome and the screen size', function () {
     $json = (string) json_encode([
-        'role' => 'NavigationBar',
-        'AXLabel' => 'Notes',
+        'role' => 'Application',
         'AXFrame' => '{{0, 0}, {390, 844}}',
-        'children' => [
-            ['AXLabel' => 'Notes', 'role' => 'StaticText', 'AXFrame' => '{{120, 50}, {150, 22}}'],
-        ],
+        'children' => [[
+            'role' => 'NavigationBar',
+            'AXLabel' => 'Notes',
+            'AXFrame' => '{{0, 47}, {390, 44}}',
+            'children' => [
+                ['AXLabel' => 'Notes', 'role' => 'StaticText', 'AXFrame' => '{{120, 58}, {150, 22}}'],
+            ],
+        ]],
     ]);
 
     $rows = AccessibilityTree::summarize($json);
@@ -218,6 +222,18 @@ it('marks navigation chrome and the screen size', function () {
     expect($rows[0]['chrome'])->toBe('navigation')
         ->and($rows[1]['chrome'])->toBe('navigation')
         ->and(AccessibilityTree::viewport($json))->toBe([390.0, 844.0]);
+});
+
+it('does not take a Toolbar the size of the screen for a bar', function () {
+    // An Xcode 27 Simulator's floating tab bar host. The real TabBar beside it still counts.
+    $rows = AccessibilityTree::summarize((string) file_get_contents(dirname(__DIR__).'/Fixtures/ios-full-screen-toolbar-host.json'));
+    $chrome = fn (string $role): array => array_values(array_unique(array_map(
+        fn (array $row): ?string => $row['chrome'],
+        array_filter($rows, fn (array $row): bool => $row['role'] === $role),
+    )));
+
+    expect($chrome('Toolbar'))->toBe([null])
+        ->and($chrome('TabBar'))->toBe(['tab']);
 });
 
 it('keeps the display when a scrolled page is taller than the glass', function () {
