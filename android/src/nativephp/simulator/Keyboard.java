@@ -1,6 +1,10 @@
 package nativephp.simulator;
 
 import android.app.UiAutomation;
+import android.graphics.Rect;
+import android.graphics.Region;
+import android.graphics.RegionIterator;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.view.InputDevice;
@@ -395,6 +399,7 @@ final class Keyboard {
      * still says it is shown, so a hide() soon after the last Back would press Back again,
      * and that Back leaves the screen. So for a second after its Back, hide() waits for the
      * window to go, and presses Back only when it stays: typing opened the keyboard again.
+     * A keyboard that covers nothing (see keyboardUp()) counts as hidden, so it gets no Back.
      * False when Back could not be pressed.
      */
     boolean hide() {
@@ -412,14 +417,65 @@ final class Keyboard {
         return pressed;
     }
 
+    /**
+     * Whether a software keyboard covers part of the screen: a piece of an input-method
+     * window at least half the screen wide and an eighth of it high.
+     *
+     * Gboard on an emulator with a hardware keyboard (the default AVD) shows only a small
+     * floating toolbar. Its window still fills the screen, and `dumpsys input_method` still
+     * says it is shown, but all it draws, and all it takes touches on, is the toolbar and
+     * the navigation handle's strip. It does not take Back either: a Back for it went to the
+     * app and closed the bottom sheet the field was in. So the window's region counts, where
+     * Android reports one (API 33+), not its bounds.
+     */
     private boolean keyboardUp() {
-        for (AccessibilityWindowInfo window : automation.getWindows()) {
-            if (window.getType() == AccessibilityWindowInfo.TYPE_INPUT_METHOD) {
+        // Resources.getSystem() reports a 0x0 display to this app_process, so the screen is
+        // measured from the windows on it.
+        List<AccessibilityWindowInfo> windows = automation.getWindows();
+        Rect bounds = new Rect();
+        int screenWidth = 0;
+        int screenHeight = 0;
+
+        for (AccessibilityWindowInfo window : windows) {
+            window.getBoundsInScreen(bounds);
+            screenWidth = Math.max(screenWidth, bounds.right);
+            screenHeight = Math.max(screenHeight, bounds.bottom);
+        }
+
+        for (AccessibilityWindowInfo window : windows) {
+            if (window.getType() == AccessibilityWindowInfo.TYPE_INPUT_METHOD
+                && covers(window, screenWidth, screenHeight)) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    private static boolean covers(AccessibilityWindowInfo window, int screenWidth, int screenHeight) {
+        Rect rect = new Rect();
+
+        if (Build.VERSION.SDK_INT < 33) {
+            window.getBoundsInScreen(rect);
+
+            return large(rect, screenWidth, screenHeight);
+        }
+
+        Region region = new Region();
+        window.getRegionInScreen(region);
+        RegionIterator pieces = new RegionIterator(region);
+
+        while (pieces.next(rect)) {
+            if (large(rect, screenWidth, screenHeight)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static boolean large(Rect rect, int screenWidth, int screenHeight) {
+        return rect.width() * 2 >= screenWidth && rect.height() * 8 >= screenHeight;
     }
 
     private boolean send(int action, int keyCode, int meta) {
